@@ -1,0 +1,57 @@
+{
+  "name": "@geastack/geatsc-plugin-gea",
+  "version": "0.1.6",
+  "description": "Gea IR backend plugin for geatsc.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/core.git",
+    "directory": "packages/geatsc-plugin-gea"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./host-shims": {
+      "types": "./dist/host-shims.d.ts",
+      "import": "./dist/host-shims.js",
+      "default": "./dist/host-shims.js"
+    },
+    "./cpp-ir": {
+      "types": "./dist/cpp-ir.d.ts",
+      "import": "./dist/cpp-ir.js",
+      "default": "./dist/cpp-ir.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "architecture": "node scripts/architecture/ratchet-gea-rendered-cpp-source.mjs",
+    "prebuild": "npm run architecture",
+    "prepublishOnly": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "pretypecheck": "npm run architecture",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.9.3"
+  }
+}

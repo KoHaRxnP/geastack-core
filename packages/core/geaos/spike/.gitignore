@@ -1,0 +1,4 @@
+# Throwaway build artifacts from the Phase 2 loadable-app spike.
+*.o
+*.elf
+*.bin

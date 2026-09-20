@@ -1,0 +1,46 @@
+{
+  "name": "@geastack/elements",
+  "version": "0.1.2",
+  "description": "Non-core GeaStack JSX elements and native element backends.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/core.git",
+    "directory": "packages/elements"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "types": "./components/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./components/index.d.ts",
+      "default": "./components/index.ts"
+    },
+    "./components": {
+      "types": "./components/index.d.ts",
+      "default": "./components/index.ts"
+    },
+    "./components/CameraView": {
+      "types": "./components/CameraView.d.ts",
+      "default": "./components/CameraView.tsx"
+    },
+    "./components/VirtualList": {
+      "types": "./components/VirtualList.d.ts",
+      "default": "./components/VirtualList.tsx"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "components",
+    "ui"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@geastack/core": "^0.1.23"
+  }
+}

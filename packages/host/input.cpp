@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "input.h"
+
+#include <atomic>
+
+namespace gea::framework::input {
+
+namespace {
+
+// One-shot "back button pressed" flag. Atomic so the platform button task
+// (priority 10 on a FreeRTOS core) can race-set without locks against the
+// app's rAF tick (priority 23 on a different core).
+std::atomic_bool g_back_pending{false};
+std::atomic_int g_rotary_delta{0};
+
+// Pending hardware key presses. A tiny ring keeps fast double-presses from
+// coalescing (the single consumer is the frame loop, once per frame); a
+// burst deeper than the ring just overwrites the oldest press.
+constexpr unsigned kKeyQueueSize = 8;
+std::atomic_int g_key_queue[kKeyQueueSize]{};
+std::atomic<unsigned> g_key_write{0};
+std::atomic<unsigned> g_key_read{0};
+
+}  // namespace
+
+void pressBackButton()
+{
+	g_back_pending.store(true, std::memory_order_release);
+}
+
+bool consumeBackButton()
+{
+	return g_back_pending.exchange(false, std::memory_order_acq_rel);
+}
+
+void queueRotaryDelta(int delta)
+{
+	if (delta == 0) return;
+	g_rotary_delta.fetch_add(delta, std::memory_order_acq_rel);
+}
+
+int consumeRotaryDelta()
+{
+	return g_rotary_delta.exchange(0, std::memory_order_acq_rel);
+}
+
+void queueKeyDown(int keyCode)
+{
+	if (keyCode == 0) return;
+	const unsigned slot = g_key_write.fetch_add(1, std::memory_order_acq_rel) % kKeyQueueSize;
+	g_key_queue[slot].store(keyCode, std::memory_order_release);
+}
+
+int consumeKeyDown()
+{
+	const unsigned write = g_key_write.load(std::memory_order_acquire);
+	unsigned read = g_key_read.load(std::memory_order_acquire);
+	while (read != write) {
+		const unsigned slot = read % kKeyQueueSize;
+		const int code = g_key_queue[slot].exchange(0, std::memory_order_acq_rel);
+		g_key_read.store(read + 1, std::memory_order_release);
+		if (code != 0) return code;
+		read = g_key_read.load(std::memory_order_acquire);
+	}
+	return 0;
+}
+
+}  // namespace gea::framework::input

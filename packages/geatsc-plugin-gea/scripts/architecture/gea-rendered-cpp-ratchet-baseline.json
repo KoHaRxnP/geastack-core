@@ -1,0 +1,3163 @@
+{
+  "schemaVersion": 1,
+  "scannerVersion": "1.0.0",
+  "policy": "current rows must be a subset; removals are accepted; additions require architectural removal instead of baseline growth",
+  "hardCeilings": {
+    "terminalHooks": 1,
+    "renderedSourceReads": 29,
+    "namedActiveRoots": 19,
+    "sourceRewriterExportedRoots": 16,
+    "dormantInventoryRoots": 17,
+    "dormantInventoryClosureFunctions": 84,
+    "dormantOnlyFunctions": 72
+  },
+  "rows": [
+    {
+      "file": "src/cpp-canvas-colors.ts",
+      "owner": "src/cpp-canvas-colors.ts#foldCanvasColorLiteralsInCpp",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c5bfb800b19509038efe8223afe70cad5bed53ee83c64e8702cad4d390ccb61e",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-canvas-colors.ts|src/cpp-canvas-colors.ts#foldCanvasColorLiteralsInCpp|text-semantic-extraction|active-hook|c5bfb800b19509038efe8223afe70cad5bed53ee83c64e8702cad4d390ccb61e|1"
+    },
+    {
+      "file": "src/cpp-canvas-colors.ts",
+      "owner": "src/cpp-canvas-colors.ts#rewriteCanvasCall",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-canvas-colors.ts|src/cpp-canvas-colors.ts#rewriteCanvasCall|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-canvas-colors.ts",
+      "owner": "src/cpp-canvas-colors.ts#splitTopLevelArgs",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "629e3d89202267f2b22d053303c752d9722f2e4a7eb12fc46a786634a923fde9",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-canvas-colors.ts|src/cpp-canvas-colors.ts#splitTopLevelArgs|text-semantic-extraction|active-hook|629e3d89202267f2b22d053303c752d9722f2e4a7eb12fc46a786634a923fde9|1"
+    },
+    {
+      "file": "src/cpp-canvas-colors.ts",
+      "owner": "src/cpp-canvas-colors.ts#splitTopLevelArgs",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-canvas-colors.ts|src/cpp-canvas-colors.ts#splitTopLevelArgs|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-canvas-colors.ts",
+      "owner": "src/cpp-canvas-colors.ts#splitTopLevelArgs",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-canvas-colors.ts|src/cpp-canvas-colors.ts#splitTopLevelArgs|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|1"
+    },
+    {
+      "file": "src/cpp-canvas-colors.ts",
+      "owner": "src/cpp-canvas-colors.ts#splitTopLevelArgs",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "edba2a5e139b159b2aeedd9428573097df3ce3a3735b5d5aabeabfa5a375e560",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-canvas-colors.ts|src/cpp-canvas-colors.ts#splitTopLevelArgs|text-semantic-extraction|active-hook|edba2a5e139b159b2aeedd9428573097df3ce3a3735b5d5aabeabfa5a375e560|1"
+    },
+    {
+      "file": "src/cpp-ir.ts",
+      "owner": "src/cpp-ir.ts#mountedRendererAssetDeclarations",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-ir.ts|src/cpp-ir.ts#mountedRendererAssetDeclarations|self-render-reparse|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|1"
+    },
+    {
+      "file": "src/cpp-ir.ts",
+      "owner": "src/cpp-ir.ts#mountedRendererGlobalAccessorDeclarations",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-ir.ts|src/cpp-ir.ts#mountedRendererGlobalAccessorDeclarations|self-render-reparse|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|1"
+    },
+    {
+      "file": "src/cpp-ir.ts",
+      "owner": "src/cpp-ir.ts#mountedRendererGlobalAccessorDeclarations",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 2,
+      "key": "src/cpp-ir.ts|src/cpp-ir.ts#mountedRendererGlobalAccessorDeclarations|self-render-reparse|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|2"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#componentLocalConsts",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "de323d7e2b080a19a83635905ddfe571943f9044c7c7eb83309e1f45f5f55854",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#componentLocalConsts|self-render-reparse|active-hook|de323d7e2b080a19a83635905ddfe571943f9044c7c7eb83309e1f45f5f55854|1"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#escapeRegExp",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "ba7cefd88092af7da24b1b0be4b9f29bf16c889ed4101e7a62cbadc14b8b4057",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#escapeRegExp|self-render-reparse|active-hook|ba7cefd88092af7da24b1b0be4b9f29bf16c889ed4101e7a62cbadc14b8b4057|1"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#identifiersInText",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#identifiersInText|self-render-reparse|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#mountedRendererDeclarationFromLines",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "6f6ed8bbb031d26968f3f068b1f551dc0f0b89e0b679029a36f53d1c09a59701",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#mountedRendererDeclarationFromLines|self-render-reparse|active-hook|6f6ed8bbb031d26968f3f068b1f551dc0f0b89e0b679029a36f53d1c09a59701|1"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#mountedRendererDeclarationFromLines",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "a849837011a70ab1d3790d133d67f33255704aeaeab20935e6a3644fbcd25662",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#mountedRendererDeclarationFromLines|self-render-reparse|active-hook|a849837011a70ab1d3790d133d67f33255704aeaeab20935e6a3644fbcd25662|1"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#mountedRendererDeclarationFromLines",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "ec541f91ad2de0662e1e8e4f068d25030b2721bfa8d719f2c2f03ffc80231c67",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#mountedRendererDeclarationFromLines|self-render-reparse|active-hook|ec541f91ad2de0662e1e8e4f068d25030b2721bfa8d719f2c2f03ffc80231c67|1"
+    },
+    {
+      "file": "src/cpp-mounted.ts",
+      "owner": "src/cpp-mounted.ts#replaceIdentifierToken",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "85a1610b81dca88febd896314ed1df53396a6e498421d84b017b2107e7dccd90",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/cpp-mounted.ts|src/cpp-mounted.ts#replaceIdentifierToken|self-render-reparse|active-hook|85a1610b81dca88febd896314ed1df53396a6e498421d84b017b2107e7dccd90|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#findClassDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#findClassDefinition|text-semantic-extraction|active-hook|548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#findClassDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#findClassDefinition|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#findClassDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#findClassDefinition|text-semantic-extraction|active-hook|e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#insertReactiveRendererForwardDeclarations",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#insertReactiveRendererForwardDeclarations|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#insertReactiveRendererForwardDeclarations",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "59f29154fb212d1174fccc80c923388b028eb9d963c48d70f9f7eb4f117575ca",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#insertReactiveRendererForwardDeclarations|text-semantic-extraction|active-hook|59f29154fb212d1174fccc80c923388b028eb9d963c48d70f9f7eb4f117575ca|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#insertReactiveRendererForwardDeclarations",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ecb7d715592a59e2f5e0ca11bb626451a7907c5373ac780af8a35f0f5fde6993",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#insertReactiveRendererForwardDeclarations|text-semantic-extraction|active-hook|ecb7d715592a59e2f5e0ca11bb626451a7907c5373ac780af8a35f0f5fde6993|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#insertReactiveSignalSupport",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#insertReactiveSignalSupport|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#insertReactiveSignalSupport",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#insertReactiveSignalSupport|text-semantic-extraction|active-hook|961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#neutralizeReactiveComponentToValue",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#neutralizeReactiveComponentToValue|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#neutralizeReactiveComponentToValue",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#neutralizeReactiveComponentToValue|text-semantic-extraction|active-hook|5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#neutralizeReactiveComponentToValue",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "59f29154fb212d1174fccc80c923388b028eb9d963c48d70f9f7eb4f117575ca",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#neutralizeReactiveComponentToValue|text-semantic-extraction|active-hook|59f29154fb212d1174fccc80c923388b028eb9d963c48d70f9f7eb4f117575ca|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#transformClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#transformClassBody|text-semantic-extraction|active-hook|548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#transformClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#transformClassBody|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#transformClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#transformClassBody|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#transformClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#transformClassBody|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#transformClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#transformClassBody|text-semantic-extraction|active-hook|b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7|1"
+    },
+    {
+      "file": "src/cpp-reactive-component.ts",
+      "owner": "src/cpp-reactive-component.ts#transformClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-reactive-component.ts|src/cpp-reactive-component.ts#transformClassBody|text-semantic-extraction|active-hook|e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#findClassOpenBrace|text-semantic-extraction|active-hook|548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#findClassOpenBrace|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#findClassOpenBrace|text-semantic-extraction|active-hook|e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#globalAccessorReturnType",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "685dfdc165308c70ed718ab12c16ce9d8114911d0ebc20d877252bed684714e0",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#globalAccessorReturnType|text-semantic-extraction|active-hook|685dfdc165308c70ed718ab12c16ce9d8114911d0ebc20d877252bed684714e0|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#globalAccessorReturnType",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "9729da3b69ba344426d076b6531b77a7493a5a8f7bc58796060db414142966b3",
+      "detail": "match on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#globalAccessorReturnType|text-semantic-extraction|active-hook|9729da3b69ba344426d076b6531b77a7493a5a8f7bc58796060db414142966b3|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#insertComponentBridgeMethods",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#insertComponentBridgeMethods|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#insertComponentBridgeMethods",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#insertComponentBridgeMethods|text-semantic-extraction|active-hook|961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#insertComponentBridgeMethods",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a002a4a175edc050cd50f3b54a80a3bf59f60c83622b17fbff3dd8080779ba83",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#insertComponentBridgeMethods|text-semantic-extraction|active-hook|a002a4a175edc050cd50f3b54a80a3bf59f60c83622b17fbff3dd8080779ba83|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#insertComponentBridgeMethods",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#insertComponentBridgeMethods|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#mountStoreArgument",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "751cf32d53e8113b970a6d9f9970d8c4cf86da256ada55540edb1235a2e74514",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#mountStoreArgument|text-semantic-extraction|active-hook|751cf32d53e8113b970a6d9f9970d8c4cf86da256ada55540edb1235a2e74514|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#mountStoreParamClass",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "9729da3b69ba344426d076b6531b77a7493a5a8f7bc58796060db414142966b3",
+      "detail": "match on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#mountStoreParamClass|text-semantic-extraction|active-hook|9729da3b69ba344426d076b6531b77a7493a5a8f7bc58796060db414142966b3|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#rendererBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "743ad64b492dd2a30b993e5dd901360394fcf915d7129850a52a025fde2298ad",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#rendererBody|text-semantic-extraction|active-hook|743ad64b492dd2a30b993e5dd901360394fcf915d7129850a52a025fde2298ad|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "133c301e5b0faee2ee72f84563aa1e7d3af0fff8ba0fde43f55bcbe557f7647b",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceGeneratedRenderer|text-semantic-extraction|active-hook|133c301e5b0faee2ee72f84563aa1e7d3af0fff8ba0fde43f55bcbe557f7647b|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "41b3aa866ee046b746957a66917e00ab651c5beb5ca8e890bc4e42781ccc19ba",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceGeneratedRenderer|text-semantic-extraction|active-hook|41b3aa866ee046b746957a66917e00ab651c5beb5ca8e890bc4e42781ccc19ba|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceGeneratedRenderer|text-semantic-extraction|active-hook|961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "aed7755b80d76d1db757c02f6a7cc579835259266283406f04494fc6a1677e15",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceGeneratedRenderer|text-semantic-extraction|active-hook|aed7755b80d76d1db757c02f6a7cc579835259266283406f04494fc6a1677e15|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer|text-semantic-extraction|active-hook|961ea2b71dc32645c70a88057e87ba8ccb9a448233c043b6e7e5a0685457bb8e|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "aed7755b80d76d1db757c02f6a7cc579835259266283406f04494fc6a1677e15",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer|text-semantic-extraction|active-hook|aed7755b80d76d1db757c02f6a7cc579835259266283406f04494fc6a1677e15|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c4adebee9b4acaf0c1e2b67ffd57ed747cf8d0fc3e00d484fe685657ed86e91b",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#replaceOutOfLineGeneratedRenderer|text-semantic-extraction|active-hook|c4adebee9b4acaf0c1e2b67ffd57ed747cf8d0fc3e00d484fe685657ed86e91b|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#returnsNodeHandle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "84649baa7c6335029cb0dcdfa551150efc6481734e22af0a1f8b66372934b132",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#returnsNodeHandle|text-semantic-extraction|active-hook|84649baa7c6335029cb0dcdfa551150efc6481734e22af0a1f8b66372934b132|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#staticTemplateReturnType",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "504c04b6db8e1dc98995b2d8b943cc4b7641f68ef615474d9fd6728bba2e574d",
+      "detail": "lastIndexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#staticTemplateReturnType|text-semantic-extraction|active-hook|504c04b6db8e1dc98995b2d8b943cc4b7641f68ef615474d9fd6728bba2e574d|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#staticTemplateReturnType",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "61faa0eeb0dba591a692b319675e9f4fba2d93a5b663aa493df45b6ed5fdaf74",
+      "detail": "match on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#staticTemplateReturnType|text-semantic-extraction|active-hook|61faa0eeb0dba591a692b319675e9f4fba2d93a5b663aa493df45b6ed5fdaf74|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#staticTemplateReturnType",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#staticTemplateReturnType|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|1"
+    },
+    {
+      "file": "src/cpp-source-replacements.ts",
+      "owner": "src/cpp-source-replacements.ts#staticTemplateReturnType",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "cd365d3f9ad11f92f9103e6569fd820f91257172dd1ab33a9dfe2fa57d67cad8",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-source-replacements.ts|src/cpp-source-replacements.ts#staticTemplateReturnType|text-semantic-extraction|active-hook|cd365d3f9ad11f92f9103e6569fd820f91257172dd1ab33a9dfe2fa57d67cad8|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodyDeclaresObserveMember",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b63b40bb84967107549b1e31519efaefb3cc5cddf7595bab79c3aa69666af148",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodyDeclaresObserveMember|text-semantic-extraction|active-hook|b63b40bb84967107549b1e31519efaefb3cc5cddf7595bab79c3aa69666af148|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodySlice",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "159001a769c72ba8673db70fc15402bcc1c814b66b93a8a1aadcca549cc4fb1c",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodySlice|text-semantic-extraction|active-hook|159001a769c72ba8673db70fc15402bcc1c814b66b93a8a1aadcca549cc4fb1c|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodySlice",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "159001a769c72ba8673db70fc15402bcc1c814b66b93a8a1aadcca549cc4fb1c",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodySlice|text-semantic-extraction|active-hook|159001a769c72ba8673db70fc15402bcc1c814b66b93a8a1aadcca549cc4fb1c|2"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodySlice",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "159001a769c72ba8673db70fc15402bcc1c814b66b93a8a1aadcca549cc4fb1c",
+      "detail": "slice on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodySlice|text-semantic-extraction|active-hook|159001a769c72ba8673db70fc15402bcc1c814b66b93a8a1aadcca549cc4fb1c|3"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodySlice",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "2da91bac8aafd49952dea63f0f05445946ae76d0aebd351eb1191279f83c624b",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodySlice|text-semantic-extraction|active-hook|2da91bac8aafd49952dea63f0f05445946ae76d0aebd351eb1191279f83c624b|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodySlice",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "dba87e27f884bd051049ab2b9658ef8b906f027647e9d43f29fa9812d6c05401",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodySlice|text-semantic-extraction|active-hook|dba87e27f884bd051049ab2b9658ef8b906f027647e9d43f29fa9812d6c05401|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#classBodySlice",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "fdeae0e4a115e55cc8c85444f2a036faedfa856b7c5b0df295df6ea84326211f",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#classBodySlice|text-semantic-extraction|active-hook|fdeae0e4a115e55cc8c85444f2a036faedfa856b7c5b0df295df6ea84326211f|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#findClassBodyOpen",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#findClassBodyOpen|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#injectStoreSignalHub",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#injectStoreSignalHub|text-semantic-extraction|active-hook|5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788|1"
+    },
+    {
+      "file": "src/cpp-store-hub.ts",
+      "owner": "src/cpp-store-hub.ts#injectStoreSignalHub",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "78b335d110d4422adb5090616c1a032f02d40373210867582200384f1bf3d5a2",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-hub.ts|src/cpp-store-hub.ts#injectStoreSignalHub|text-semantic-extraction|active-hook|78b335d110d4422adb5090616c1a032f02d40373210867582200384f1bf3d5a2|1"
+    },
+    {
+      "file": "src/cpp-store-method-replacements.ts",
+      "owner": "src/cpp-store-method-replacements.ts#topLevelFunctionNameOverrides",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d9245a1c7e177fa419fcd44533b7de2aa3bc1f0460b82497ff92af720abf3276",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-replacements.ts|src/cpp-store-method-replacements.ts#topLevelFunctionNameOverrides|text-semantic-extraction|active-hook|d9245a1c7e177fa419fcd44533b7de2aa3bc1f0460b82497ff92af720abf3276|1"
+    },
+    {
+      "file": "src/cpp-store-method-replacements.ts",
+      "owner": "src/cpp-store-method-replacements.ts#topLevelValueAccessorNamesFromSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-replacements.ts|src/cpp-store-method-replacements.ts#topLevelValueAccessorNamesFromSource|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#definitionRegionAt",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "61e777b730e8c2d7d1945cb059e10c71fc3471784860ee26290d55b44cdca37e",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#definitionRegionAt|text-semantic-extraction|active-hook|61e777b730e8c2d7d1945cb059e10c71fc3471784860ee26290d55b44cdca37e|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#definitionRegionAt",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "71a817305c3f824a2ceebfc2658ccd9a64778fa94d73b7ebfc37595d61713c85",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#definitionRegionAt|text-semantic-extraction|active-hook|71a817305c3f824a2ceebfc2658ccd9a64778fa94d73b7ebfc37595d61713c85|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#findClassOpenBrace|text-semantic-extraction|active-hook|548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#findClassOpenBrace|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#findClassOpenBrace|text-semantic-extraction|active-hook|e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#findInlineMethodRegion",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#findInlineMethodRegion|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#findMethodSignatureRegion",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "321ece16d8d7e331f7349de2daf66f7b5e9f14a10d5af6791ae65e11a32a13f2",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#findMethodSignatureRegion|text-semantic-extraction|active-hook|321ece16d8d7e331f7349de2daf66f7b5e9f14a10d5af6791ae65e11a32a13f2|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#findMethodSignatureRegion",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#findMethodSignatureRegion|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "55d9183849e80be18ec3f683b27cb02708e31d6da306f860c18fbd485efab41d",
+      "detail": "lastIndexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|55d9183849e80be18ec3f683b27cb02708e31d6da306f860c18fbd485efab41d|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "97794c6e09f2dfa64ab037d73e6bae8103df0a7026eb954bb58f1743322729d3",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|97794c6e09f2dfa64ab037d73e6bae8103df0a7026eb954bb58f1743322729d3|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "9a0728ff66e6c839270b2c49e7660c005f33be20dffda70088e18b01d8c7b28d",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|9a0728ff66e6c839270b2c49e7660c005f33be20dffda70088e18b01d8c7b28d|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b549b7cae3cbb03b6f08415030ad70f26623034854b4fd20ba0beba99a442994",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|b549b7cae3cbb03b6f08415030ad70f26623034854b4fd20ba0beba99a442994|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#outOfLineConcreteInstantiation|text-semantic-extraction|active-hook|b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#readClassMethodBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "34421800dbca2c601f95beb3a72a7e64703664894d5efcd29c001a188ba3c178",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#readClassMethodBody|text-semantic-extraction|active-hook|34421800dbca2c601f95beb3a72a7e64703664894d5efcd29c001a188ba3c178|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "983bc379b5d59b6e9d1299e538ae3234a8863e974b69a81718d3e6e9c70f0988",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodDefinition|text-semantic-extraction|active-hook|983bc379b5d59b6e9d1299e538ae3234a8863e974b69a81718d3e6e9c70f0988|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodDefinition|text-semantic-extraction|active-hook|e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodDefinition|text-semantic-extraction|active-hook|e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f|2"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodDefinition",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "feb5c632a81ab13155e56b21ed2ca1826772ef5d7bdf360ffb9e5e390cdb6295",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodDefinition|text-semantic-extraction|active-hook|feb5c632a81ab13155e56b21ed2ca1826772ef5d7bdf360ffb9e5e390cdb6295|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "42286ccb36987bbd089a109fba3841fe5d1a40891cbe96c9f7baf41368344538",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|42286ccb36987bbd089a109fba3841fe5d1a40891cbe96c9f7baf41368344538|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "86f0c68678a78bef8ad810c6f793eb188c0569451173a5c67bc01eedb37d8551",
+      "detail": "lastIndexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|86f0c68678a78bef8ad810c6f793eb188c0569451173a5c67bc01eedb37d8551|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "983bc379b5d59b6e9d1299e538ae3234a8863e974b69a81718d3e6e9c70f0988",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|983bc379b5d59b6e9d1299e538ae3234a8863e974b69a81718d3e6e9c70f0988|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "9d248be5d053bd4f84253df0bf87c0725c6e9a9b69db27c7840e19afc619af4f",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|9d248be5d053bd4f84253df0bf87c0725c6e9a9b69db27c7840e19afc619af4f|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "affeeb8017da21961da429769e4c94d47844cae4938da5b4c88a89a17114d17f",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|affeeb8017da21961da429769e4c94d47844cae4938da5b4c88a89a17114d17f|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d08f75dd05905cebe00197d5c33f6e0e0a41e18bfcc34423d3475f16f93679ce",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|d08f75dd05905cebe00197d5c33f6e0e0a41e18bfcc34423d3475f16f93679ce|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f|2"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f",
+      "detail": "slice on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|e86da84811e17a85422b7a238a2a3c2cc244bbfe4da98ea2143d4862efc0261f|3"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "feb5c632a81ab13155e56b21ed2ca1826772ef5d7bdf360ffb9e5e390cdb6295",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|feb5c632a81ab13155e56b21ed2ca1826772ef5d7bdf360ffb9e5e390cdb6295|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#replaceClassMethodParameters",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "feb5c632a81ab13155e56b21ed2ca1826772ef5d7bdf360ffb9e5e390cdb6295",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#replaceClassMethodParameters|text-semantic-extraction|active-hook|feb5c632a81ab13155e56b21ed2ca1826772ef5d7bdf360ffb9e5e390cdb6295|2"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#splitTopLevelParams",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#splitTopLevelParams|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#splitTopLevelParams",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#splitTopLevelParams|text-semantic-extraction|active-hook|4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b|1"
+    },
+    {
+      "file": "src/cpp-store-method-targets.ts",
+      "owner": "src/cpp-store-method-targets.ts#splitTopLevelParams",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a11e2b5b59974382ead4e92c6573d82123d68256c2b00c0bb1c4ea6712f0b640",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-method-targets.ts|src/cpp-store-method-targets.ts#splitTopLevelParams|text-semantic-extraction|active-hook|a11e2b5b59974382ead4e92c6573d82123d68256c2b00c0bb1c4ea6712f0b640|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#escapeRegExp",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "ba7cefd88092af7da24b1b0be4b9f29bf16c889ed4101e7a62cbadc14b8b4057",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#escapeRegExp|text-rewrite|active-hook|ba7cefd88092af7da24b1b0be4b9f29bf16c889ed4101e7a62cbadc14b8b4057|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#findClassOpenBrace|text-semantic-extraction|active-hook|548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#findClassOpenBrace|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#findClassOpenBrace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#findClassOpenBrace|text-semantic-extraction|active-hook|e4dd348b5bcb2e12486e60464f43c7be0984d5f5e0c2314bcec9f6be831efaee|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#parseAggregateRecordElement",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "41b3aa866ee046b746957a66917e00ab651c5beb5ca8e890bc4e42781ccc19ba",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#parseAggregateRecordElement|text-semantic-extraction|active-hook|41b3aa866ee046b746957a66917e00ab651c5beb5ca8e890bc4e42781ccc19ba|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#parseAggregateRecordElement",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5d2aad166546c2bd34e5632502994ff87f828732ad2297932a8eeb8bc17f835c",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#parseAggregateRecordElement|text-semantic-extraction|active-hook|5d2aad166546c2bd34e5632502994ff87f828732ad2297932a8eeb8bc17f835c|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#parseAggregateRecordElement",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#parseAggregateRecordElement|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#parseSeedRecordElement",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#parseSeedRecordElement|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#parseSeedRecordElement",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "950be92b8a8532cd17f17d60fc1a37ca83967684c6d43d4342fef7fb570d89eb",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#parseSeedRecordElement|text-semantic-extraction|active-hook|950be92b8a8532cd17f17d60fc1a37ca83967684c6d43d4342fef7fb570d89eb|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "0a55698220101f16df491a3913b268bda77bd1333f535d4e232d859ed1302006",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|0a55698220101f16df491a3913b268bda77bd1333f535d4e232d859ed1302006|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "exec on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "7979dc0682873743886cd1d7cc8e5f208b8250cc1cb31bfd61fe1ec14419387b",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|7979dc0682873743886cd1d7cc8e5f208b8250cc1cb31bfd61fe1ec14419387b|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "7979dc0682873743886cd1d7cc8e5f208b8250cc1cb31bfd61fe1ec14419387b",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|7979dc0682873743886cd1d7cc8e5f208b8250cc1cb31bfd61fe1ec14419387b|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "7c060a5e1e63b27dc54e82396f6456c35b0a573cbe3c06750ec8ad1302f65d7d",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|7c060a5e1e63b27dc54e82396f6456c35b0a573cbe3c06750ec8ad1302f65d7d|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "92e5ee24060c592d435f04ffb70c1e0dbfe63fea77f3430ef8af60002380e8a2",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|92e5ee24060c592d435f04ffb70c1e0dbfe63fea77f3430ef8af60002380e8a2|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "92e5ee24060c592d435f04ffb70c1e0dbfe63fea77f3430ef8af60002380e8a2",
+      "detail": "test on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|92e5ee24060c592d435f04ffb70c1e0dbfe63fea77f3430ef8af60002380e8a2|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "92e5ee24060c592d435f04ffb70c1e0dbfe63fea77f3430ef8af60002380e8a2",
+      "detail": "test on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|92e5ee24060c592d435f04ffb70c1e0dbfe63fea77f3430ef8af60002380e8a2|3"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e4c0ea6d3c65ecf7be51a557b94a8348e17574190bb8068bf7753a1e2ba71f9b",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|e4c0ea6d3c65ecf7be51a557b94a8348e17574190bb8068bf7753a1e2ba71f9b|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ebea00a0b6e491b7ded100e87eaf996a0cc9457e65de1260d546e88db3280c19",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|ebea00a0b6e491b7ded100e87eaf996a0cc9457e65de1260d546e88db3280c19|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ebea00a0b6e491b7ded100e87eaf996a0cc9457e65de1260d546e88db3280c19",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#pruneUnusedRecordHelpers|text-semantic-extraction|active-hook|ebea00a0b6e491b7ded100e87eaf996a0cc9457e65de1260d546e88db3280c19|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteClassBody|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteClassBody|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteClassBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteClassBody|text-semantic-extraction|active-hook|b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "41b3aa866ee046b746957a66917e00ab651c5beb5ca8e890bc4e42781ccc19ba",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|41b3aa866ee046b746957a66917e00ab651c5beb5ca8e890bc4e42781ccc19ba|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|6987ac839a4ad2b9bc4881bfd7eba803782376e128c9497510f5997a76bd653d|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "730c751caba62e7eea9510a50f5b32de8b360389240a7bcefbd7d5655de18551",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|730c751caba62e7eea9510a50f5b32de8b360389240a7bcefbd7d5655de18551|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "75a0507d563028d1d608301302f046eb1e0f5f480fe60910e69bb3d5457d27b3",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|75a0507d563028d1d608301302f046eb1e0f5f480fe60910e69bb3d5457d27b3|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|3"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 4,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|4"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c43dd46f05c7d5b21d80eca1724ea0569a99c5c97c0d16443629efe08d37a3af",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|c43dd46f05c7d5b21d80eca1724ea0569a99c5c97c0d16443629efe08d37a3af|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c43dd46f05c7d5b21d80eca1724ea0569a99c5c97c0d16443629efe08d37a3af",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|c43dd46f05c7d5b21d80eca1724ea0569a99c5c97c0d16443629efe08d37a3af|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c43dd46f05c7d5b21d80eca1724ea0569a99c5c97c0d16443629efe08d37a3af",
+      "detail": "slice on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|c43dd46f05c7d5b21d80eca1724ea0569a99c5c97c0d16443629efe08d37a3af|3"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44",
+      "detail": "test on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44",
+      "detail": "test on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44|3"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteCtorSeed",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "f4aeb84885cd74dbaaca00a23a3dc7a85bf9b2e8ca4a12fc4cff8aeb936dbd84",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteCtorSeed|text-semantic-extraction|active-hook|f4aeb84885cd74dbaaca00a23a3dc7a85bf9b2e8ca4a12fc4cff8aeb936dbd84|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteFieldDeclaration",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "94989d2783a70fc5a32005d13d085b8768040ed0de45005af79858c7cefb28b8",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteFieldDeclaration|text-rewrite|active-hook|94989d2783a70fc5a32005d13d085b8768040ed0de45005af79858c7cefb28b8|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies|text-semantic-extraction|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies|text-semantic-extraction|active-hook|5078c6a7a3217d46650021ba0a0963281230843d16ad7ed0bdacd631a0740788|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "cecbc47c19081e5d083e6566e6ab9f6a163ffc89b78dd9977c70f004b44498f2",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteOutOfLineMemberBodies|text-semantic-extraction|active-hook|cecbc47c19081e5d083e6566e6ab9f6a163ffc89b78dd9977c70f004b44498f2|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "30c69c2624846dd666dd6dc66950e6aed4d83725770dd5936608edb39ca02fec",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|30c69c2624846dd666dd6dc66950e6aed4d83725770dd5936608edb39ca02fec|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5d7f43c650efe4bd0f74c40fae11a19408191d9dcb933ed952d9dd523204a7d8",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|5d7f43c650efe4bd0f74c40fae11a19408191d9dcb933ed952d9dd523204a7d8|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 3,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|3"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 4,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|4"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "edba2a5e139b159b2aeedd9428573097df3ce3a3735b5d5aabeabfa5a375e560",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewritePushBackItemsAfterNeedle|text-semantic-extraction|active-hook|edba2a5e139b159b2aeedd9428573097df3ce3a3735b5d5aabeabfa5a375e560|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast|text-semantic-extraction|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03",
+      "detail": "exec on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast|text-semantic-extraction|active-hook|1b82e6ff58babcb5bdeb8fab474c9461c4219a73037df7a2f533f5f3df7e0e03|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast|text-semantic-extraction|active-hook|26a7bd3866163afdc8e6aeaea1a1d0191cdbf62c4711b9f408d4eccff71156dc|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "bc3f0e2ea37fd98308702359f2680d789a9650bcfd20a28a892f8239448a0106",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast|text-semantic-extraction|active-hook|bc3f0e2ea37fd98308702359f2680d789a9650bcfd20a28a892f8239448a0106|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ecb7d715592a59e2f5e0ca11bb626451a7907c5373ac780af8a35f0f5fde6993",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast|text-semantic-extraction|active-hook|ecb7d715592a59e2f5e0ca11bb626451a7907c5373ac780af8a35f0f5fde6993|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ecb7d715592a59e2f5e0ca11bb626451a7907c5373ac780af8a35f0f5fde6993",
+      "detail": "slice on source-like text path",
+      "duplicate": 2,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#rewriteToValueSetterCast|text-semantic-extraction|active-hook|ecb7d715592a59e2f5e0ca11bb626451a7907c5373ac780af8a35f0f5fde6993|2"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#skipWhitespace",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#skipWhitespace|text-semantic-extraction|active-hook|c5c351e3b4f28dbeb69fade5dc28579797b724f575a270d6a49ae1c207851a44|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#splitTopLevelArgs",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#splitTopLevelArgs|text-semantic-extraction|active-hook|77fc588b148376d35ae06551b24154587fbc7e0699d1c1d3f6652a9159f20c17|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#splitTopLevelArgs",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#splitTopLevelArgs|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#unwrapOuterCall",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#unwrapOuterCall|text-semantic-extraction|active-hook|4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#unwrapOuterCall",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "96446bbfe9e17e5ea40b0ef2f581c1d9fd4489f26c7cf62de1bca84feb0c0599",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#unwrapOuterCall|text-semantic-extraction|active-hook|96446bbfe9e17e5ea40b0ef2f581c1d9fd4489f26c7cf62de1bca84feb0c0599|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#unwrapOuterCall",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "9b943f481701282af5cb9f3f81f24896bf1ca4c7c93ebe0ea41fab2bbfb61cf9",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#unwrapOuterCall|text-semantic-extraction|active-hook|9b943f481701282af5cb9f3f81f24896bf1ca4c7c93ebe0ea41fab2bbfb61cf9|1"
+    },
+    {
+      "file": "src/cpp-store-typed-arrays.ts",
+      "owner": "src/cpp-store-typed-arrays.ts#unwrapOuterCall",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d7e1c8a31cd5a720f61a96366a998340b674c0edf1b2e052b7b4d75033097761",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-store-typed-arrays.ts|src/cpp-store-typed-arrays.ts#unwrapOuterCall|text-semantic-extraction|active-hook|d7e1c8a31cd5a720f61a96366a998340b674c0edf1b2e052b7b4d75033097761|1"
+    },
+    {
+      "file": "src/cpp-stores.ts",
+      "owner": "src/cpp-stores.ts#geatscEmittedRecordAliasStruct",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "4b1c1203b5e9e64cab99a3fdb4c088e4a05e6d24798068e2df6410f9d1af92f7",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-stores.ts|src/cpp-stores.ts#geatscEmittedRecordAliasStruct|text-semantic-extraction|active-hook|4b1c1203b5e9e64cab99a3fdb4c088e4a05e6d24798068e2df6410f9d1af92f7|1"
+    },
+    {
+      "file": "src/cpp-stores.ts",
+      "owner": "src/cpp-stores.ts#recordAliasStructBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-stores.ts|src/cpp-stores.ts#recordAliasStructBody|text-semantic-extraction|active-hook|b80dd5787d201fae0e522a36e9405a528903285e67681f8cf034086da3edd995|1"
+    },
+    {
+      "file": "src/cpp-stores.ts",
+      "owner": "src/cpp-stores.ts#recordAliasStructBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d0865efe831ec4f519879517f29732c79d1c6a8e571fa8365b0fe6f6e0e00c69",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-stores.ts|src/cpp-stores.ts#recordAliasStructBody|text-semantic-extraction|active-hook|d0865efe831ec4f519879517f29732c79d1c6a8e571fa8365b0fe6f6e0e00c69|1"
+    },
+    {
+      "file": "src/cpp-stores.ts",
+      "owner": "src/cpp-stores.ts#recordAliasStructBody",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "e877ede696d2283d4ab375d1c3fe1b1f26bbb295913fc925adbb11bbd42a5e81",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-stores.ts|src/cpp-stores.ts#recordAliasStructBody|text-semantic-extraction|active-hook|e877ede696d2283d4ab375d1c3fe1b1f26bbb295913fc925adbb11bbd42a5e81|1"
+    },
+    {
+      "file": "src/cpp-stores.ts",
+      "owner": "src/cpp-stores.ts#recordAliasStructFields",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d9245a1c7e177fa419fcd44533b7de2aa3bc1f0460b82497ff92af720abf3276",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/cpp-stores.ts|src/cpp-stores.ts#recordAliasStructFields|text-semantic-extraction|active-hook|d9245a1c7e177fa419fcd44533b7de2aa3bc1f0460b82497ff92af720abf3276|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#accessorClassIncludesForSections",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#accessorClassIncludesForSections|rendered-source-read|active-hook|40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#accessorClassIncludesForSections",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "882171abb9a429a75be337a59ffdd9858a432df5cf11b62b4074db1046bebf4d",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#accessorClassIncludesForSections|rendered-source-read|active-hook|882171abb9a429a75be337a59ffdd9858a432df5cf11b62b4074db1046bebf4d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#accessorClassIncludesForSections",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#accessorClassIncludesForSections|text-semantic-extraction|active-hook|40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#accessorClassIncludesForSections",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "882171abb9a429a75be337a59ffdd9858a432df5cf11b62b4074db1046bebf4d",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#accessorClassIncludesForSections|text-semantic-extraction|active-hook|882171abb9a429a75be337a59ffdd9858a432df5cf11b62b4074db1046bebf4d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#appendMountedRenderersToModuleSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "51777ef8418728516e3afa316f02c176e6f7cc027de667857dd7d81803137904",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#appendMountedRenderersToModuleSources|rendered-source-read|active-hook|51777ef8418728516e3afa316f02c176e6f7cc027de667857dd7d81803137904|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#appendRendererSharedSourceToGeaIrHeader",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "283b84326b6716f077acdb2f82ead491bb0ae65c0d8dead7aa7cef45c89c9c47",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#appendRendererSharedSourceToGeaIrHeader|self-render-reparse|active-hook|283b84326b6716f077acdb2f82ead491bb0ae65c0d8dead7aa7cef45c89c9c47|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#ensureModuleFirstPluginRuntimeSource",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "0c8d39988048a3fac719676e29e5b22cb9cbf83783edca51117e4d73b09a5c81",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#ensureModuleFirstPluginRuntimeSource|rendered-source-read|active-hook|0c8d39988048a3fac719676e29e5b22cb9cbf83783edca51117e4d73b09a5c81|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#ensureModuleFirstPluginRuntimeSource",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "42e3c61781bea6d4289185d790d0dc9261fb6e954a21331c5f62ad938f1ed06c",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#ensureModuleFirstPluginRuntimeSource|rendered-source-read|active-hook|42e3c61781bea6d4289185d790d0dc9261fb6e954a21331c5f62ad938f1ed06c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#ensureModuleFirstPluginRuntimeSource",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "ffbd8bef5e83aee7f475474d39c8f091c543232965eb2ea026bb4de51b1702e1",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#ensureModuleFirstPluginRuntimeSource|self-render-reparse|active-hook|ffbd8bef5e83aee7f475474d39c8f091c543232965eb2ea026bb4de51b1702e1|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#ensureModuleFirstPluginRuntimeSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ffbd8bef5e83aee7f475474d39c8f091c543232965eb2ea026bb4de51b1702e1",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#ensureModuleFirstPluginRuntimeSource|text-semantic-extraction|active-hook|ffbd8bef5e83aee7f475474d39c8f091c543232965eb2ea026bb4de51b1702e1|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#escapeRegExp",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "ba7cefd88092af7da24b1b0be4b9f29bf16c889ed4101e7a62cbadc14b8b4057",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#escapeRegExp|text-rewrite|active-hook|ba7cefd88092af7da24b1b0be4b9f29bf16c889ed4101e7a62cbadc14b8b4057|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#externalizeDrainMicrotasksDeclaration",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "bf5492209171d7f3e00fe5a19c06c05de7e17de3a9ba7ef9713a0f9ec1337357",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#externalizeDrainMicrotasksDeclaration|text-rewrite|active-hook|bf5492209171d7f3e00fe5a19c06c05de7e17de3a9ba7ef9713a0f9ec1337357|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#findModuleFirstCompilerRuntimeHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "b84b2dc1e94c4b2504098e1f169d5e437a664758f73c4fa5832c0b336088aa4d",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#findModuleFirstCompilerRuntimeHeader|rendered-source-read|active-hook|b84b2dc1e94c4b2504098e1f169d5e437a664758f73c4fa5832c0b336088aa4d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#findModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "b84b2dc1e94c4b2504098e1f169d5e437a664758f73c4fa5832c0b336088aa4d",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#findModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|b84b2dc1e94c4b2504098e1f169d5e437a664758f73c4fa5832c0b336088aa4d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#findModuleFirstRuntimeGlobalsHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "de4d10b6633fe58c0c4bff4894e5bd2f22ed3cdb6f418aaccbc30628959f5228",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#findModuleFirstRuntimeGlobalsHeader|rendered-source-read|active-hook|de4d10b6633fe58c0c4bff4894e5bd2f22ed3cdb6f418aaccbc30628959f5228|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#findModuleFirstRuntimeGlobalsHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "de4d10b6633fe58c0c4bff4894e5bd2f22ed3cdb6f418aaccbc30628959f5228",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#findModuleFirstRuntimeGlobalsHeader|text-semantic-extraction|active-hook|de4d10b6633fe58c0c4bff4894e5bd2f22ed3cdb6f418aaccbc30628959f5228|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "post-render-source-synthesis",
+      "reachability": "active-hook",
+      "fingerprint": "68614ab850fb02a3d0afcdf5dc0cc8275ee89146753d5e52d56af887ccde67db",
+      "detail": "construct generated { fileName, source } artifact after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|post-render-source-synthesis|active-hook|68614ab850fb02a3d0afcdf5dc0cc8275ee89146753d5e52d56af887ccde67db|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "1ce432d539322b2872697692ddfb1a11d84d8226b5d35ee6d6e46dc4a8796c60",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|1ce432d539322b2872697692ddfb1a11d84d8226b5d35ee6d6e46dc4a8796c60|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "27748bad059ca203ad674277083a34dd0fee7c2cdfeaf33bacfff9ed288c2887",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|27748bad059ca203ad674277083a34dd0fee7c2cdfeaf33bacfff9ed288c2887|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "6e50f58693a771b955fefeb7415be56e5fa0883212ca4a34529efdd06cdba7a4",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|6e50f58693a771b955fefeb7415be56e5fa0883212ca4a34529efdd06cdba7a4|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "87e936e969c8e701c1c2eda346cb1221c011dea41280c09e0209368a6e5432d8",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|87e936e969c8e701c1c2eda346cb1221c011dea41280c09e0209368a6e5432d8|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "cd72ec6b12dd67b0b1633a6fd3bd67a37f343882976f6a857e982076d42e6683",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|cd72ec6b12dd67b0b1633a6fd3bd67a37f343882976f6a857e982076d42e6683|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "e025687521428494e920fe1570b28e36da01d48706e1ea181e083feda1721e8c",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|e025687521428494e920fe1570b28e36da01d48706e1ea181e083feda1721e8c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "f8449e0cbcf9d7d707d25b70332f38b5246f7245f8a20248b0953d1ac76bdf18",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|rendered-source-read|active-hook|f8449e0cbcf9d7d707d25b70332f38b5246f7245f8a20248b0953d1ac76bdf18|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "terminal-hook",
+      "reachability": "active-hook",
+      "fingerprint": "e352559e36b23702c72a546bf2890eeea55c0376b47273707beacb9c5b7a11cf",
+      "detail": "transformGeneratedSources implementation",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|terminal-hook|active-hook|e352559e36b23702c72a546bf2890eeea55c0376b47273707beacb9c5b7a11cf|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "f8449e0cbcf9d7d707d25b70332f38b5246f7245f8a20248b0953d1ac76bdf18",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources|text-semantic-extraction|active-hook|f8449e0cbcf9d7d707d25b70332f38b5246f7245f8a20248b0953d1ac76bdf18|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#globalValueIncludesForSections",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#globalValueIncludesForSections|rendered-source-read|active-hook|40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#globalValueIncludesForSections",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "ffb1c0ec5bd8402e8a8a6f6b9a31b406bac33f31934b0e42c17e042436f1ebcc",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#globalValueIncludesForSections|rendered-source-read|active-hook|ffb1c0ec5bd8402e8a8a6f6b9a31b406bac33f31934b0e42c17e042436f1ebcc|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#globalValueIncludesForSections",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#globalValueIncludesForSections|text-semantic-extraction|active-hook|40508e42c889e84f941ae81ed7c4d4b25bbc3f0d757086b5192fc5120451b944|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#globalValueIncludesForSections",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ffb1c0ec5bd8402e8a8a6f6b9a31b406bac33f31934b0e42c17e042436f1ebcc",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#globalValueIncludesForSections|text-semantic-extraction|active-hook|ffb1c0ec5bd8402e8a8a6f6b9a31b406bac33f31934b0e42c17e042436f1ebcc|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "5902056f2ecc484a00fc3c75657b70644491d8d93e89a470d01b933127f43b17",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|rendered-source-read|active-hook|5902056f2ecc484a00fc3c75657b70644491d8d93e89a470d01b933127f43b17|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "b845ec0b76f99c8c3b04c93a4a61656bb5e6fa1120a62de6a6b83bed1e2aec4d",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|rendered-source-read|active-hook|b845ec0b76f99c8c3b04c93a4a61656bb5e6fa1120a62de6a6b83bed1e2aec4d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "d5d4d5b3a1f52afccfce4e5205661edc68a147cefc4813f2b3a13313ac24c908",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|rendered-source-read|active-hook|d5d4d5b3a1f52afccfce4e5205661edc68a147cefc4813f2b3a13313ac24c908|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "334603ad1dace7a7f638f3365e5a7aec7377b0adc6b4f0c9f34be47e4f43a62d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|self-render-reparse|active-hook|334603ad1dace7a7f638f3365e5a7aec7377b0adc6b4f0c9f34be47e4f43a62d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "85af4bfc7f41805a282562654955527385f1fcd9fa1d3b45d4dbd095fd5b4e1d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|self-render-reparse|active-hook|85af4bfc7f41805a282562654955527385f1fcd9fa1d3b45d4dbd095fd5b4e1d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "334603ad1dace7a7f638f3365e5a7aec7377b0adc6b4f0c9f34be47e4f43a62d",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|334603ad1dace7a7f638f3365e5a7aec7377b0adc6b4f0c9f34be47e4f43a62d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "5902056f2ecc484a00fc3c75657b70644491d8d93e89a470d01b933127f43b17",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|5902056f2ecc484a00fc3c75657b70644491d8d93e89a470d01b933127f43b17|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "73ab9045bc5944777e96b42bb7104d2872239bd9a8110f8e3d06623d2019ca2c",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|73ab9045bc5944777e96b42bb7104d2872239bd9a8110f8e3d06623d2019ca2c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "85af4bfc7f41805a282562654955527385f1fcd9fa1d3b45d4dbd095fd5b4e1d",
+      "detail": "endsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|85af4bfc7f41805a282562654955527385f1fcd9fa1d3b45d4dbd095fd5b4e1d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d0e9622794f74feb618fc28bc97a9c3426d9a8e3dc60888a9c2d536b31c26432",
+      "detail": "lastIndexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|d0e9622794f74feb618fc28bc97a9c3426d9a8e3dc60888a9c2d536b31c26432|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstCompilerRuntimeHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "d5d4d5b3a1f52afccfce4e5205661edc68a147cefc4813f2b3a13313ac24c908",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstCompilerRuntimeHeader|text-semantic-extraction|active-hook|d5d4d5b3a1f52afccfce4e5205661edc68a147cefc4813f2b3a13313ac24c908|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstGeaIrHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "027e3c7380a3e23b6faa499c7f7c112b653ded791ab3054ba29e342fd63bccdd",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstGeaIrHeader|rendered-source-read|active-hook|027e3c7380a3e23b6faa499c7f7c112b653ded791ab3054ba29e342fd63bccdd|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstGeaIrHeader",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "0f533dc2cb14e39689f55760dad8625301798cef4a637375e4480d0011acea62",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstGeaIrHeader|rendered-source-read|active-hook|0f533dc2cb14e39689f55760dad8625301798cef4a637375e4480d0011acea62|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeModuleFirstGeaIrHeader",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "027e3c7380a3e23b6faa499c7f7c112b653ded791ab3054ba29e342fd63bccdd",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeModuleFirstGeaIrHeader|text-semantic-extraction|active-hook|027e3c7380a3e23b6faa499c7f7c112b653ded791ab3054ba29e342fd63bccdd|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "69d8f3c90de63db8e0aa3c6145e570fbe2e48d1a7d40169c21dadc22f6d7acd3",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|rendered-source-read|active-hook|69d8f3c90de63db8e0aa3c6145e570fbe2e48d1a7d40169c21dadc22f6d7acd3|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "2da91bac8aafd49952dea63f0f05445946ae76d0aebd351eb1191279f83c624b",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|self-render-reparse|active-hook|2da91bac8aafd49952dea63f0f05445946ae76d0aebd351eb1191279f83c624b|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "4510aac4b1d7bae569fa71d377f6d6045408590535d81eac4c7d68f36a61556c",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|self-render-reparse|active-hook|4510aac4b1d7bae569fa71d377f6d6045408590535d81eac4c7d68f36a61556c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|self-render-reparse|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "aed7755b80d76d1db757c02f6a7cc579835259266283406f04494fc6a1677e15",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|self-render-reparse|active-hook|aed7755b80d76d1db757c02f6a7cc579835259266283406f04494fc6a1677e15|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "b1e600abc1899a67662d69dcdc99a903b0a71fb6c7e6edc074ed498c0995f143",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|self-render-reparse|active-hook|b1e600abc1899a67662d69dcdc99a903b0a71fb6c7e6edc074ed498c0995f143|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|self-render-reparse|active-hook|b87983f25740be8be2f37cb1292cd4759095de7ca4cbccd0a29558a15b21abb7|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#includeRecordAliasTypeHeaders",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "69d8f3c90de63db8e0aa3c6145e570fbe2e48d1a7d40169c21dadc22f6d7acd3",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#includeRecordAliasTypeHeaders|text-semantic-extraction|active-hook|69d8f3c90de63db8e0aa3c6145e570fbe2e48d1a7d40169c21dadc22f6d7acd3|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "05a5e7b61df7533118323ea336dcd8bd229d7ea131bfb9a9c3fd1b8da419619c",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|self-render-reparse|active-hook|05a5e7b61df7533118323ea336dcd8bd229d7ea131bfb9a9c3fd1b8da419619c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "1fee4aa358bc8f1194cc3fdb5a10f67ec74023f6b0e57890dbbd028792fcb96d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|self-render-reparse|active-hook|1fee4aa358bc8f1194cc3fdb5a10f67ec74023f6b0e57890dbbd028792fcb96d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "8bf4e12a9d6551803a1ae0a82862f8e6edd72f97b6357319977f044dd8017fce",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|self-render-reparse|active-hook|8bf4e12a9d6551803a1ae0a82862f8e6edd72f97b6357319977f044dd8017fce|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "a546396d748c11fe570df12446d4d5e24ecc718473f8feeab577c8af30353a61",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|self-render-reparse|active-hook|a546396d748c11fe570df12446d4d5e24ecc718473f8feeab577c8af30353a61|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "aa116117562d72de06ab0f0b98f6f7bce5af92eaa239af600a2cfa104c3303f8",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|self-render-reparse|active-hook|aa116117562d72de06ab0f0b98f6f7bce5af92eaa239af600a2cfa104c3303f8|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "05a5e7b61df7533118323ea336dcd8bd229d7ea131bfb9a9c3fd1b8da419619c",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|text-semantic-extraction|active-hook|05a5e7b61df7533118323ea336dcd8bd229d7ea131bfb9a9c3fd1b8da419619c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "1fee4aa358bc8f1194cc3fdb5a10f67ec74023f6b0e57890dbbd028792fcb96d",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|text-semantic-extraction|active-hook|1fee4aa358bc8f1194cc3fdb5a10f67ec74023f6b0e57890dbbd028792fcb96d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "8bf4e12a9d6551803a1ae0a82862f8e6edd72f97b6357319977f044dd8017fce",
+      "detail": "split on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|text-semantic-extraction|active-hook|8bf4e12a9d6551803a1ae0a82862f8e6edd72f97b6357319977f044dd8017fce|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a546396d748c11fe570df12446d4d5e24ecc718473f8feeab577c8af30353a61",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|text-semantic-extraction|active-hook|a546396d748c11fe570df12446d4d5e24ecc718473f8feeab577c8af30353a61|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#insertModuleHeaderInclude",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "aa116117562d72de06ab0f0b98f6f7bce5af92eaa239af600a2cfa104c3303f8",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#insertModuleHeaderInclude|text-semantic-extraction|active-hook|aa116117562d72de06ab0f0b98f6f7bce5af92eaa239af600a2cfa104c3303f8|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#nativeStubCppSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "de6ea62c5eacadda6a96684687071a5d46d0e2157830b97f40908b600873767a",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#nativeStubCppSource|text-semantic-extraction|active-hook|de6ea62c5eacadda6a96684687071a5d46d0e2157830b97f40908b600873767a|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#nativeStubModuleInitSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265",
+      "detail": "indexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#nativeStubModuleInitSource|text-semantic-extraction|active-hook|548d11b8ee661d596049e172022f5392ab2e428284b944b27d37a4f0873a6265|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#nativeStubModuleInitSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#nativeStubModuleInitSource|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#nativeStubModuleInitSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "da41400bfa291a609c0be9087a52c092bb8a6909b00557dd14bba724f87dac36",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#nativeStubModuleInitSource|text-semantic-extraction|active-hook|da41400bfa291a609c0be9087a52c092bb8a6909b00557dd14bba724f87dac36|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#nativeStubModuleInitSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "ff3f99dc813503f4ca2ac169ed9d69be4ea759b0825bc5f65133db2c3760e27b",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#nativeStubModuleInitSource|text-semantic-extraction|active-hook|ff3f99dc813503f4ca2ac169ed9d69be4ea759b0825bc5f65133db2c3760e27b|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#removeNativeStubTemplateCacheResets",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "07ad06d67da2de4f31f61b5acd423d1eb2f7fc51be48b56074fbf1fe3c149de9",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#removeNativeStubTemplateCacheResets|rendered-source-read|active-hook|07ad06d67da2de4f31f61b5acd423d1eb2f7fc51be48b56074fbf1fe3c149de9|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#removeNativeStubTemplateCacheResets",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "e2db141fbcf52bf2adcd8e3a9e9b498f1ac554be2e71c5de2940ccd2548965d9",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#removeNativeStubTemplateCacheResets|rendered-source-read|active-hook|e2db141fbcf52bf2adcd8e3a9e9b498f1ac554be2e71c5de2940ccd2548965d9|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#removeNativeStubTemplateCacheResets",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "07ad06d67da2de4f31f61b5acd423d1eb2f7fc51be48b56074fbf1fe3c149de9",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#removeNativeStubTemplateCacheResets|text-rewrite|active-hook|07ad06d67da2de4f31f61b5acd423d1eb2f7fc51be48b56074fbf1fe3c149de9|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "3f7bb9c553973c2ea1b3813ea1d99b6f3a95c3ce5191afa6331541fd959ea0a8",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors|self-render-reparse|active-hook|3f7bb9c553973c2ea1b3813ea1d99b6f3a95c3ce5191afa6331541fd959ea0a8|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "7951d1092cae92b8199cc3a254f8802a60743603ade9a7fa6776af1447c01633",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors|self-render-reparse|active-hook|7951d1092cae92b8199cc3a254f8802a60743603ade9a7fa6776af1447c01633|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "7951d1092cae92b8199cc3a254f8802a60743603ade9a7fa6776af1447c01633",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors|text-rewrite|active-hook|7951d1092cae92b8199cc3a254f8802a60743603ade9a7fa6776af1447c01633|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "3f7bb9c553973c2ea1b3813ea1d99b6f3a95c3ce5191afa6331541fd959ea0a8",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceBundledCompilerRuntimeGlobalAccessors|text-semantic-extraction|active-hook|3f7bb9c553973c2ea1b3813ea1d99b6f3a95c3ce5191afa6331541fd959ea0a8|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceComponentElAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "661255c785e41bb345b7c20f9b38459b68f9180481e6aed4cb79e5af7c0abbcd",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceComponentElAccessors|self-render-reparse|active-hook|661255c785e41bb345b7c20f9b38459b68f9180481e6aed4cb79e5af7c0abbcd|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceComponentElAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "73b9d2434d64095b8d8492f6e3af3b66cda37d97b8f2909dcff0d2563ff1eea7",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceComponentElAccessors|self-render-reparse|active-hook|73b9d2434d64095b8d8492f6e3af3b66cda37d97b8f2909dcff0d2563ff1eea7|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceComponentElAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "c547662c10f6955dd756b4fe4fad97019ba41886ded0c2574c324bc6cc54fd87",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceComponentElAccessors|self-render-reparse|active-hook|c547662c10f6955dd756b4fe4fad97019ba41886ded0c2574c324bc6cc54fd87|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceComponentElAccessors",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "661255c785e41bb345b7c20f9b38459b68f9180481e6aed4cb79e5af7c0abbcd",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceComponentElAccessors|text-rewrite|active-hook|661255c785e41bb345b7c20f9b38459b68f9180481e6aed4cb79e5af7c0abbcd|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceComponentElAccessors",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "73b9d2434d64095b8d8492f6e3af3b66cda37d97b8f2909dcff0d2563ff1eea7",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceComponentElAccessors|text-rewrite|active-hook|73b9d2434d64095b8d8492f6e3af3b66cda37d97b8f2909dcff0d2563ff1eea7|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceComponentElAccessors",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "c547662c10f6955dd756b4fe4fad97019ba41886ded0c2574c324bc6cc54fd87",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceComponentElAccessors|text-rewrite|active-hook|c547662c10f6955dd756b4fe4fad97019ba41886ded0c2574c324bc6cc54fd87|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceRuntimeGlobalAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceRuntimeGlobalAccessors|self-render-reparse|active-hook|441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceRuntimeGlobalAccessors",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 2,
+      "key": "src/index.ts|src/index.ts#replaceRuntimeGlobalAccessors|self-render-reparse|active-hook|441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7|2"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceRuntimeGlobalAccessors",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#replaceRuntimeGlobalAccessors|text-rewrite|active-hook|441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#replaceRuntimeGlobalAccessors",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7",
+      "detail": "replace on source-like text path",
+      "duplicate": 2,
+      "key": "src/index.ts|src/index.ts#replaceRuntimeGlobalAccessors|text-rewrite|active-hook|441d07daa918eb04b08e4912b3352cb2dbeeb685ea6aa700dd4c1e467dc91fd7|2"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#rewriteModuleLocalTemplateBuilderCalls",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "51e9be46976fdafd7cd39b9490459119fd8db8716214567c1798180dedbe80cf",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#rewriteModuleLocalTemplateBuilderCalls|self-render-reparse|active-hook|51e9be46976fdafd7cd39b9490459119fd8db8716214567c1798180dedbe80cf|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#rewriteModuleLocalTemplateBuilderCalls",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "fcabce89eb7a3692e1aca674da731a12aee44b94317edf19d99a26b7a2c56fe2",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#rewriteModuleLocalTemplateBuilderCalls|self-render-reparse|active-hook|fcabce89eb7a3692e1aca674da731a12aee44b94317edf19d99a26b7a2c56fe2|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#rewriteModuleLocalTemplateBuilderCalls",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "51e9be46976fdafd7cd39b9490459119fd8db8716214567c1798180dedbe80cf",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#rewriteModuleLocalTemplateBuilderCalls|text-rewrite|active-hook|51e9be46976fdafd7cd39b9490459119fd8db8716214567c1798180dedbe80cf|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#rewriteModuleLocalTemplateBuilderCalls",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "fcabce89eb7a3692e1aca674da731a12aee44b94317edf19d99a26b7a2c56fe2",
+      "detail": "matchAll on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#rewriteModuleLocalTemplateBuilderCalls|text-semantic-extraction|active-hook|fcabce89eb7a3692e1aca674da731a12aee44b94317edf19d99a26b7a2c56fe2|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "0fce980a1bd129265dff3bd575f742d4da794b6224535c59a2c0b85a022a89f3",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|0fce980a1bd129265dff3bd575f742d4da794b6224535c59a2c0b85a022a89f3|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "1310fba8488679ee35b4eae809c90f25c3366dc9afee6dec43f92ebb20bd0d52",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|1310fba8488679ee35b4eae809c90f25c3366dc9afee6dec43f92ebb20bd0d52|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "23355fafbbc051102b0c6914d2df4261764b1d863b3247fa2d5f35f829aede01",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|23355fafbbc051102b0c6914d2df4261764b1d863b3247fa2d5f35f829aede01|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "938eff7408b7dcc5c413a7884fce36285e0230ce2d1f66865dc6a30cf543c832",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|938eff7408b7dcc5c413a7884fce36285e0230ce2d1f66865dc6a30cf543c832|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "b91de1c8b88bebd39c433703d9c78b5b58c6daaf902caf05704a67ddeeb3494d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|b91de1c8b88bebd39c433703d9c78b5b58c6daaf902caf05704a67ddeeb3494d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "dfcb0f83d1f0be19b20599759f3c789bba2f084acd74779f03b8ab7af6057670",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|dfcb0f83d1f0be19b20599759f3c789bba2f084acd74779f03b8ab7af6057670|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitModuleFirstMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "fc068b3500b65c91de89f671e5c95d00c1b07e212fc04e0d288e9e78349eeedb",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitModuleFirstMountedRenderers|self-render-reparse|active-hook|fc068b3500b65c91de89f671e5c95d00c1b07e212fc04e0d288e9e78349eeedb|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "0cbb11f3902fb8c821f19f60367dc4be0091788d79aaded81184fbd068df350d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|0cbb11f3902fb8c821f19f60367dc4be0091788d79aaded81184fbd068df350d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "0fce980a1bd129265dff3bd575f742d4da794b6224535c59a2c0b85a022a89f3",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|0fce980a1bd129265dff3bd575f742d4da794b6224535c59a2c0b85a022a89f3|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "39fd732dd45d8e624f0e26651b15d06eb7e7a0718ccd23a7eabde9255c9e5cee",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|39fd732dd45d8e624f0e26651b15d06eb7e7a0718ccd23a7eabde9255c9e5cee|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 2,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|4d337fe40ee180ce47af39ce90686d47bac28f452b89137fb10c03cfaae1583b|2"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "a91cd56b8feec5a4cbc1749b6f96ed14fd526d50f58ce3a2cbf1aaee9480342d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|a91cd56b8feec5a4cbc1749b6f96ed14fd526d50f58ce3a2cbf1aaee9480342d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "b91de1c8b88bebd39c433703d9c78b5b58c6daaf902caf05704a67ddeeb3494d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|b91de1c8b88bebd39c433703d9c78b5b58c6daaf902caf05704a67ddeeb3494d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "b91de1c8b88bebd39c433703d9c78b5b58c6daaf902caf05704a67ddeeb3494d",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 2,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|b91de1c8b88bebd39c433703d9c78b5b58c6daaf902caf05704a67ddeeb3494d|2"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "c62039935e2a6eedbeff20af7ff80f2af14f64c4be4bbd6f8008b1b2e60273e1",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|c62039935e2a6eedbeff20af7ff80f2af14f64c4be4bbd6f8008b1b2e60273e1|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#splitMountedRendererSharedPrelude",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "fc068b3500b65c91de89f671e5c95d00c1b07e212fc04e0d288e9e78349eeedb",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#splitMountedRendererSharedPrelude|self-render-reparse|active-hook|fc068b3500b65c91de89f671e5c95d00c1b07e212fc04e0d288e9e78349eeedb|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripExternalInlineFromMountedRenderers",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "3a3ae2fd4680360685681071cdbc5f7821c64db2e1c3a1480d231df1c34a56be",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripExternalInlineFromMountedRenderers|self-render-reparse|active-hook|3a3ae2fd4680360685681071cdbc5f7821c64db2e1c3a1480d231df1c34a56be|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripExternalInlineFromMountedRenderers",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "3a3ae2fd4680360685681071cdbc5f7821c64db2e1c3a1480d231df1c34a56be",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripExternalInlineFromMountedRenderers|text-rewrite|active-hook|3a3ae2fd4680360685681071cdbc5f7821c64db2e1c3a1480d231df1c34a56be|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "0a8d9ab02c862eae40385dadd3cd574f110e943e92b32c8bbfaeac80d777cf6e",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-rewrite|active-hook|0a8d9ab02c862eae40385dadd3cd574f110e943e92b32c8bbfaeac80d777cf6e|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-rewrite",
+      "reachability": "active-hook",
+      "fingerprint": "f542665f3598ca267fb37da625fe8c62a7854019e6928a257c611119046913f3",
+      "detail": "replace on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-rewrite|active-hook|f542665f3598ca267fb37da625fe8c62a7854019e6928a257c611119046913f3|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "04a9ed99b54b21abe311dabd37415bbc2cd79b1c65d77ff9e6480b11ba85873d",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|04a9ed99b54b21abe311dabd37415bbc2cd79b1c65d77ff9e6480b11ba85873d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "0aac7f9ef1044f2d52180b74fdef2ee71d3c3face8044713f271a1914f939d74",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|0aac7f9ef1044f2d52180b74fdef2ee71d3c3face8044713f271a1914f939d74|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6b86692f9de496c936c1c754f91f90dafad655cbf96e13dea669a13b1681ca3d",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|6b86692f9de496c936c1c754f91f90dafad655cbf96e13dea669a13b1681ca3d|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "8bf4e12a9d6551803a1ae0a82862f8e6edd72f97b6357319977f044dd8017fce",
+      "detail": "split on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|8bf4e12a9d6551803a1ae0a82862f8e6edd72f97b6357319977f044dd8017fce|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a41d47b4f132789e85305abbc3f383d2365e77be0cdbfeb31cbde19557c1193c",
+      "detail": "startsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|a41d47b4f132789e85305abbc3f383d2365e77be0cdbfeb31cbde19557c1193c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c8680631750607fc5b220843058469b43177ab0f4abc1510fad9853aa0b11745",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|c8680631750607fc5b220843058469b43177ab0f4abc1510fad9853aa0b11745|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c8cb336b258c32b16dedb8a28b239bdbcc3b888fc3ad4c678775ec8f761a77f8",
+      "detail": "includes on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|c8cb336b258c32b16dedb8a28b239bdbcc3b888fc3ad4c678775ec8f761a77f8|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stripInlineFromHeaderFunctionPrototypes",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "f7d9a082cf20921796cfa56c234ffdc111710d6bed4153954b98f94f9d4615f4",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stripInlineFromHeaderFunctionPrototypes|text-semantic-extraction|active-hook|f7d9a082cf20921796cfa56c234ffdc111710d6bed4153954b98f94f9d4615f4|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#stubNativeReplacedModuleSources",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "9f2019c1a87aac39682e67a3b817cd2096961a58fba83f7397c3e874a4170585",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#stubNativeReplacedModuleSources|rendered-source-read|active-hook|9f2019c1a87aac39682e67a3b817cd2096961a58fba83f7397c3e874a4170585|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "0c8d39988048a3fac719676e29e5b22cb9cbf83783edca51117e4d73b09a5c81",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|rendered-source-read|active-hook|0c8d39988048a3fac719676e29e5b22cb9cbf83783edca51117e4d73b09a5c81|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "rendered-source-read",
+      "reachability": "active-hook",
+      "fingerprint": "42e3c61781bea6d4289185d790d0dc9261fb6e954a21331c5f62ad938f1ed06c",
+      "detail": "read from rendered source carrier",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|rendered-source-read|active-hook|42e3c61781bea6d4289185d790d0dc9261fb6e954a21331c5f62ad938f1ed06c|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "23a404448de1aa503bbeed8f3dd1841c3d747f1d3db9ecc1cfb4ea1b7fd6d5ff",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|self-render-reparse|active-hook|23a404448de1aa503bbeed8f3dd1841c3d747f1d3db9ecc1cfb4ea1b7fd6d5ff|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "self-render-reparse",
+      "reachability": "active-hook",
+      "fingerprint": "6a23320ee37d148498b917ef3dc301d45258bfbaa3354701fbcb0799e70df511",
+      "detail": "plugin-rendered text is parsed after rendering",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|self-render-reparse|active-hook|6a23320ee37d148498b917ef3dc301d45258bfbaa3354701fbcb0799e70df511|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "23a404448de1aa503bbeed8f3dd1841c3d747f1d3db9ecc1cfb4ea1b7fd6d5ff",
+      "detail": "test on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|text-semantic-extraction|active-hook|23a404448de1aa503bbeed8f3dd1841c3d747f1d3db9ecc1cfb4ea1b7fd6d5ff|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "41aa4079cbfc59bade0b3361877a5fa66a734d8ba5f3b588845f0756587ff6c9",
+      "detail": "lastIndexOf on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|text-semantic-extraction|active-hook|41aa4079cbfc59bade0b3361877a5fa66a734d8ba5f3b588845f0756587ff6c9|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "6a23320ee37d148498b917ef3dc301d45258bfbaa3354701fbcb0799e70df511",
+      "detail": "endsWith on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|text-semantic-extraction|active-hook|6a23320ee37d148498b917ef3dc301d45258bfbaa3354701fbcb0799e70df511|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#transformModuleFirstGeneratedSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "c302d4ce0ae2b496dc7c329a94d6a07e9c7f6f953c9045cbfb221719904d45b4",
+      "detail": "slice on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#transformModuleFirstGeneratedSource|text-semantic-extraction|active-hook|c302d4ce0ae2b496dc7c329a94d6a07e9c7f6f953c9045cbfb221719904d45b4|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#typedStoreAccessorTypesFromSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a11863b9fb2862db31c904e26e79921da9d832d339cc7bbeda6a1b7bb2fb5b80",
+      "detail": "trim on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#typedStoreAccessorTypesFromSource|text-semantic-extraction|active-hook|a11863b9fb2862db31c904e26e79921da9d832d339cc7bbeda6a1b7bb2fb5b80|1"
+    },
+    {
+      "file": "src/index.ts",
+      "owner": "src/index.ts#typedStoreAccessorTypesFromSource",
+      "category": "text-semantic-extraction",
+      "reachability": "active-hook",
+      "fingerprint": "a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0",
+      "detail": "exec on source-like text path",
+      "duplicate": 1,
+      "key": "src/index.ts|src/index.ts#typedStoreAccessorTypesFromSource|text-semantic-extraction|active-hook|a56cda7a792d8ab850e857e9fc38d5ed1d002dc4aeefec7d9802eb2f5f8696d0|1"
+    }
+  ],
+  "roots": {
+    "activeHooks": [
+      "src/index.ts#geatscPlugin.createCppBackend.transformGeneratedSources"
+    ],
+    "activeExportedTextRoots": [
+      "src/cpp-reactive-component.ts#insertReactiveSignalSupport",
+      "src/cpp-store-method-replacements.ts#topLevelValueAccessorNamesFromSource"
+    ],
+    "dormantExportedTextRoots": [],
+    "auditedActiveRootsPresent": [
+      "appendMountedRenderersToModuleSources",
+      "bridgeGeneratedComponentRenderers",
+      "decideStoreHubEmission",
+      "enrichNamedArrayShapesFromSource",
+      "ensureModuleFirstPluginRuntimeSource",
+      "externalizeDrainMicrotasksDeclaration",
+      "findModuleFirstCompilerRuntimeHeader",
+      "findModuleFirstRuntimeGlobalsHeader",
+      "includeRecordAliasTypeHeaders",
+      "isModuleFirstCppOutput",
+      "reconcileInterfaceStructReuse",
+      "removeNativeStubTemplateCacheResets",
+      "replaceOutOfLineGeneratedRenderers",
+      "splitModuleFirstMountedRenderers",
+      "stubNativeReplacedModuleSources",
+      "topLevelValueAccessorNamesFromSource",
+      "transformModuleFirstGeneratedSource",
+      "typedStoreAccessorTypesFromSource"
+    ],
+    "auditedDormantRootsPresent": []
+  },
+  "aggregates": {
+    "byCategory": {
+      "post-render-source-synthesis": 1,
+      "rendered-source-read": 27,
+      "self-render-reparse": 54,
+      "terminal-hook": 1,
+      "text-rewrite": 15,
+      "text-semantic-extraction": 211
+    },
+    "byFile": {
+      "src/cpp-canvas-colors.ts": 6,
+      "src/cpp-ir.ts": 3,
+      "src/cpp-mounted.ts": 7,
+      "src/cpp-reactive-component.ts": 17,
+      "src/cpp-source-replacements.ts": 25,
+      "src/cpp-store-hub.ts": 10,
+      "src/cpp-store-method-replacements.ts": 2,
+      "src/cpp-store-method-targets.ts": 36,
+      "src/cpp-store-typed-arrays.ts": 70,
+      "src/cpp-stores.ts": 5,
+      "src/index.ts": 128
+    },
+    "byReachability": {
+      "active-hook": 309
+    }
+  }
+}

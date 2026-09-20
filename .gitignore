@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# Generated runtime / native test build output
+**/.build
+generated-output/
+
+# Generated build/test output
+.build-test/
+.scratch/
+.test-tmp/
+generated-output/

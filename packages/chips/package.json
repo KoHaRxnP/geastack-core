@@ -1,0 +1,31 @@
+{
+  "name": "@geastack/chips",
+  "version": "0.1.3",
+  "description": "Reusable native chip drivers for Geastack embedded targets.",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/core.git",
+    "directory": "packages/chips"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "exports": {
+    "./catalog.json": "./catalog.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "README.md",
+    "catalog.json",
+    "audio",
+    "displays",
+    "imu",
+    "power",
+    "rtc",
+    "touch"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

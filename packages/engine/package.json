@@ -1,0 +1,62 @@
+{
+  "name": "@geastack/engine",
+  "version": "0.1.5",
+  "description": "GeaStack rendering engine, intrinsic JSX primitives, and native engine backends.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/core.git",
+    "directory": "packages/engine"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "types": "./components/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./components/index.d.ts",
+      "default": "./components/index.ts"
+    },
+    "./components": {
+      "types": "./components/index.d.ts",
+      "default": "./components/index.ts"
+    },
+    "./components/View": {
+      "types": "./components/View.d.ts",
+      "default": "./components/View.tsx"
+    },
+    "./components/Text": {
+      "types": "./components/Text.d.ts",
+      "default": "./components/Text.tsx"
+    },
+    "./components/Image": {
+      "types": "./components/Image.d.ts",
+      "default": "./components/Image.tsx"
+    },
+    "./components/Button": {
+      "types": "./components/Button.d.ts",
+      "default": "./components/Button.tsx"
+    },
+    "./package.json": "./package.json",
+    "./ui/*": "./ui/*"
+  },
+  "files": [
+    "bitmap_font.cpp",
+    "canvas.cpp",
+    "components",
+    "css",
+    "image_store.cpp",
+    "rasterized_font.cpp",
+    "touch_runtime.cpp",
+    "ui",
+    "vendor"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@geastack/core": "^0.1.23"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@geastack/host",
+  "version": "0.1.8",
+  "description": "GeaStack host bindings and platform service sources.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/core.git",
+    "directory": "packages/host"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.cpp",
+    "*.h",
+    "host",
+    "include",
+    "services"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

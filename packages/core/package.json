@@ -1,0 +1,70 @@
+{
+  "name": "@geastack/core",
+  "version": "0.1.23",
+  "description": "GeaStack app API, reactivity headers, runtime sources, and type declarations.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geastack/core.git",
+    "directory": "packages/core"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "type": "module",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./runtime.ts"
+    },
+    "./runtime": {
+      "types": "./index.d.ts",
+      "default": "./runtime.ts"
+    },
+    "./runtime/*": {
+      "default": "./runtime/*.ts"
+    },
+    "./package.json": "./package.json",
+    "./scripts/*": "./scripts/*",
+    "./include/*": "./include/*",
+    "./runtime.cpp": "./runtime.cpp",
+    "./gea_sources.sh": "./gea_sources.sh"
+  },
+  "files": [
+    "app_frame_perf.cpp",
+    "css.d.ts",
+    "events.cpp",
+    "gea_sources.sh",
+    "gea_sources.mjs",
+    "gea_app_entry.cpp",
+    "include",
+    "index.d.ts",
+    "jsx.d.ts",
+    "runtime",
+    "runtime.cpp",
+    "runtime-surface.ts",
+    "runtime.ts",
+    "scripts",
+    "vendor"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "optionalDependencies": {
+    "sharp": "^0.35.0"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.23.0",
+    "@babel/parser": "^7.23.0",
+    "@babel/traverse": "^7.23.0",
+    "@babel/types": "^7.23.0",
+    "@geajs/core": "1.4.0",
+    "@geajs/vite-plugin": "1.4.1",
+    "@geastack/compiler": "^1.0.15",
+    "@geastack/geatsc-plugin-gea": "^0.1.6",
+    "opentype.js": "^2.0.0",
+    "vite": "^8.0.0"
+  }
+}
