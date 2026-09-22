@@ -1,6 +1,6 @@
 {
   "name": "@geastack/chips",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Reusable native chip drivers for Geastack embedded targets.",
   "license": "GPL-3.0-only",
   "repository": {
@@ -20,6 +20,7 @@
     "catalog.json",
     "audio",
     "displays",
+    "expanders",
     "imu",
     "power",
     "rtc",

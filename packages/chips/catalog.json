@@ -4,56 +4,148 @@
     "co5300": {
       "label": "CO5300 AMOLED display controller",
       "category": "display",
-      "interfaces": ["qspi"],
-      "sources": ["displays/co5300/co5300.cpp"],
-      "headers": ["displays/co5300/co5300.h"],
+      "interfaces": [
+        "qspi"
+      ],
+      "sources": [
+        "displays/co5300/co5300.cpp"
+      ],
+      "headers": [
+        "displays/co5300/co5300.h"
+      ],
       "adapters": {
         "esp32-idf": {
-          "mcus": ["esp32s3"],
-          "bindingSources": ["chip_bindings/displays/co5300.cpp"]
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/displays/co5300.cpp"
+          ]
         }
       },
       "configuration": [
-        { "path": "width", "label": "Display width", "type": "integer", "min": 1, "max": 4096 },
-        { "path": "height", "label": "Display height", "type": "integer", "min": 1, "max": 4096 },
-        { "path": "spiHost", "label": "SPI host", "type": "choice", "values": ["spi2", "spi3"], "default": "spi2" },
-        { "path": "pins.cs", "label": "Chip-select pin", "type": "pin" },
-        { "path": "pins.pclk", "label": "Pixel-clock pin", "type": "pin" },
-        { "path": "pins.data0", "label": "QSPI data 0 pin", "type": "pin" },
-        { "path": "pins.data1", "label": "QSPI data 1 pin", "type": "pin" },
-        { "path": "pins.data2", "label": "QSPI data 2 pin", "type": "pin" },
-        { "path": "pins.data3", "label": "QSPI data 3 pin", "type": "pin" },
-        { "path": "pins.reset", "label": "Display reset pin", "type": "pin" },
-        { "path": "pins.te", "label": "Tearing-effect pin", "type": "pin", "optional": true }
+        {
+          "path": "width",
+          "label": "Display width",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "height",
+          "label": "Display height",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "spiHost",
+          "label": "SPI host",
+          "type": "choice",
+          "values": [
+            "spi2",
+            "spi3"
+          ],
+          "default": "spi2"
+        },
+        {
+          "path": "pins.cs",
+          "label": "Chip-select pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.pclk",
+          "label": "Pixel-clock pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data0",
+          "label": "QSPI data 0 pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data1",
+          "label": "QSPI data 1 pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data2",
+          "label": "QSPI data 2 pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data3",
+          "label": "QSPI data 3 pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.reset",
+          "label": "Display reset pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.te",
+          "label": "Tearing-effect pin",
+          "type": "pin",
+          "optional": true
+        }
       ]
     },
     "ft3168": {
       "label": "FT3168 capacitive touch controller",
       "category": "touch",
-      "interfaces": ["i2c"],
-      "sources": ["touch/ft3168/ft3168.cpp"],
-      "headers": ["touch/ft3168/ft3168.h"],
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "touch/ft3168/ft3168.cpp"
+      ],
+      "headers": [
+        "touch/ft3168/ft3168.h"
+      ],
       "adapters": {
         "esp32-idf": {
-          "mcus": ["esp32s3"],
-          "bindingSources": ["chip_bindings/touch/ft3168.cpp"]
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/touch/ft3168.cpp"
+          ]
         }
       },
       "configuration": [
-        { "path": "pins.reset", "label": "Touch reset pin", "type": "pin" },
-        { "path": "pins.interrupt", "label": "Touch interrupt pin", "type": "pin" }
+        {
+          "path": "pins.reset",
+          "label": "Touch reset pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.interrupt",
+          "label": "Touch interrupt pin",
+          "type": "pin"
+        }
       ]
     },
     "axp2101": {
       "label": "AXP2101 power-management controller",
       "category": "power",
-      "interfaces": ["i2c"],
-      "sources": ["power/axp2101/axp2101.cpp"],
-      "headers": ["power/axp2101/axp2101.h"],
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "power/axp2101/axp2101.cpp"
+      ],
+      "headers": [
+        "power/axp2101/axp2101.h"
+      ],
       "adapters": {
         "esp32-idf": {
-          "mcus": ["esp32s3"],
-          "bindingSources": ["chip_bindings/power/axp2101.cpp"]
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/power/axp2101.cpp"
+          ]
         }
       },
       "configuration": []
@@ -61,13 +153,24 @@
     "qmi8658": {
       "label": "QMI8658 inertial measurement unit",
       "category": "imu",
-      "interfaces": ["i2c"],
-      "sources": ["imu/qmi8658/qmi8658.cpp"],
-      "headers": ["imu/qmi8658/qmi8658.h"],
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "imu/qmi8658/qmi8658.cpp"
+      ],
+      "headers": [
+        "imu/qmi8658/qmi8658.h"
+      ],
       "adapters": {
         "esp32-idf": {
-          "mcus": ["esp32s3", "esp32p4"],
-          "bindingSources": ["chip_bindings/imu/qmi8658.cpp"]
+          "mcus": [
+            "esp32s3",
+            "esp32p4"
+          ],
+          "bindingSources": [
+            "chip_bindings/imu/qmi8658.cpp"
+          ]
         }
       },
       "configuration": []
@@ -75,77 +178,450 @@
     "es8311": {
       "label": "ES8311 audio codec",
       "category": "audio",
-      "interfaces": ["i2s"],
+      "interfaces": [
+        "i2s"
+      ],
       "sources": [],
-      "headers": ["audio/es8311/es8311.h"],
+      "headers": [
+        "audio/es8311/es8311.h"
+      ],
       "adapters": {
         "esp32-idf": {
-          "mcus": ["esp32s3"],
-          "bindingSources": ["chip_bindings/audio/es8311.cpp"]
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/audio/es8311.cpp"
+          ]
         }
       },
       "configuration": [
-        { "path": "pins.mclk", "label": "I2S master-clock pin", "type": "pin" },
-        { "path": "pins.bclk", "label": "I2S bit-clock pin", "type": "pin" },
-        { "path": "pins.ws", "label": "I2S word-select pin", "type": "pin" },
-        { "path": "pins.dout", "label": "I2S data-out pin", "type": "pin" },
-        { "path": "pins.din", "label": "I2S data-in pin", "type": "pin" },
-        { "path": "pins.powerAmplifier", "label": "Power-amplifier enable pin", "type": "pin", "optional": true }
+        {
+          "path": "pins.mclk",
+          "label": "I2S master-clock pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.bclk",
+          "label": "I2S bit-clock pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.ws",
+          "label": "I2S word-select pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.dout",
+          "label": "I2S data-out pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.din",
+          "label": "I2S data-in pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.powerAmplifier",
+          "label": "Power-amplifier enable pin",
+          "type": "pin",
+          "optional": true
+        }
       ]
     },
     "sh8601": {
       "label": "SH8601 AMOLED display controller",
       "category": "display",
-      "interfaces": ["qspi"],
-      "sources": ["displays/sh8601/sh8601.cpp"],
-      "headers": ["displays/sh8601/sh8601.h"],
+      "interfaces": [
+        "qspi"
+      ],
+      "sources": [
+        "displays/sh8601/sh8601.cpp"
+      ],
+      "headers": [
+        "displays/sh8601/sh8601.h"
+      ],
       "adapters": {},
       "configuration": []
     },
     "rm690b0": {
       "label": "RM690B0 AMOLED display controller",
       "category": "display",
-      "interfaces": ["qspi"],
-      "sources": ["displays/rm690b0/rm690b0.cpp"],
-      "headers": ["displays/rm690b0/rm690b0.h"],
+      "interfaces": [
+        "qspi"
+      ],
+      "sources": [
+        "displays/rm690b0/rm690b0.cpp"
+      ],
+      "headers": [
+        "displays/rm690b0/rm690b0.h"
+      ],
       "adapters": {},
       "configuration": []
     },
     "ft6336": {
       "label": "FT6336 capacitive touch controller",
       "category": "touch",
-      "interfaces": ["i2c"],
-      "sources": ["touch/ft6336/ft6336.cpp"],
-      "headers": ["touch/ft6336/ft6336.h"],
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "touch/ft6336/ft6336.cpp"
+      ],
+      "headers": [
+        "touch/ft6336/ft6336.h"
+      ],
       "adapters": {},
       "configuration": []
     },
     "eta6098": {
       "label": "ETA6098 power-management controller",
       "category": "power",
-      "interfaces": ["i2c"],
-      "sources": ["power/eta6098/eta6098.cpp"],
-      "headers": ["power/eta6098/eta6098.h"],
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "power/eta6098/eta6098.cpp"
+      ],
+      "headers": [
+        "power/eta6098/eta6098.h"
+      ],
       "adapters": {},
       "configuration": []
     },
     "pcf85063": {
       "label": "PCF85063 real-time clock",
       "category": "rtc",
-      "interfaces": ["i2c"],
-      "sources": ["rtc/pcf85063/pcf85063.cpp"],
-      "headers": ["rtc/pcf85063/pcf85063.h"],
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "rtc/pcf85063/pcf85063.cpp"
+      ],
+      "headers": [
+        "rtc/pcf85063/pcf85063.h"
+      ],
       "adapters": {},
       "configuration": []
     },
     "mtk_factory_imu": {
       "label": "MediaTek factory IMU protocol",
       "category": "imu",
-      "interfaces": ["host"],
+      "interfaces": [
+        "host"
+      ],
       "sources": [],
-      "headers": ["imu/mtk_factory_imu/mtk_factory_imu.h"],
+      "headers": [
+        "imu/mtk_factory_imu/mtk_factory_imu.h"
+      ],
       "adapters": {},
       "configuration": []
+    },
+    "rgb_panel": {
+      "label": "Parallel RGB (DPI) TFT panel on the LCD peripheral",
+      "category": "display",
+      "interfaces": [
+        "rgb"
+      ],
+      "sources": [],
+      "headers": [],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/displays/rgb_panel.cpp"
+          ],
+          "requires": [
+            "esp_driver_ledc"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "width",
+          "label": "Display width",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "height",
+          "label": "Display height",
+          "type": "integer",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "path": "pclkHz",
+          "label": "Pixel clock (Hz)",
+          "type": "integer",
+          "min": 1000000,
+          "max": 40000000,
+          "default": 16000000
+        },
+        {
+          "path": "hsyncPulseWidth",
+          "label": "HSYNC pulse width (pixel clocks)",
+          "type": "integer",
+          "min": 1,
+          "max": 1024,
+          "default": 4
+        },
+        {
+          "path": "hsyncBackPorch",
+          "label": "HSYNC back porch (pixel clocks)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "hsyncFrontPorch",
+          "label": "HSYNC front porch (pixel clocks)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "vsyncPulseWidth",
+          "label": "VSYNC pulse width (lines)",
+          "type": "integer",
+          "min": 1,
+          "max": 1024,
+          "default": 4
+        },
+        {
+          "path": "vsyncBackPorch",
+          "label": "VSYNC back porch (lines)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "vsyncFrontPorch",
+          "label": "VSYNC front porch (lines)",
+          "type": "integer",
+          "min": 0,
+          "max": 1024,
+          "default": 8
+        },
+        {
+          "path": "pclkActiveNeg",
+          "label": "Latch data on the falling pixel-clock edge",
+          "type": "boolean",
+          "default": true
+        },
+        {
+          "path": "pins.de",
+          "label": "Data-enable pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.hsync",
+          "label": "HSYNC pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.vsync",
+          "label": "VSYNC pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.pclk",
+          "label": "Pixel-clock pin",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data0",
+          "label": "RGB565 data 0 pin (B3)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data1",
+          "label": "RGB565 data 1 pin (B4)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data2",
+          "label": "RGB565 data 2 pin (B5)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data3",
+          "label": "RGB565 data 3 pin (B6)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data4",
+          "label": "RGB565 data 4 pin (B7)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data5",
+          "label": "RGB565 data 5 pin (G2)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data6",
+          "label": "RGB565 data 6 pin (G3)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data7",
+          "label": "RGB565 data 7 pin (G4)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data8",
+          "label": "RGB565 data 8 pin (G5)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data9",
+          "label": "RGB565 data 9 pin (G6)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data10",
+          "label": "RGB565 data 10 pin (G7)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data11",
+          "label": "RGB565 data 11 pin (R3)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data12",
+          "label": "RGB565 data 12 pin (R4)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data13",
+          "label": "RGB565 data 13 pin (R5)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data14",
+          "label": "RGB565 data 14 pin (R6)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.data15",
+          "label": "RGB565 data 15 pin (R7)",
+          "type": "pin"
+        },
+        {
+          "path": "pins.disp",
+          "label": "Display-enable pin",
+          "type": "pin",
+          "optional": true
+        },
+        {
+          "path": "pins.backlight",
+          "label": "Backlight PWM pin (leave unset when an I/O expander drives it)",
+          "type": "pin",
+          "optional": true
+        }
+      ]
+    },
+    "gt911": {
+      "label": "GT911 capacitive touch controller",
+      "category": "touch",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "touch/gt911/gt911.cpp"
+      ],
+      "headers": [
+        "touch/gt911/gt911.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/touch/gt911.cpp"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "pins.reset",
+          "label": "Touch reset pin (leave unset when an I/O expander drives it)",
+          "type": "pin",
+          "optional": true
+        },
+        {
+          "path": "pins.interrupt",
+          "label": "Touch interrupt pin",
+          "type": "pin",
+          "optional": true
+        }
+      ]
+    },
+    "ch422g": {
+      "label": "CH422G I2C I/O expander",
+      "category": "expander",
+      "interfaces": [
+        "i2c"
+      ],
+      "sources": [
+        "expanders/ch422g/ch422g.cpp"
+      ],
+      "headers": [
+        "expanders/ch422g/ch422g.h"
+      ],
+      "adapters": {
+        "esp32-idf": {
+          "mcus": [
+            "esp32s3"
+          ],
+          "bindingSources": [
+            "chip_bindings/expanders/ch422g.cpp"
+          ]
+        }
+      },
+      "configuration": [
+        {
+          "path": "initialOutputs",
+          "label": "IO0-IO7 levels latched at boot (bit mask)",
+          "type": "integer",
+          "min": 0,
+          "max": 255,
+          "default": 255
+        },
+        {
+          "path": "outputs.backlight",
+          "label": "Expander pin driving the display backlight",
+          "type": "integer",
+          "min": 0,
+          "max": 11,
+          "optional": true
+        },
+        {
+          "path": "outputs.touchReset",
+          "label": "Expander pin driving the touch controller reset",
+          "type": "integer",
+          "min": 0,
+          "max": 11,
+          "optional": true
+        },
+        {
+          "path": "outputs.displayReset",
+          "label": "Expander pin driving the display reset",
+          "type": "integer",
+          "min": 0,
+          "max": 11,
+          "optional": true
+        }
+      ]
     }
   }
 }
