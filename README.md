@@ -38,11 +38,11 @@ node test/test_gea_app_manifest.mjs
 ./test/run-tests.sh
 ```
 
-Some tests compile or read real applications. Those apps are not part of this
-repository -- they live in [geastack/examples](https://github.com/geastack/examples),
-or in your own project. Run the suite **from** that project, the same rule the
-rest of the stack follows: the directory you are standing in is the thing being
-compiled. Run from anywhere without an `apps/` folder they print `SKIP` and pass:
+Some tests compile or read applications that live outside this repository, in
+[geastack/examples](https://github.com/geastack/examples) or your own project.
+Run the suite from that project's directory; the tests use the apps in the
+current directory. From a directory without an `apps/` folder they print `SKIP`
+and pass:
 
 ```sh
 cd /path/to/examples && bash /path/to/core/packages/core/test/run-tests.sh
