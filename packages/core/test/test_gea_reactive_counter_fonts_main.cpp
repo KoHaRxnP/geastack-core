@@ -9,6 +9,9 @@
 
 #include <cstdlib>
 #include <cstdio>
+#include <map>
+#include <string>
+#include <tuple>
 
 namespace gea::framework::app::generated {
 void drainMicrotasks();
@@ -35,6 +38,36 @@ bool expectNear(int actual, int expected, int tolerance, const char *label)
 	             tolerance,
 	             actual);
 	return false;
+}
+
+// A font has one baseline for a given line box. Centering each glyph's ink
+// independently makes digits, symbols and descenders jump when text changes.
+// Recover the baseline from painted glyph metrics, then compare it across the
+// substitutions within each layout mode and line-box height.
+// A constrained box can clamp the baseline, so different heights are separate cases.
+bool expectStableBaseline(const char *text,
+                          const gea::framework::graphics::RasterizedFont &font,
+                          int inkTop,
+                          int inkBottom,
+                          int boxTop,
+                          int boxHeight,
+                          const char *label)
+{
+	if (inkTop < boxTop || inkBottom >= boxTop + boxHeight) {
+		std::fprintf(stderr, "[test_gea_reactive_counter_fonts] %s ink %d..%d escapes box %d..%d\n",
+		             label, inkTop, inkBottom, boxTop, boxTop + boxHeight - 1);
+		return false;
+	}
+	gea::framework::graphics::Glyph glyph{};
+	if (!text || !text[0] || text[1] || !font.glyph(text[0], &glyph)) return false;
+	const int baselineFromCenter2 = 2 * (inkTop + glyph.bearingY) - (2 * boxTop + boxHeight - 1);
+	static std::map<std::tuple<std::string, int, int>, int> baselines;
+	const auto inserted = baselines.emplace(std::make_tuple(std::string(label), font.sizePx(), boxHeight), baselineFromCenter2);
+	if (!inserted.second && std::abs(baselineFromCenter2 - inserted.first->second) > 2) {
+		std::fprintf(stderr, "glyph=%s size=%d boxHeight=%d inkTop=%d bearingY=%d\n", text, font.sizePx(), boxHeight, inkTop, glyph.bearingY);
+	}
+	// Rasterized bounds can trim a transparent edge row; allow one pixel.
+	return inserted.second || expectNear(baselineFromCenter2, inserted.first->second, 2, label);
 }
 
 bool assertCounterFonts(int width, int height, double devicePixelRatio, int titleSize, int countSize, int labelSize, int resetSize)
@@ -184,7 +217,7 @@ bool commandTextInkBounds(const gea::embedded::ui::DisplayCommand &command,
 	return true;
 }
 
-bool expectActualClassTextCentered(const char *className)
+bool expectActualClassTextBaseline(const char *className)
 {
 	using namespace gea::embedded::ui;
 
@@ -219,28 +252,13 @@ bool expectActualClassTextCentered(const char *className)
 		return false;
 	}
 
-	const int paintedCenter2 = y0 + y1;
-	const int parentCenter2 = parent.layout.y * 2 + parent.layout.height - 1;
-	if (!expectNear(paintedCenter2, parentCenter2, 2, className)) {
-		const int fontSize = textCommand ? static_cast<int>(textCommand->text.scale * 16.0f + 0.5f) : 0;
-		const auto font = gea::framework::graphics::FontRegistry::rasterizedFamily(textCommand ? textCommand->text.fontId : -1, fontSize);
-		std::fprintf(stderr,
-		             "[test_gea_reactive_counter_fonts] %s parent=(y=%d h=%d) text=(y=%d h=%d font=%d size=%d line=%d cmdY=%d)\n",
-		             className,
-		             parent.layout.y,
-		             parent.layout.height,
-		             textNode.layout.y,
-		             textNode.layout.height,
-		             textCommand ? textCommand->text.fontId : -1,
-		             fontSize,
-		             font.valid() ? font.lineHeight() : -1,
-		             textCommand ? textCommand->text.y : -1);
-		return false;
-	}
-	return true;
+	const int fontSize = static_cast<int>(textCommand->text.scale * 16.0f + 0.5f);
+	const auto font = gea::framework::graphics::FontRegistry::rasterizedFamily(textCommand->text.fontId, fontSize);
+	return expectStableBaseline(textCommand->text.text, font, y0, y1,
+	                            parent.layout.y, parent.layout.height, "counter label baseline");
 }
 
-bool assertActualReactiveCounterTextCenters()
+bool assertActualReactiveCounterTextBaselines()
 {
 	using namespace gea::embedded::ui;
 
@@ -251,13 +269,13 @@ bool assertActualReactiveCounterTextCenters()
 	__gea_top_level();
 	gea::embedded::test::refresh();
 
-	if (!expectActualClassTextCentered("counter-count")) return false;
-	if (!expectActualClassTextCentered("counter-minus-label")) return false;
-	if (!expectActualClassTextCentered("counter-plus-label")) return false;
+	if (!expectActualClassTextBaseline("counter-count")) return false;
+	if (!expectActualClassTextBaseline("counter-minus-label")) return false;
+	if (!expectActualClassTextBaseline("counter-plus-label")) return false;
 	return true;
 }
 
-bool assertGeneratedTextInkCentersInLineBox(const char *text, int fontSize)
+bool assertGeneratedTextBaseline(const char *text, int fontSize)
 {
 	using namespace gea::embedded::ui;
 	using namespace gea::framework::graphics;
@@ -303,12 +321,11 @@ bool assertGeneratedTextInkCentersInLineBox(const char *text, int fontSize)
 		return false;
 	}
 
-	const int paintedCenter2 = y0 + y1;
-	const int boxCenter2 = node.layout.y * 2 + node.layout.height - 1;
-	return expectNear(paintedCenter2, boxCenter2, 2, "generated text ink vertical center");
+	return expectStableBaseline(text, font, y0, y1, node.layout.y, node.layout.height,
+	                            "generated text baseline");
 }
 
-bool assertFlexCenteredGeneratedTextInk(const char *text, int fontSize, int parentWidth, int parentHeight)
+bool assertFlexGeneratedTextBaseline(const char *text, int fontSize, int parentWidth, int parentHeight)
 {
 	using namespace gea::embedded::ui;
 	using namespace gea::framework::graphics;
@@ -326,35 +343,29 @@ bool assertFlexCenteredGeneratedTextInk(const char *text, int fontSize, int pare
 	StyleSheet::instance().clear();
 
 	const int rootId = Tree::instance().createView();
-	Node &root = Tree::instance().node(rootId);
-	root.style.display = kDisplayFlex;
-	root.style.flex_direction = 0;
-	root.style.flex_direction_explicit = 1;
-	root.style.justify_content = 1;
-	root.style.align_items = 1;
-	root.style.width = 720;
-	root.style.height = 720;
+	NodeHandle(rootId).style().set(Property::Display, kDisplayFlex);
+	NodeHandle(rootId).style().set(Property::FlexDirection, 0);
+	NodeHandle(rootId).style().set(Property::JustifyContent, 1);
+	NodeHandle(rootId).style().set(Property::AlignItems, 1);
+	NodeHandle(rootId).style().set(Property::Width, 720);
+	NodeHandle(rootId).style().set(Property::Height, 720);
 
 	const int parentId = Tree::instance().createView();
-	Node &parent = Tree::instance().node(parentId);
-	parent.style.display = kDisplayFlex;
-	parent.style.flex_direction = 0;
-	parent.style.flex_direction_explicit = 1;
-	parent.style.justify_content = 1;
-	parent.style.align_items = 1;
-	parent.style.width = parentWidth;
-	parent.style.height = parentHeight;
+	NodeHandle(parentId).style().set(Property::Display, kDisplayFlex);
+	NodeHandle(parentId).style().set(Property::FlexDirection, 0);
+	NodeHandle(parentId).style().set(Property::JustifyContent, 1);
+	NodeHandle(parentId).style().set(Property::AlignItems, 1);
+	NodeHandle(parentId).style().set(Property::Width, parentWidth);
+	NodeHandle(parentId).style().set(Property::Height, parentHeight);
 	NodeHandle(rootId).appendChild(NodeHandle(parentId));
 
 	const int textId = Tree::instance().createText();
 	Tree::instance().setText(textId, text);
-	Node &textNode = Tree::instance().node(textId);
-	textNode.style.font_id = familyId;
-	textNode.style.font_size = fontSize;
-	textNode.style.text_color = 0xffff;
-	textNode.style.text_alpha = 255;
-	textNode.style.text_align = 1;
-	textNode.style.white_space = 1;
+	NodeHandle(textId).style().set(Property::FontId, familyId);
+	NodeHandle(textId).style().set(Property::FontSize, fontSize);
+	NodeHandle(textId).style().set(Property::Color, 0xffff);
+	NodeHandle(textId).style().set(Property::TextAlign, 1);
+	NodeHandle(textId).style().set(Property::WhiteSpace, 1);
 	NodeHandle(parentId).appendChild(NodeHandle(textId));
 
 	Tree::instance().mount(rootId, 720, 720);
@@ -369,12 +380,12 @@ bool assertFlexCenteredGeneratedTextInk(const char *text, int fontSize, int pare
 	}
 
 	const Node &laidOutParent = Tree::instance().node(parentId);
-	const int paintedCenter2 = y0 + y1;
-	const int parentCenter2 = laidOutParent.layout.y * 2 + laidOutParent.layout.height - 1;
-	return expectNear(paintedCenter2, parentCenter2, 2, "flex-centered generated text ink");
+	const auto font = FontRegistry::rasterizedFamily(familyId, fontSize);
+	return expectStableBaseline(text, font, y0, y1, laidOutParent.layout.y, laidOutParent.layout.height,
+	                            "flex-generated text baseline");
 }
 
-bool assertFlexCenteredGeneratedSpanInk(const char *text, int fontSize, int parentWidth, int parentHeight)
+bool assertFlexGeneratedSpanBaseline(const char *text, int fontSize, int parentWidth, int parentHeight)
 {
 	using namespace gea::embedded::ui;
 	using namespace gea::framework::graphics;
@@ -392,43 +403,35 @@ bool assertFlexCenteredGeneratedSpanInk(const char *text, int fontSize, int pare
 	StyleSheet::instance().clear();
 
 	const int rootId = Tree::instance().createView();
-	Node &root = Tree::instance().node(rootId);
-	root.style.display = kDisplayFlex;
-	root.style.flex_direction = 0;
-	root.style.flex_direction_explicit = 1;
-	root.style.justify_content = 1;
-	root.style.align_items = 1;
-	root.style.width = 720;
-	root.style.height = 720;
+	NodeHandle(rootId).style().set(Property::Display, kDisplayFlex);
+	NodeHandle(rootId).style().set(Property::FlexDirection, 0);
+	NodeHandle(rootId).style().set(Property::JustifyContent, 1);
+	NodeHandle(rootId).style().set(Property::AlignItems, 1);
+	NodeHandle(rootId).style().set(Property::Width, 720);
+	NodeHandle(rootId).style().set(Property::Height, 720);
 
 	const int parentId = Tree::instance().createView();
-	Node &parent = Tree::instance().node(parentId);
-	parent.style.display = kDisplayFlex;
-	parent.style.flex_direction = 0;
-	parent.style.flex_direction_explicit = 1;
-	parent.style.justify_content = 1;
-	parent.style.align_items = 1;
-	parent.style.width = parentWidth;
-	parent.style.height = parentHeight;
+	NodeHandle(parentId).style().set(Property::Display, kDisplayFlex);
+	NodeHandle(parentId).style().set(Property::FlexDirection, 0);
+	NodeHandle(parentId).style().set(Property::JustifyContent, 1);
+	NodeHandle(parentId).style().set(Property::AlignItems, 1);
+	NodeHandle(parentId).style().set(Property::Width, parentWidth);
+	NodeHandle(parentId).style().set(Property::Height, parentHeight);
 	NodeHandle(rootId).appendChild(NodeHandle(parentId));
 
 	const int spanId = Tree::instance().createView();
-	Node &span = Tree::instance().node(spanId);
-	span.style.font_id = familyId;
-	span.style.font_size = fontSize;
-	span.style.text_color = 0xffff;
-	span.style.text_alpha = 255;
+	NodeHandle(spanId).style().set(Property::FontId, familyId);
+	NodeHandle(spanId).style().set(Property::FontSize, fontSize);
+	NodeHandle(spanId).style().set(Property::Color, 0xffff);
 	NodeHandle(parentId).appendChild(NodeHandle(spanId));
 
 	const int textId = Tree::instance().createText();
 	Tree::instance().setText(textId, text);
-	Node &textNode = Tree::instance().node(textId);
-	textNode.style.font_id = familyId;
-	textNode.style.font_size = fontSize;
-	textNode.style.text_color = 0xffff;
-	textNode.style.text_alpha = 255;
-	textNode.style.text_align = 1;
-	textNode.style.white_space = 1;
+	NodeHandle(textId).style().set(Property::FontId, familyId);
+	NodeHandle(textId).style().set(Property::FontSize, fontSize);
+	NodeHandle(textId).style().set(Property::Color, 0xffff);
+	NodeHandle(textId).style().set(Property::TextAlign, 1);
+	NodeHandle(textId).style().set(Property::WhiteSpace, 1);
 	NodeHandle(spanId).appendChild(NodeHandle(textId));
 
 	Tree::instance().mount(rootId, 720, 720);
@@ -443,16 +446,16 @@ bool assertFlexCenteredGeneratedSpanInk(const char *text, int fontSize, int pare
 	}
 
 	const Node &laidOutParent = Tree::instance().node(parentId);
-	const int paintedCenter2 = y0 + y1;
-	const int parentCenter2 = laidOutParent.layout.y * 2 + laidOutParent.layout.height - 1;
-	return expectNear(paintedCenter2, parentCenter2, 2, "flex-centered generated span ink");
+	const auto font = FontRegistry::rasterizedFamily(familyId, fontSize);
+	return expectStableBaseline(text, font, y0, y1, laidOutParent.layout.y, laidOutParent.layout.height,
+	                            "flex-generated span baseline");
 }
 
 }  // namespace
 
 int main()
 {
-	if (!assertActualReactiveCounterTextCenters()) return 1;
+	if (!assertActualReactiveCounterTextBaselines()) return 1;
 
 	gea::embedded::test::resetNativeHost();
 
@@ -460,24 +463,32 @@ int main()
 	if (!assertCounterFonts(720, 1440, 2.0, 101, 245, 130, 60)) return 1;
 	if (!assertCounterFonts(200, 200, 1.0, 24, 46, 24, 12)) return 1;
 	if (!assertCounterCornerRadii()) return 1;
-	if (!assertGeneratedTextInkCentersInLineBox("-", 120)) return 1;
-	if (!assertGeneratedTextInkCentersInLineBox("+", 120)) return 1;
-	if (!assertGeneratedTextInkCentersInLineBox("0", 220)) return 1;
-	if (!assertFlexCenteredGeneratedTextInk("-", 120, 240, 154)) return 1;
-	if (!assertFlexCenteredGeneratedTextInk("+", 120, 240, 154)) return 1;
-	if (!assertFlexCenteredGeneratedTextInk("0", 220, 620, 360)) return 1;
-	if (!assertFlexCenteredGeneratedSpanInk("-", 120, 240, 154)) return 1;
-	if (!assertFlexCenteredGeneratedSpanInk("+", 120, 240, 154)) return 1;
-	if (!assertFlexCenteredGeneratedSpanInk("0", 220, 620, 360)) return 1;
-	if (!assertGeneratedTextInkCentersInLineBox("-", 130)) return 1;
-	if (!assertGeneratedTextInkCentersInLineBox("+", 130)) return 1;
-	if (!assertGeneratedTextInkCentersInLineBox("0", 245)) return 1;
-	if (!assertFlexCenteredGeneratedTextInk("-", 130, 245, 173)) return 1;
-	if (!assertFlexCenteredGeneratedTextInk("+", 130, 245, 173)) return 1;
-	if (!assertFlexCenteredGeneratedTextInk("0", 245, 620, 346)) return 1;
-	if (!assertFlexCenteredGeneratedSpanInk("-", 130, 245, 173)) return 1;
-	if (!assertFlexCenteredGeneratedSpanInk("+", 130, 245, 173)) return 1;
-	if (!assertFlexCenteredGeneratedSpanInk("0", 245, 620, 346)) return 1;
+	if (!assertGeneratedTextBaseline("-", 120)) return 1;
+	if (!assertGeneratedTextBaseline("+", 120)) return 1;
+	if (!assertGeneratedTextBaseline("0", 220)) return 1;
+	if (!assertFlexGeneratedTextBaseline("-", 120, 240, 154)) return 1;
+	if (!assertFlexGeneratedTextBaseline("+", 120, 240, 154)) return 1;
+	if (!assertFlexGeneratedTextBaseline("0", 220, 620, 360)) return 1;
+	if (!assertFlexGeneratedSpanBaseline("-", 120, 240, 154)) return 1;
+	if (!assertFlexGeneratedSpanBaseline("+", 120, 240, 154)) return 1;
+	if (!assertFlexGeneratedSpanBaseline("0", 220, 620, 360)) return 1;
+	if (!assertGeneratedTextBaseline("-", 130)) return 1;
+	if (!assertGeneratedTextBaseline("+", 130)) return 1;
+	if (!assertGeneratedTextBaseline("0", 245)) return 1;
+	if (!assertFlexGeneratedTextBaseline("-", 130, 245, 173)) return 1;
+	if (!assertFlexGeneratedTextBaseline("+", 130, 245, 173)) return 1;
+	if (!assertFlexGeneratedTextBaseline("0", 245, 620, 346)) return 1;
+	if (!assertFlexGeneratedSpanBaseline("-", 130, 245, 173)) return 1;
+	if (!assertFlexGeneratedSpanBaseline("+", 130, 245, 173)) return 1;
+	if (!assertFlexGeneratedSpanBaseline("0", 245, 620, 346)) return 1;
+
+	for (int size : {120, 130, 220, 245}) {
+		for (const char *text : {"0", "A", "g", "+", "-"}) {
+			if (!assertGeneratedTextBaseline(text, size)) return 1;
+			if (!assertFlexGeneratedTextBaseline(text, size, 620, 400)) return 1;
+			if (!assertFlexGeneratedSpanBaseline(text, size, 620, 400)) return 1;
+		}
+	}
 
 	return 0;
 }
