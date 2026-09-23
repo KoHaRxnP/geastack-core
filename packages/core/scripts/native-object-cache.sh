@@ -152,7 +152,7 @@ gea_native_wait_for_slot() {
   if ! wait "$pid"; then
     GEA_NATIVE_COMPILE_FAILED=1
   fi
-  GEA_NATIVE_PIDS=("${rest[@]}")
+  GEA_NATIVE_PIDS=(${rest[@]+"${rest[@]}"})
 }
 
 gea_native_wait_for_all() {

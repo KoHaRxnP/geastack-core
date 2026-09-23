@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 4 ]]; then
-  echo "usage: $0 <build-name> <app-dir under the app project> <entry> <test-main> [build args...]" >&2
+  echo "usage: $0 <build-name> <app-dir absolute or under the app project> <entry> <test-main> [build args...]" >&2
   exit 2
 fi
 
@@ -17,12 +17,15 @@ BUILD_DIR="$ROOT/packages/core/test/.build/$BUILD_NAME"
 CXX_BIN="${CXX:-clang++}"
 
 source "$ROOT/packages/core/test/native-test-common.sh"
-gea_require_app_project
+if [[ "$APP_DIR" != /* ]]; then
+  gea_require_app_project
+  APP_DIR="$GEA_APP_PROJECT/$APP_DIR"
+fi
 
 mkdir -p "$BUILD_DIR"
 
 node "$ROOT/packages/core/scripts/build-gea-vite-geatsc.mjs" \
-  --app-dir "$GEA_APP_PROJECT/$APP_DIR" \
+  --app-dir "$APP_DIR" \
   --entry "$ENTRY" \
   --out-dir "$BUILD_DIR" \
   --gea-embedded-compat \
