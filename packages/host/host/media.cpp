@@ -9,6 +9,7 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <sys/stat.h>
 #include <unordered_map>
 #include <vector>
 
@@ -21,7 +22,6 @@
 #if defined(_WIN32)
 #include <direct.h>
 #else
-#include <sys/stat.h>
 #include <sys/types.h>
 #endif
 
@@ -55,6 +55,7 @@ struct RecorderState {
   FILE *file = nullptr;
   std::size_t samplesWritten = 0;
   bool writeFailed = false;
+  bool defaultPath = false;
 };
 
 std::unordered_map<NativeMediaStreamHandle, StreamState> &streamTable() {
@@ -101,6 +102,7 @@ std::string formatHandleId(const char *prefix, std::uint32_t handle) {
 constexpr std::size_t kCaptureChunkSamples = 2048;
 constexpr std::size_t kMaxRingBufferSamples = 16 * kCaptureChunkSamples;
 constexpr std::size_t kRecorderFlushSamples = kCaptureChunkSamples;
+constexpr unsigned kMaxDefaultRecordingNames = 1000;
 constexpr double kDefaultRecorderSampleRate = 16000.0;
 
 #ifdef ESP_PLATFORM
@@ -224,11 +226,50 @@ double writeWavFile(const std::string &path, const std::vector<std::int16_t> &sa
   return static_cast<double>(44u + actualDataBytes);
 }
 
-bool openRecorderFile(RecorderState &recorder) {
+bool recordingPathAssigned(const std::string &path) {
+  for (const auto &entry : recorderTable()) {
+    if (entry.second.path == path) return true;
+  }
+  return false;
+}
+
+// Recorder handles restart at 1 on every boot, so a name derived from the handle alone would overwrite
+// a recording left from before the reboot. Picks the first name no recorder holds and that is definitely
+// absent from the card; empty when there is none, so recording fails instead of overwriting.
+// Call with mediaMutex() held, so two recorders cannot pick the same name.
+std::string nextDefaultRecordingPath(NativeMediaRecorderHandle handle) {
+  gea::platform::storage::ensureMounted();
+  char buf[96];
+  const auto first = static_cast<unsigned>(handle);
+  for (unsigned number = first; number < first + kMaxDefaultRecordingNames; ++number) {
+    std::snprintf(buf, sizeof(buf), "/sdcard/recordings/recording_%03u.wav", number);
+    if (recordingPathAssigned(buf)) continue;
+
+    struct stat info;
+    if (stat(buf, &info) != 0 && errno == ENOENT) return buf;
+  }
+  return {};
+}
+
+// A default name is claimed by creating the file ("x" fails if it exists), so it never replaces a file that
+// appeared after the name was picked, or this recorder's previous recording; it moves on to the next name.
+std::FILE *openRecorderOutput(RecorderState &recorder, NativeMediaRecorderHandle handle) {
+  if (!recorder.defaultPath) return std::fopen(recorder.path.c_str(), "wb");
+
+  for (;;) {
+    std::FILE *file = std::fopen(recorder.path.c_str(), "wbx");
+    if (file || errno != EEXIST) return file;
+
+    recorder.path = nextDefaultRecordingPath(handle);
+    if (recorder.path.empty()) return nullptr;
+  }
+}
+
+bool openRecorderFile(RecorderState &recorder, NativeMediaRecorderHandle handle) {
   if (recorder.path.empty()) return false;
   gea::platform::storage::ensureMounted();
   makeParentDirs(recorder.path);
-  recorder.file = std::fopen(recorder.path.c_str(), "wb");
+  recorder.file = openRecorderOutput(recorder, handle);
   recorder.samplesWritten = 0;
   recorder.writeFailed = false;
   if (!recorder.file) {
@@ -283,6 +324,7 @@ void appendRecorderPcm(RecorderState &recorder, const std::int16_t *samples, std
 
 double finalizeRecorderFile(RecorderState &recorder) {
   flushRecorderPcm(recorder);
+  std::vector<std::int16_t>().swap(recorder.pcm);  // the entry outlives the recording; free its staging
   if (!recorder.file) return 0.0;
   const auto dataBytes = wavDataBytesForSamples(recorder.samplesWritten);
   const bool patched = patchWavHeader(recorder.file, dataBytes);
@@ -410,26 +452,20 @@ NativeMediaStreamHandle get_user_media_audio() {
 NativeMediaRecorderHandle create_recorder(NativeMediaStreamHandle stream, const std::string &path, const std::string &mimeType) {
   const auto recorderHandle = nextRecorderHandle()++;
   const auto trackHandle = stream_audio_track(stream);
-  std::string effectivePath = path;
-  if (effectivePath.empty()) {
-    char buf[96];
-    std::snprintf(buf, sizeof(buf), "/sdcard/recordings/recording_%03u.wav", static_cast<unsigned>(recorderHandle));
-    effectivePath = buf;
-  }
-  {
-    std::lock_guard<std::mutex> lock(mediaMutex());
-    recorderTable()[recorderHandle] = RecorderState{
-        formatHandleId("recorder", recorderHandle),
-        stream,
-        trackHandle,
-        "inactive",
-        effectivePath,
-        mimeType.empty() ? std::string("audio/wav") : mimeType,
-        {},
-        kDefaultRecorderSampleRate,
-        1.0,
-    };
-  }
+  std::lock_guard<std::mutex> lock(mediaMutex());
+  const std::string effectivePath = path.empty() ? nextDefaultRecordingPath(recorderHandle) : path;
+  recorderTable()[recorderHandle] = RecorderState{
+      formatHandleId("recorder", recorderHandle),
+      stream,
+      trackHandle,
+      "inactive",
+      effectivePath,
+      mimeType.empty() ? std::string("audio/wav") : mimeType,
+      {},
+      kDefaultRecorderSampleRate,
+      1.0,
+  };
+  recorderTable()[recorderHandle].defaultPath = path.empty();
   return recorderHandle;
 }
 
@@ -453,7 +489,7 @@ void recorder_start(NativeMediaRecorderHandle handle) {
   it->second.pcm.clear();
   it->second.samplesWritten = 0;
   it->second.writeFailed = false;
-  if (openRecorderFile(it->second)) {
+  if (openRecorderFile(it->second, handle)) {
     it->second.state = "recording";
   } else {
     it->second.state = "inactive";
@@ -549,6 +585,8 @@ void MediaStreamTrack::stop() const {
       shouldDetach = it->second.readyState != "ended";
       it->second.readyState = "ended";
       it->second.enabled = false;
+      // The entry stays for readyState lookups; the up-to-64 KB PCM ring buffer is freed now.
+      std::deque<std::int16_t>().swap(it->second.ringBuffer);
       for (auto &entry : recorderTable()) {
         if (entry.second.track == nativeHandle && entry.second.state == "recording") {
           entry.second.state = "inactive";

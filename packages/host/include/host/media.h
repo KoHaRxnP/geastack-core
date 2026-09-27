@@ -134,22 +134,40 @@ std::string recorder_mime_type(NativeMediaRecorderHandle handle);
 void recorder_start(NativeMediaRecorderHandle handle);
 GeaAudioBlob recorder_stop(NativeMediaRecorderHandle handle);
 
-template <typename Options>
-std::string recorder_path_from_options(const Options &options) {
-  if constexpr (requires { options.path; }) {
-    return std::string(options.path);
+// Recorder options arrive as a plain struct, or from an app as a generated record that geatsc passes
+// as gea::Optional<gea::Ref<Record>> with gea::Optional<std::string> fields. recorder_option unwraps
+// each layer, so `new MediaRecorder(stream, { path })` from TS is honoured.
+template <typename Value>
+std::string option_string(const Value &value, const std::string &fallback) {
+  if constexpr (requires { value.has_value(); *value; }) {
+    return value.has_value() ? std::string(*value) : fallback;
   } else {
-    return {};
+    return std::string(value);
+  }
+}
+
+template <typename Options, typename Field>
+std::string recorder_option(const Options &options, Field field, const std::string &fallback) {
+  if constexpr (requires { options.has_value(); *options; }) {
+    return options.has_value() ? recorder_option(*options, field, fallback) : fallback;
+  } else if constexpr (requires { options.get(); *options; }) {
+    return options.get() ? recorder_option(*options, field, fallback) : fallback;
+  } else if constexpr (requires { field(options); }) {
+    return option_string(field(options), fallback);
+  } else {
+    return fallback;
   }
 }
 
 template <typename Options>
+std::string recorder_path_from_options(const Options &options) {
+  return recorder_option(options, [](const auto &record) -> decltype(record.path) { return record.path; }, {});
+}
+
+template <typename Options>
 std::string recorder_mime_from_options(const Options &options) {
-  if constexpr (requires { options.mimeType; }) {
-    return std::string(options.mimeType);
-  } else {
-    return "audio/wav";
-  }
+  return recorder_option(
+      options, [](const auto &record) -> decltype(record.mimeType) { return record.mimeType; }, "audio/wav");
 }
 
 // Overload accepting a MediaStreamConstraints-shaped record (from
