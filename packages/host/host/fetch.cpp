@@ -32,6 +32,7 @@
 #include "esp_tls.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #if GEA_EMBEDDED_ENABLE_HTTPS
 #include "esp_crt_bundle.h"
@@ -85,6 +86,13 @@ struct BodyAccumulator {
   std::size_t size = 0;
 
   void reset() { size = 0; }  // keep the buffer allocated for reuse across tiles
+
+  void release() {
+    gea::framework::memory::Allocator::free(buffer);
+    buffer = nullptr;
+    capacity = 0;
+    size = 0;
+  }
 
   void append(const char *data, int len) {
     if (len <= 0) return;
@@ -350,6 +358,12 @@ class FetchHost {
   }
   static gea::host::FetchResponse fetch(const std::string &url, const gea::host::FetchRequestInit &init) {
     return FetchResponseBuilder(url, init).get();
+  }
+  // Closes the calling task's keep-alive connection and frees its response buffer. A task that is about
+  // to exit must call this: both are thread_local, so nothing else would ever close or free them.
+  static void releaseTaskState() {
+    dropCachedClient();
+    g_body.release();
   }
 };
 
@@ -945,10 +959,51 @@ void runAsyncFetchJob(const std::shared_ptr<AsyncFetchJob> &job) {
 }
 
 #if defined(ESP_PLATFORM) && !defined(GEA_EMBEDDED_WIFI_DISABLED)
-void asyncFetchTask(void *raw) {
-  std::unique_ptr<std::shared_ptr<AsyncFetchJob>> holder(static_cast<std::shared_ptr<AsyncFetchJob> *>(raw));
-  runAsyncFetchJob(*holder);
-  vTaskDeleteWithCaps(nullptr);
+constexpr uint32_t kAsyncFetchStackBytes = 32768;
+constexpr UBaseType_t kAsyncFetchQueueDepth = 16;
+constexpr int kAsyncFetchWorkers = 2;
+
+// A small pool of long-lived workers runs the async fetches. A task per request needed a fresh contiguous
+// 32 KB stack each time, which a long-running app with fragmented PSRAM eventually cannot find: the
+// request then never starts. The workers' stacks are taken once, at the first request, and a second
+// worker keeps short requests moving while a long upload or download holds the first.
+void asyncFetchWorker(void *raw) {
+  auto queue = static_cast<QueueHandle_t>(raw);
+  for (;;) {
+    std::shared_ptr<AsyncFetchJob> *payload = nullptr;
+    if (xQueueReceive(queue, &payload, portMAX_DELAY) != pdTRUE) continue;
+    std::unique_ptr<std::shared_ptr<AsyncFetchJob>> holder(payload);
+    runAsyncFetchJob(*holder);
+    // Drop the job (request body and response) and the keep-alive connection and response buffer
+    // between requests, so an idle worker holds no socket and no large buffer.
+    holder.reset();
+    gea::framework::host::FetchHost::releaseTaskState();
+  }
+}
+
+// Starts the workers on first use; null while none can be started (the next request tries again).
+QueueHandle_t asyncFetchQueue() {
+  static std::mutex startMutex;
+  static QueueHandle_t queue = nullptr;
+  std::lock_guard<std::mutex> lock(startMutex);
+  if (queue) return queue;
+
+  QueueHandle_t created = xQueueCreate(kAsyncFetchQueueDepth, sizeof(std::shared_ptr<AsyncFetchJob> *));
+  if (!created) return nullptr;
+
+  int started = 0;
+  for (int i = 0; i < kAsyncFetchWorkers; ++i) {
+    const BaseType_t ok = xTaskCreateWithCaps(asyncFetchWorker, "gea_fetch", kAsyncFetchStackBytes, created, 5,
+                                              nullptr, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ok == pdPASS) ++started;
+  }
+  if (started == 0) {
+    vQueueDelete(created);
+    return nullptr;
+  }
+
+  queue = created;
+  return queue;
 }
 #endif
 
@@ -962,13 +1017,12 @@ double spawnAsyncJob(const std::shared_ptr<AsyncFetchJob> &job) {
 
 #if defined(ESP_PLATFORM) && !defined(GEA_EMBEDDED_WIFI_DISABLED)
   auto *payload = new std::shared_ptr<AsyncFetchJob>(job);
-  const BaseType_t ok = xTaskCreateWithCaps(
-      asyncFetchTask, "gea_fetch", 32768, payload, 5, nullptr, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (ok != pdPASS) {
+  QueueHandle_t queue = asyncFetchQueue();
+  if (!queue || xQueueSend(queue, &payload, 0) != pdTRUE) {
     delete payload;
     std::lock_guard<std::mutex> lock(asyncFetchMutex());
     asyncFetchJobs().erase(id);
-    ESP_LOGE("gea::host::fetch", "async fetch task create failed; internal largest=%u psram largest=%u",
+    ESP_LOGE("gea::host::fetch", "async fetch not queued (worker missing or queue full); internal largest=%u psram largest=%u",
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
     return 0;
