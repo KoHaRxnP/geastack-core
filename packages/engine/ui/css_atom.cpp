@@ -145,6 +145,12 @@ CssAtomId internCssAtom(const std::string &text)
 	return internCssAtom(text.c_str(), text.size());
 }
 
+const std::string &cssAtomString(CssAtomId atom)
+{
+	auto &table = atomTable();
+	return table[static_cast<std::size_t>(atom) < table.size() ? atom : kInvalidCssAtom];
+}
+
 const char *cssAtomText(CssAtomId atom)
 {
 	auto &table = atomTable();

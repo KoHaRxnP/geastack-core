@@ -69,10 +69,11 @@ int alignedAbsoluteOffset(const Node &parent, const Node &child, bool horizontal
 	return LayoutEngine::alignedAbsoluteOffset(parent, child, horizontal, &parent, horizontal ? x : y, horizontal ? width : height);
 }
 
-int resolvedPositionOffset(const Node &child, int side, int basis)
+template <int side>
+int resolvedPositionOffset(const Node &child, int basis)
 {
-	int offset = child.style.pos_offsets[side] != kUnset ? child.style.pos_offsets[side] : 0;
-	const int percent = child.style.pos_offset_percent[side];
+	int offset = GEA_CSS_POSITION_PX(child.style, side) != kUnset ? GEA_CSS_POSITION_PX(child.style, side) : 0;
+	const int percent = GEA_CSS_POSITION_PERCENT(child.style, side);
 	if (percent != kUnset) {
 		const int numerator = basis * percent;
 		offset += (numerator + (numerator >= 0 ? 500 : -500)) / 1000;
@@ -80,9 +81,10 @@ int resolvedPositionOffset(const Node &child, int side, int basis)
 	return offset;
 }
 
-bool hasPositionOffset(const Node &node, int side)
+template <int side>
+bool hasPositionOffset(const Node &node)
 {
-	return node.style.pos_offsets[side] != kUnset || node.style.pos_offset_percent[side] != kUnset;
+	return GEA_CSS_POSITION_PX(node.style, side) != kUnset || GEA_CSS_POSITION_PERCENT(node.style, side) != kUnset;
 }
 
 bool hasExplicitWidth(const Node &node)
@@ -258,19 +260,19 @@ void AbsoluteLeafRefresh::refreshPositions()
 		const int before_y = n->layout.y;
 		int parent_x = p->layout.x;
 		if (p->style.overflow == 2 && scrollsOverflowX(p->style)) parent_x -= p->layout.scroll_x;
-		if (hasPositionOffset(*n, 3))
-			n->layout.x = parent_x + areaX + resolvedPositionOffset(*n, 3, areaWidth);
-		else if (hasPositionOffset(*n, 1))
-			n->layout.x = parent_x + areaX + areaWidth - n->layout.width - resolvedPositionOffset(*n, 1, areaWidth);
+		if (hasPositionOffset<3>(*n))
+			n->layout.x = parent_x + areaX + resolvedPositionOffset<3>(*n, areaWidth);
+		else if (hasPositionOffset<1>(*n))
+			n->layout.x = parent_x + areaX + areaWidth - n->layout.width - resolvedPositionOffset<1>(*n, areaWidth);
 		else
 			n->layout.x = parent_x + alignedAbsoluteOffset(*p, *n, true);
 
 		int parent_y = p->layout.y;
 		if (p->style.overflow == 2 && scrollsOverflowY(p->style)) parent_y -= p->layout.scroll_y;
-		if (hasPositionOffset(*n, 0))
-			n->layout.y = parent_y + areaY + resolvedPositionOffset(*n, 0, areaHeight);
-		else if (hasPositionOffset(*n, 2))
-			n->layout.y = parent_y + areaY + areaHeight - n->layout.height - resolvedPositionOffset(*n, 2, areaHeight);
+		if (hasPositionOffset<0>(*n))
+			n->layout.y = parent_y + areaY + resolvedPositionOffset<0>(*n, areaHeight);
+		else if (hasPositionOffset<2>(*n))
+			n->layout.y = parent_y + areaY + areaHeight - n->layout.height - resolvedPositionOffset<2>(*n, areaHeight);
 		else
 			n->layout.y = parent_y + alignedAbsoluteOffset(*p, *n, false);
 		translateDescendantLayouts(state, i, n->layout.x - before_x, n->layout.y - before_y);

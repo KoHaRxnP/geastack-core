@@ -124,11 +124,9 @@ private:
 	void materializeDeferred(int id) const;
 	int decodeGif(ImageSlot &image, const std::uint8_t *data, int length);
 	int decodeStatic(ImageSlot &image, const std::uint8_t *data, int length, bool opaqueHint);
-#if defined(GEA_EMBEDDED_ROM_TJPGD) && GEA_EMBEDDED_ROM_TJPGD
-	// Low-memory JPEG decode via the ESP32 ROM tinyjpeg decompressor (descales
-	// large covers so they fit the fragmented PSRAM). Fills `image`, returns 0/-1.
+	// Native JPEG backends, selected automatically when provided by the target.
+	int decodeJpegEsp(ImageSlot &image, const std::uint8_t *data, int length);
 	int decodeJpegTjpgd(ImageSlot &image, const std::uint8_t *data, int length);
-#endif
 	int decodeNextGifFrame(ImageSlot &image);
 	// dispose() body without taking slotMutex_ (callers hold it).
 	void disposeLocked(int id);

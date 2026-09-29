@@ -25,6 +25,10 @@ NATIVE_TESTS=(
   run-packed-copy-overlap.sh
   run-canvas-rounded-rect-alpha.sh
   run-transformed-rounded-rect.sh
+  run-renderer-features.sh
+  run-position-storage.sh
+  run-canvas-overlay.sh
+  run-native-jpeg.sh
   run-gea-retained-absolute-subtree.sh
 )
 

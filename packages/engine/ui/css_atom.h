@@ -16,6 +16,8 @@ CssAtomId findCssAtom(const std::string &text);
 CssAtomId internCssAtom(const char *text, std::size_t length);
 CssAtomId internCssAtom(const char *text);
 CssAtomId internCssAtom(const std::string &text);
+// References remain valid for the process lifetime, including table growth.
+const std::string &cssAtomString(CssAtomId atom);
 const char *cssAtomText(CssAtomId atom);
 
 }  // namespace gea::embedded::ui

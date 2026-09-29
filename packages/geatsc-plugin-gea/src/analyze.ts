@@ -1,6 +1,14 @@
+import { sourceLiteralResolver } from './analyze-literals.js'
 import fs from 'node:fs'
+import { analyzeClassCapacity } from './analyze-classes.js'
+import ts from 'typescript'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import type { HostBindingAnalysisPatch } from './types.js'
+import { nodeAnalysisVersion, addNodeFeatures, addUnknownNodeFeatures } from './analyze-nodes.js'
+import { cssRangeObserver } from './analyze-css-ranges.js'
+import { cssAnalysisVersion, cssUsageObserver, addUnknownCssFeatures } from './analyze-css.js'
+import { addRendererFeatures, addUnknownRendererFeatures, rendererAnalysisVersion, rendererVariableAnalysis } from './analyze-renderer.js'
 
 export function capabilitiesToAnalyzePatch(capabilities: string[]): HostBindingAnalysisPatch {
   const features: string[] = []
@@ -22,15 +30,38 @@ export function capabilitiesToAnalyzePatch(capabilities: string[]): HostBindingA
 // connection with "No server verification option set".
 export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPatch {
   const bindings = new Set<string>()
-  const features = new Set<string>()
-  for (const file of discoverSourceFiles(entry)) {
+  const features = new Set<string>([rendererAnalysisVersion, cssAnalysisVersion, nodeAnalysisVersion])
+  const discovery = discoverSourceFiles(entry)
+  const classSources = new Map<string, string>()
+  let classUnknown = discovery.unknown
+  const variables = rendererVariableAnalysis(features)
+  const literalSources = new Map([...discovery.files].filter(file => fs.existsSync(file)).map(file => [file, fs.readFileSync(file, 'utf8')]))
+  const css = cssUsageObserver(features, sourceLiteralResolver(literalSources, discovery.unknown))
+  const ranges = cssRangeObserver(features)
+  const observer = {
+    selector(value: string): void { css.selector?.(value); ranges.selector?.(value) },
+    property(name: string | undefined, value: string | undefined, expression?: ts.Expression): void { css.property(name, value, expression); ranges.property(name, value); variables.property(name, value) },
+    unknown(): void { classUnknown = true; css.unknown(); ranges.unknown(); variables.unknown(); addUnknownNodeFeatures(features) },
+    unknownRanges(): void { ranges.unknown() },
+  }
+  if (discovery.unknown) { variables.unknown(); ranges.unknown(); addUnknownNodeFeatures(features) }
+  if (discovery.unknown) { addUnknownRendererFeatures(features); addUnknownCssFeatures(features) }
+  for (const file of discovery.files) {
     if (!fs.existsSync(file)) continue
     const text = fs.readFileSync(file, 'utf8')
+    classSources.set(file, text)
     addBindingsForGeaEmbeddedImports(text, bindings)
     addBindingsForEmbeddedHostNames(text, bindings)
     addBindingsForHostGlobals(text, bindings)
     addFeaturesForUrlSchemes(text, features)
+    addRendererFeatures(file, text, features, observer, variables)
+    addNodeFeatures(file, text, features)
   }
+  const classCapacity = analyzeClassCapacity(classSources, classUnknown || features.has('node-inputs') || features.has('node-images'))
+  if (classCapacity !== undefined) features.add(`node-class-capacity-v1-${classCapacity}`)
+  variables.finish()
+  css.finish()
+  ranges.finish()
   return { bindings: [...bindings].sort(), features: [...features].sort() }
 }
 
@@ -142,9 +173,10 @@ function addBindingsForEmbeddedHostNames(text: string, bindings: Set<string>): v
   if (documentHostRegex.test(text)) bindings.add('dom')
 }
 
-function discoverSourceFiles(entry: string): string[] {
+function discoverSourceFiles(entry: string): { files: string[]; unknown: boolean } {
   const visited = new Set<string>()
   const files: string[] = []
+  let unknown = false
 
   function visit(file: string): void {
     const resolved = path.resolve(file)
@@ -153,32 +185,56 @@ function discoverSourceFiles(entry: string): string[] {
     if (visited.has(resolved) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return
     visited.add(resolved)
     const text = fs.readFileSync(resolved, 'utf8')
-    for (const specifier of relativeModuleSpecifiers(text)) {
-      const dependency = resolveRelativeModule(resolved, specifier)
+    for (const specifier of /\.css$/i.test(resolved) ? [] : moduleSpecifiers(resolved, text)) {
+      // Framework host imports do not inject renderer instructions. Other
+      // external code may supply styles/components we cannot inspect here.
+      if (/^(?:gea-embedded|@geastack\/(?:core|engine)|@geajs\/core)(?:\/|$)/.test(specifier)) continue
+      const dependency = specifier.startsWith('.') ? resolveRelativeModule(resolved, specifier) : resolvePackageModule(resolved, specifier)
       if (dependency) visit(dependency)
+      else unknown = true
+    }
+    if (/\.css$/i.test(resolved)) {
+      for (const match of text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/@import\s+(?:url\(\s*(?:['"]([^'"]+)['"]|([^\s)]+))\s*\)|['"]([^'"]+)['"])/g)) {
+        const specifier = match[1] ?? match[2] ?? match[3]
+        const dependency = !/^(?:[a-z]+:|\/)/i.test(specifier) && resolveRelativeModule(resolved, specifier)
+        if (dependency) visit(dependency)
+        else unknown = true
+      }
     }
     files.push(resolved)
   }
 
   visit(entry)
-  return files
+  if (!files.length) unknown = true
+  return { files, unknown }
 }
 
-function relativeModuleSpecifiers(text: string): string[] {
+function moduleSpecifiers(file: string, text: string): string[] {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, /\.[jt]sx$/i.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const specifiers: string[] = []
-  const staticImportRegex = /\b(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/g
-  const dynamicImportRegex = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
-  collectRelativeSpecifiers(text, staticImportRegex, specifiers)
-  collectRelativeSpecifiers(text, dynamicImportRegex, specifiers)
+  // An empty specifier deliberately fails resolution, retaining all features.
+  // A malformed or computed module boundary cannot establish absence of CSS.
+  if ((source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length) specifiers.push('')
+  const add = (expression: ts.Expression | undefined): void => {
+    specifiers.push(expression && ts.isStringLiteralLike(expression) ? expression.text : '')
+  }
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) add(node.moduleSpecifier)
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression)
+    if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) add(node.arguments[0])
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
   return specifiers
 }
 
-function collectRelativeSpecifiers(text: string, regex: RegExp, specifiers: string[]): void {
-  let match: RegExpExecArray | null
-  while ((match = regex.exec(text)) !== null) {
-    const specifier = match[1]
-    if (specifier?.startsWith('.')) specifiers.push(specifier)
-  }
+function resolvePackageModule(importer: string, specifier: string): string | null {
+  // CSS package imports must be traversed just like relative stylesheets. For
+  // opaque JS packages keep the conservative feature set instead of assuming
+  // their exports cannot render anything.
+  if (!/\.css$/i.test(specifier)) return null
+  try { return createRequire(importer).resolve(specifier) } catch { return null }
 }
 
 function resolveRelativeModule(importer: string, specifier: string): string | null {
@@ -192,6 +248,8 @@ function resolveRelativeModule(importer: string, specifier: string): string | nu
 function moduleCandidates(base: string): string[] {
   const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
   return [
+    // TypeScript's NodeNext imports commonly spell the emitted .js extension.
+    ...(/\.[cm]?jsx?$/.test(base) ? [base.replace(/\.js$/, '.ts'), base.replace(/\.jsx?$/, '.tsx'), base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts')] : []),
     ...extensions.map((extension) => `${base}${extension}`),
     ...extensions.filter(Boolean).map((extension) => path.join(base, `index${extension}`)),
   ]

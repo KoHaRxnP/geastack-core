@@ -30,6 +30,7 @@ bool nodeParticipatesInMountedTree(const TreeState &state, int node)
 bool isTransformProperty(Property prop)
 {
 	switch (prop) {
+#if GEA_CSS_TRANSFORMS
 	case Property::RotateAngle:
 	case Property::RotateAxisX:
 	case Property::RotateAxisY:
@@ -60,6 +61,7 @@ bool isTransformProperty(Property prop)
 	case Property::PerspectiveOriginX:
 	case Property::PerspectiveOriginY:
 		return true;
+#endif
 	default:
 		return false;
 	}
@@ -70,21 +72,33 @@ bool isLayoutProperty(Property prop)
 	switch (prop) {
 	case Property::FlexLineCount:
 	case Property::AspectRatio:
+#if GEA_CSS_TRANSFORMS
 	case Property::TranslatePresent:
 	case Property::TransformPresent:
 	case Property::RotatePresent:
 	case Property::ScalePresent:
+#endif
 	case Property::FilterPresent:
 	case Property::Display:
 	case Property::FlexDirection:
 	case Property::BoxSizing:
+#if GEA_CSS_FLOATS
 	case Property::Float:
+#endif
 	case Property::MarginTrim:
+#if GEA_CSS_FLOATS
 	case Property::Clear:
+#endif
+#if GEA_CSS_WRITING_MODE
 	case Property::WritingMode:
 	case Property::Direction:
+#endif
+#if GEA_CSS_AXIS_GAP
 	case Property::RowGap:
+#endif
+#if GEA_CSS_AXIS_GAP
 	case Property::ColumnGap:
+#endif
 	case Property::RowGapPercent:
 	case Property::ColumnGapPercent:
 	case Property::MarginTopAuto:
@@ -107,10 +121,12 @@ bool isLayoutProperty(Property prop)
 	case Property::AlignItems:
 	case Property::JustifyItems:
 	case Property::JustifySelf:
+#if GEA_CSS_GRID
 	case Property::GridRowStart:
 	case Property::GridColumnStart:
 	case Property::GridRowEnd:
 	case Property::GridColumnEnd:
+#endif
 	case Property::AlignContent:
 	case Property::AlignSelf:
 	case Property::Gap:
@@ -160,7 +176,9 @@ bool isLayoutProperty(Property prop)
 	case Property::Visibility:
 	case Property::WhiteSpace:
 	case Property::TextOverflow:
+#if GEA_UI_IMAGE_NODES
 	case Property::ImageId:
+#endif
 	case Property::ImageFit:
 		return true;
 	default:
@@ -300,48 +318,105 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 	case Property::BoxSizing: if (n->style.box_sizing != value) { n->style.box_sizing = value; changed = 1; } break;
+#if GEA_CSS_FLOATS
 	case Property::Float: if (n->style.float_side != value) { n->style.float_side = value; changed = 1; } break;
-	case Property::AspectRatio: if (rstyle(n->style).aspect_ratio != value) { rstyleMut(n->style).aspect_ratio = value; changed = 1; } break;
-	case Property::Containment: if (rstyle(n->style).containment != value) { rstyleMut(n->style).containment = value; changed = 1; } break;
-	case Property::FlexLineCount: if (rstyle(n->style).flex_line_count != value) { rstyleMut(n->style).flex_line_count = value; changed = 1; } break;
-	case Property::MarginTrim: if (rstyle(n->style).margin_trim != value) { rstyleMut(n->style).margin_trim = value; changed = 1; } break;
+#endif
+#if GEA_CSS_ASPECT_RATIO
+	case Property::AspectRatio: if ((GEA_CSS_ASPECT_RATIO ? rstyle(n->style).aspect_ratio : 0) != value) { rstyleMut(n->style).aspect_ratio = value; changed = 1; } break;
+#endif
+#if GEA_CSS_CONTAINMENT
+	case Property::Containment: if ((GEA_CSS_CONTAINMENT ? rstyle(n->style).containment : 0) != value) { rstyleMut(n->style).containment = value; changed = 1; } break;
+#endif
+#if GEA_CSS_FLEX_LINE_COUNT
+	case Property::FlexLineCount: if ((GEA_CSS_FLEX_LINE_COUNT ? rstyle(n->style).flex_line_count : 1) != value) { rstyleMut(n->style).flex_line_count = value; changed = 1; } break;
+#endif
+#if GEA_CSS_MARGIN_TRIM
+	case Property::MarginTrim: if ((GEA_CSS_MARGIN_TRIM ? rstyle(n->style).margin_trim : 0) != value) { rstyleMut(n->style).margin_trim = value; changed = 1; } break;
+#endif
+#if GEA_CSS_FLOATS
 	case Property::Clear: if (n->style.clear_side != value) { n->style.clear_side = value; changed = 1; } break;
+#endif
+#if GEA_CSS_WRITING_MODE
 	case Property::Direction: if (n->style.direction != value) { n->style.direction = value; changed = 1; } break;
 	case Property::WritingMode: if (n->style.writing_mode != value) { n->style.writing_mode = value; changed = 1; } break;
+#endif
+#if GEA_CSS_AXIS_GAP
 	case Property::RowGap: if (n->style.row_gap != value) { n->style.row_gap = value; changed = 1; } break;
+#endif
+#if GEA_CSS_AXIS_GAP
 	case Property::ColumnGap: if (n->style.column_gap != value) { n->style.column_gap = value; changed = 1; } break;
+#endif
+#if GEA_CSS_PERCENT_GAP
 	case Property::RowGapPercent: if (n->style.row_gap_percent != value) { n->style.row_gap_percent = value; changed = 1; } break;
 	case Property::ColumnGapPercent: if (n->style.column_gap_percent != value) { n->style.column_gap_percent = value; changed = 1; } break;
+#endif
 	case Property::MarginTopAuto: { const auto mask = (n->style.margin_auto & ~1) | (value ? 1 : 0); if (mask != n->style.margin_auto) { n->style.margin_auto = mask; changed = 1; } break; }
 	case Property::MarginRightAuto: { const auto mask = (n->style.margin_auto & ~2) | (value ? 2 : 0); if (mask != n->style.margin_auto) { n->style.margin_auto = mask; changed = 1; } break; }
 	case Property::MarginBottomAuto: { const auto mask = (n->style.margin_auto & ~4) | (value ? 4 : 0); if (mask != n->style.margin_auto) { n->style.margin_auto = mask; changed = 1; } break; }
 	case Property::MarginLeftAuto: { const auto mask = (n->style.margin_auto & ~8) | (value ? 8 : 0); if (mask != n->style.margin_auto) { n->style.margin_auto = mask; changed = 1; } break; }
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginTopExpression: if (rstyle(n->style).margin_expression[0] != value) { rstyleMut(n->style).margin_expression[0] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginRightExpression: if (rstyle(n->style).margin_expression[1] != value) { rstyleMut(n->style).margin_expression[1] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginBottomExpression: if (rstyle(n->style).margin_expression[2] != value) { rstyleMut(n->style).margin_expression[2] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginLeftExpression: if (rstyle(n->style).margin_expression[3] != value) { rstyleMut(n->style).margin_expression[3] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingTopExpression: if (rstyle(n->style).padding_expression[0] != value) { rstyleMut(n->style).padding_expression[0] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingRightExpression: if (rstyle(n->style).padding_expression[1] != value) { rstyleMut(n->style).padding_expression[1] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingBottomExpression: if (rstyle(n->style).padding_expression[2] != value) { rstyleMut(n->style).padding_expression[2] = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingLeftExpression: if (rstyle(n->style).padding_expression[3] != value) { rstyleMut(n->style).padding_expression[3] = value; changed = 1; } break;
+#endif
 	case Property::WidthExpression: if (n->style.width_expression != value) { n->style.width_expression = value; n->style.width = n->style.width_percent = kUnset; changed = 1; } break;
+#if GEA_CSS_HEIGHT_EXPRESSIONS
 	case Property::HeightExpression: if (n->style.height_expression != value) { n->style.height_expression = value; n->style.height = n->style.height_percent = kUnset; changed = 1; } break;
+#endif
+#if GEA_CSS_ORDER
 	case Property::Order:           if (n->style.order != value) { n->style.order = value; changed = 1; } break;
+#endif
+#if GEA_CSS_FLEX_WRAP
 	case Property::FlexWrap:        if (n->style.flex_wrap != value) { n->style.flex_wrap = value; changed = 1; } break;
+#endif
 	case Property::JustifyContent:  if (n->style.justify_content != value) { n->style.justify_content = value; changed = 1; } break;
 	case Property::AlignItems:      if (n->style.align_items != value) { n->style.align_items = value; changed = 1; } break;
+#if GEA_CSS_JUSTIFY_ITEMS
 	case Property::JustifyItems:    if (n->style.justify_items != value) { n->style.justify_items = value; changed = 1; } break;
+#endif
+#if GEA_CSS_ALIGN_CONTENT
 	case Property::AlignContent:    if (n->style.align_content != value) { n->style.align_content = value; changed = 1; } break;
+#endif
+#if GEA_CSS_ALIGN_SELF
 	case Property::AlignSelf:       if (n->style.align_self != value) { n->style.align_self = value; changed = 1; } break;
-	case Property::JustifySelf:     if (rstyle(n->style).justify_self != value) { rstyleMut(n->style).justify_self = value; changed = 1; } break;
+#endif
+#if GEA_CSS_JUSTIFY_SELF
+	case Property::JustifySelf:     if ((GEA_CSS_JUSTIFY_SELF ? rstyle(n->style).justify_self : -1) != value) { rstyleMut(n->style).justify_self = value; changed = 1; } break;
+#endif
+#if GEA_CSS_GRID
 	case Property::GridRowStart: if (rstyle(n->style).grid_line[0] != value) { rstyleMut(n->style).grid_line[0] = value; changed = 1; } break;
 	case Property::GridColumnStart: if (rstyle(n->style).grid_line[1] != value) { rstyleMut(n->style).grid_line[1] = value; changed = 1; } break;
 	case Property::GridRowEnd: if (rstyle(n->style).grid_line[2] != value) { rstyleMut(n->style).grid_line[2] = value; changed = 1; } break;
 	case Property::GridColumnEnd: if (rstyle(n->style).grid_line[3] != value) { rstyleMut(n->style).grid_line[3] = value; changed = 1; } break;
+#endif
 	case Property::Gap:
 		if (n->style.gap != value || n->style.row_gap != kUnset || n->style.column_gap != kUnset || n->style.row_gap_percent != kUnset || n->style.column_gap_percent != kUnset) {
 			n->style.gap = value;
-			n->style.row_gap = n->style.column_gap = n->style.row_gap_percent = n->style.column_gap_percent = kUnset;
+#if GEA_CSS_AXIS_GAP
+	n->style.row_gap = n->style.column_gap = kUnset;
+#endif
+#if GEA_CSS_PERCENT_GAP
+			n->style.row_gap_percent = n->style.column_gap_percent = kUnset;
+#endif
 			changed = 1;
 		}
 		break;
@@ -354,7 +429,9 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 	case Property::Height:
+#if GEA_CSS_HEIGHT_EXPRESSIONS
 		if (n->style.height_expression != -1) { n->style.height_expression = -1; changed = 1; }
+#endif
 		if (n->style.height != value || n->style.height_percent != kUnset) {
 			n->style.height = value;
 			n->style.height_percent = kUnset;
@@ -370,91 +447,174 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 	case Property::HeightPercent:
+#if GEA_CSS_HEIGHT_EXPRESSIONS
 		if (n->style.height_expression != -1) { n->style.height_expression = -1; changed = 1; }
+#endif
 		if (n->style.height_percent != value || n->style.height != kUnset) {
 			n->style.height_percent = value;
 			n->style.height = kUnset;
 			changed = 1;
 		}
 		break;
+#if GEA_CSS_MIN_WIDTH
 	case Property::MinWidth:        if (n->style.min_width != value) { n->style.min_width = value; changed = 1; } break;
+#endif
 	case Property::MinHeight:       if (n->style.min_height != value) { n->style.min_height = value; changed = 1; } break;
 	case Property::MaxWidth:        if (n->style.max_width != value) { n->style.max_width = value; changed = 1; } break;
+#if GEA_CSS_MAX_HEIGHT
 	case Property::MaxHeight:       if (n->style.max_height != value) { n->style.max_height = value; changed = 1; } break;
+#endif
 	case Property::Flex:             if (n->style.flex != value) { n->style.flex = value; changed = 1; } break;
 	case Property::FlexShrink:       if (n->style.flex_shrink != value) { n->style.flex_shrink = value; changed = 1; } break;
 	case Property::FlexBasis:
+#if GEA_CSS_FLEX_BASIS_EXPRESSIONS
 		if (rstyle(n->style).flex_basis_expression >= 0) { rstyleMut(n->style).flex_basis_expression = -1; changed = 1; }
-		if (n->style.flex_basis != value) { n->style.flex_basis = value; changed = 1; } break;
+#endif
+#if GEA_CSS_FLEX_BASIS
+		if (n->style.flex_basis != value) { n->style.flex_basis = value; changed = 1; }
+#endif
+		break;
+#if GEA_CSS_FLEX_BASIS_EXPRESSIONS
 	case Property::FlexBasisExpression:
 		if (rstyle(n->style).flex_basis_expression != value || n->style.flex_basis != kUnset) {
-			rstyleMut(n->style).flex_basis_expression = value; n->style.flex_basis = kUnset; changed = 1;
-		} break;
-	case Property::PaddingTop: if (rstyle(n->style).padding_expression[0] >= 0) { rstyleMut(n->style).padding_expression[0] = -1; changed = 1; }      if (n->style.padding[0] != value) { n->style.padding[0] = value; changed = 1; } break;
-	case Property::PaddingRight: if (rstyle(n->style).padding_expression[1] >= 0) { rstyleMut(n->style).padding_expression[1] = -1; changed = 1; }    if (n->style.padding[1] != value) { n->style.padding[1] = value; changed = 1; } break;
-	case Property::PaddingBottom: if (rstyle(n->style).padding_expression[2] >= 0) { rstyleMut(n->style).padding_expression[2] = -1; changed = 1; }   if (n->style.padding[2] != value) { n->style.padding[2] = value; changed = 1; } break;
-	case Property::PaddingLeft: if (rstyle(n->style).padding_expression[3] >= 0) { rstyleMut(n->style).padding_expression[3] = -1; changed = 1; }     if (n->style.padding[3] != value) { n->style.padding[3] = value; changed = 1; } break;
-	case Property::MarginTop: if (rstyle(n->style).margin_expression[0] >= 0) { rstyleMut(n->style).margin_expression[0] = -1; changed = 1; } if (n->style.margin[0] != value || (n->style.margin_auto & 1)) { n->style.margin[0] = value; n->style.margin_auto &= ~1; changed = 1; } break;
-	case Property::MarginRight: if (rstyle(n->style).margin_expression[1] >= 0) { rstyleMut(n->style).margin_expression[1] = -1; changed = 1; } if (n->style.margin[1] != value || (n->style.margin_auto & 2)) { n->style.margin[1] = value; n->style.margin_auto &= ~2; changed = 1; } break;
-	case Property::MarginBottom: if (rstyle(n->style).margin_expression[2] >= 0) { rstyleMut(n->style).margin_expression[2] = -1; changed = 1; } if (n->style.margin[2] != value || (n->style.margin_auto & 4)) { n->style.margin[2] = value; n->style.margin_auto &= ~4; changed = 1; } break;
-	case Property::MarginLeft: if (rstyle(n->style).margin_expression[3] >= 0) { rstyleMut(n->style).margin_expression[3] = -1; changed = 1; } if (n->style.margin[3] != value || (n->style.margin_auto & 8)) { n->style.margin[3] = value; n->style.margin_auto &= ~8; changed = 1; } break;
+			rstyleMut(n->style).flex_basis_expression = value;
+#if GEA_CSS_FLEX_BASIS
+			n->style.flex_basis = kUnset;
+#endif
+			changed = 1;
+		}
+		break;
+#endif
+	case Property::PaddingTop:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).padding_expression[0] >= 0) { rstyleMut(n->style).padding_expression[0] = -1; changed = 1; }
+#endif
+		if (n->style.padding[0] != value) { n->style.padding[0] = value; changed = 1; } break;
+	case Property::PaddingRight:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).padding_expression[1] >= 0) { rstyleMut(n->style).padding_expression[1] = -1; changed = 1; }
+#endif
+		if (n->style.padding[1] != value) { n->style.padding[1] = value; changed = 1; } break;
+	case Property::PaddingBottom:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).padding_expression[2] >= 0) { rstyleMut(n->style).padding_expression[2] = -1; changed = 1; }
+#endif
+		if (n->style.padding[2] != value) { n->style.padding[2] = value; changed = 1; } break;
+	case Property::PaddingLeft:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).padding_expression[3] >= 0) { rstyleMut(n->style).padding_expression[3] = -1; changed = 1; }
+#endif
+		if (n->style.padding[3] != value) { n->style.padding[3] = value; changed = 1; } break;
+	case Property::MarginTop:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).margin_expression[0] >= 0) { rstyleMut(n->style).margin_expression[0] = -1; changed = 1; }
+#endif
+		if (n->style.margin[0] != value || (n->style.margin_auto & 1)) { n->style.margin[0] = value; n->style.margin_auto &= ~1; changed = 1; } break;
+	case Property::MarginRight:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).margin_expression[1] >= 0) { rstyleMut(n->style).margin_expression[1] = -1; changed = 1; }
+#endif
+		if (n->style.margin[1] != value || (n->style.margin_auto & 2)) { n->style.margin[1] = value; n->style.margin_auto &= ~2; changed = 1; } break;
+	case Property::MarginBottom:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).margin_expression[2] >= 0) { rstyleMut(n->style).margin_expression[2] = -1; changed = 1; }
+#endif
+		if (n->style.margin[2] != value || (n->style.margin_auto & 4)) { n->style.margin[2] = value; n->style.margin_auto &= ~4; changed = 1; } break;
+	case Property::MarginLeft:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(n->style).margin_expression[3] >= 0) { rstyleMut(n->style).margin_expression[3] = -1; changed = 1; }
+#endif
+		if (n->style.margin[3] != value || (n->style.margin_auto & 8)) { n->style.margin[3] = value; n->style.margin_auto &= ~8; changed = 1; } break;
 	case Property::Position:         if (value == kPositionFixed) state.fixedPositionUsed = true; if (n->style.position != value) { n->style.position = value; changed = 1; } break;
 	case Property::Top:
-		if (n->style.pos_offsets[0] != value || n->style.pos_offset_percent[0] != kUnset) {
-			n->style.pos_offsets[0] = value;
-			n->style.pos_offset_percent[0] = kUnset;
+#if GEA_CSS_POSITION_TOP
+		if (GEA_CSS_POSITION_PX_0(n->style) != value || GEA_CSS_POSITION_PERCENT_0(n->style) != kUnset) {
+			GEA_CSS_POSITION_PX_0(n->style) = value;
+#if GEA_CSS_POSITION_TOP_PERCENT
+			GEA_CSS_POSITION_PERCENT_0(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::Right:
-		if (n->style.pos_offsets[1] != value || n->style.pos_offset_percent[1] != kUnset) {
-			n->style.pos_offsets[1] = value;
-			n->style.pos_offset_percent[1] = kUnset;
+#if GEA_CSS_POSITION_RIGHT
+		if (GEA_CSS_POSITION_PX_1(n->style) != value || GEA_CSS_POSITION_PERCENT_1(n->style) != kUnset) {
+			GEA_CSS_POSITION_PX_1(n->style) = value;
+#if GEA_CSS_POSITION_RIGHT_PERCENT
+			GEA_CSS_POSITION_PERCENT_1(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::Bottom:
-		if (n->style.pos_offsets[2] != value || n->style.pos_offset_percent[2] != kUnset) {
-			n->style.pos_offsets[2] = value;
-			n->style.pos_offset_percent[2] = kUnset;
+#if GEA_CSS_POSITION_BOTTOM
+		if (GEA_CSS_POSITION_PX_2(n->style) != value || GEA_CSS_POSITION_PERCENT_2(n->style) != kUnset) {
+			GEA_CSS_POSITION_PX_2(n->style) = value;
+#if GEA_CSS_POSITION_BOTTOM_PERCENT
+			GEA_CSS_POSITION_PERCENT_2(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::Left:
-		if (n->style.pos_offsets[3] != value || n->style.pos_offset_percent[3] != kUnset) {
-			n->style.pos_offsets[3] = value;
-			n->style.pos_offset_percent[3] = kUnset;
+#if GEA_CSS_POSITION_LEFT
+		if (GEA_CSS_POSITION_PX_3(n->style) != value || GEA_CSS_POSITION_PERCENT_3(n->style) != kUnset) {
+			GEA_CSS_POSITION_PX_3(n->style) = value;
+#if GEA_CSS_POSITION_LEFT_PERCENT
+			GEA_CSS_POSITION_PERCENT_3(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::TopPercent:
-		if (n->style.pos_offset_percent[0] != value || n->style.pos_offsets[0] != kUnset) {
-			n->style.pos_offset_percent[0] = value;
-			n->style.pos_offsets[0] = kUnset;
+#if GEA_CSS_POSITION_TOP_PERCENT
+		if (GEA_CSS_POSITION_PERCENT_0(n->style) != value || GEA_CSS_POSITION_PX_0(n->style) != kUnset) {
+			GEA_CSS_POSITION_PERCENT_0(n->style) = value;
+#if GEA_CSS_POSITION_TOP
+			GEA_CSS_POSITION_PX_0(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::RightPercent:
-		if (n->style.pos_offset_percent[1] != value || n->style.pos_offsets[1] != kUnset) {
-			n->style.pos_offset_percent[1] = value;
-			n->style.pos_offsets[1] = kUnset;
+#if GEA_CSS_POSITION_RIGHT_PERCENT
+		if (GEA_CSS_POSITION_PERCENT_1(n->style) != value || GEA_CSS_POSITION_PX_1(n->style) != kUnset) {
+			GEA_CSS_POSITION_PERCENT_1(n->style) = value;
+#if GEA_CSS_POSITION_RIGHT
+			GEA_CSS_POSITION_PX_1(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::BottomPercent:
-		if (n->style.pos_offset_percent[2] != value || n->style.pos_offsets[2] != kUnset) {
-			n->style.pos_offset_percent[2] = value;
-			n->style.pos_offsets[2] = kUnset;
+#if GEA_CSS_POSITION_BOTTOM_PERCENT
+		if (GEA_CSS_POSITION_PERCENT_2(n->style) != value || GEA_CSS_POSITION_PX_2(n->style) != kUnset) {
+			GEA_CSS_POSITION_PERCENT_2(n->style) = value;
+#if GEA_CSS_POSITION_BOTTOM
+			GEA_CSS_POSITION_PX_2(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
 	case Property::LeftPercent:
-		if (n->style.pos_offset_percent[3] != value || n->style.pos_offsets[3] != kUnset) {
-			n->style.pos_offset_percent[3] = value;
-			n->style.pos_offsets[3] = kUnset;
+#if GEA_CSS_POSITION_LEFT_PERCENT
+		if (GEA_CSS_POSITION_PERCENT_3(n->style) != value || GEA_CSS_POSITION_PX_3(n->style) != kUnset) {
+			GEA_CSS_POSITION_PERCENT_3(n->style) = value;
+#if GEA_CSS_POSITION_LEFT
+			GEA_CSS_POSITION_PX_3(n->style) = kUnset;
+#endif
 			changed = 1;
 		}
+#endif
 		break;
+#if GEA_CSS_Z_INDEX
 	case Property::ZIndex: {
 		const bool automatic = value == kZIndexAuto;
 		const int level = automatic ? 0 : std::clamp(value, -32768, 32767);
@@ -463,6 +623,7 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 	}
+#endif
 	case Property::BackgroundColor: {
 		style_color_t next = StyleValues::pixelFromStyleValue(value);
 		if (n->style.bg_color != next) { n->style.bg_color = next; changed = 1; }
@@ -474,6 +635,7 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		if (n->style.bg_alpha != alpha) { n->style.bg_alpha = alpha; changed = 1; }
 		break;
 	}
+#if GEA_CSS_BACKGROUND_LAYERS
 	case Property::BackgroundClip: if (rstyle(n->style).bg_clip != value) { rstyleMut(n->style).bg_clip = value; changed = 1; } break;
 	case Property::BackgroundSizeList: if (rstyle(n->style).bg_size_list != value) { rstyleMut(n->style).bg_size_list = value; changed = 1; } break;
 	case Property::BackgroundPositionList: if (rstyle(n->style).bg_position_list != value) { rstyleMut(n->style).bg_position_list = value; changed = 1; } break;
@@ -481,6 +643,7 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	case Property::BackgroundAttachmentList: if (rstyle(n->style).bg_attachment_list != value) { rstyleMut(n->style).bg_attachment_list = value; changed = 1; } break;
 	case Property::BackgroundOriginList: if (rstyle(n->style).bg_origin_list != value) { rstyleMut(n->style).bg_origin_list = value; changed = 1; } break;
 
+#endif
 	case Property::BackgroundImage:
 		changed = StyleValues::applyBackgroundImage(n->style, value, node);
 		break;
@@ -494,14 +657,19 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	case Property::Color: {
 		style_color_t next = StyleValues::pixelFromStyleValue(value);
 		if (n->style.text_color != next) { n->style.text_color = next; changed = 1; }
+#if GEA_CSS_TEXT_ALPHA
 		if (n->style.text_alpha != 255) { n->style.text_alpha = 255; changed = 1; }
+#endif
 		break;
 	}
+#if GEA_CSS_OPACITY
 	case Property::Opacity: {
 		uint8_t next = (uint8_t)value;
 		if (n->style.opacity != next) { prevOpacity = n->style.opacity; n->style.opacity = next; changed = 1; }
 		break;
 	}
+#endif
+#if GEA_CSS_BLINK
 	case Property::BlinkInterval:
 		value = value > 0 ? value : 0;
 		if (n->style.blink_interval_ms != value) {
@@ -511,16 +679,22 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			changed = 1;
 		}
 		break;
+#endif
 	case Property::ColorAlpha: {
+#if GEA_CSS_TEXT_ALPHA
 		const uint8_t alpha = static_cast<uint8_t>(std::clamp(value, 0, 255));
 		if (n->style.text_alpha != alpha) { n->style.text_alpha = alpha; changed = 1; }
+#endif
 		break;
 	}
 	case Property::BorderAlpha: {
+#if GEA_CSS_BORDER_ALPHA
 		const uint8_t alpha = static_cast<uint8_t>(std::clamp(value, 0, 255));
 		if (n->style.border_alpha != alpha) { n->style.border_alpha = alpha; changed = 1; }
+#endif
 		break;
 	}
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderTopAlpha:
 	case Property::BorderRightAlpha:
 	case Property::BorderBottomAlpha:
@@ -531,22 +705,30 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		if (rstyle(n->style).border_side_alpha[side] != alpha) { rstyleMut(n->style).border_side_alpha[side] = alpha; changed = 1; }
 		break;
 	}
+#endif
 	case Property::BorderColorCurrent: changed |= setBorderColorBinding(n->style, -1, value != 0); break;
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderTopColorCurrent:
 	case Property::BorderRightColorCurrent:
 	case Property::BorderBottomColorCurrent:
 	case Property::BorderLeftColorCurrent:
 		changed |= setBorderColorBinding(n->style, static_cast<int>(prop) - static_cast<int>(Property::BorderTopColorCurrent), value != 0);
 		break;
+#endif
 	case Property::BorderWidth: changed |= setComputedBorderWidth(n->style, -1, value, n->parent >= 0 ? &state.nodes[n->parent].style : nullptr); break;
 	case Property::BorderColor: {
 		changed |= setBorderColorBinding(n->style, -1, false);
 		style_color_t next = StyleValues::pixelFromStyleValue(value);
 		if (n->style.border_color != next) { n->style.border_color = next; changed = 1; }
+#if GEA_CSS_BORDER_ALPHA
 		if (n->style.border_alpha != 255) { n->style.border_alpha = 255; changed = 1; }
+#endif
 		break;
 	}
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderTopWidth: changed |= setComputedBorderWidth(n->style, 0, value, n->parent >= 0 ? &state.nodes[n->parent].style : nullptr); break;
+#endif
+#if GEA_CSS_BORDER_RELIEF
 	case Property::BorderRelief:
 	case Property::BorderTopRelief:
 	case Property::BorderRightRelief:
@@ -560,6 +742,8 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			}
 		}
 		break;
+#endif
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderRightWidth: changed |= setComputedBorderWidth(n->style, 1, value, n->parent >= 0 ? &state.nodes[n->parent].style : nullptr); break;
 	case Property::BorderBottomWidth: changed |= setComputedBorderWidth(n->style, 2, value, n->parent >= 0 ? &state.nodes[n->parent].style : nullptr); break;
 	case Property::BorderLeftWidth: changed |= setComputedBorderWidth(n->style, 3, value, n->parent >= 0 ? &state.nodes[n->parent].style : nullptr); break;
@@ -591,69 +775,83 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		if (rstyle(n->style).border_side_alpha[3] != 255) { rstyleMut(n->style).border_side_alpha[3] = 255; changed = 1; }
 		break;
 	}
+#endif
 	case Property::BorderRadiusTopLeft:
-		if (n->style.border_radius[0] != value || n->style.border_radius_percent[0] != kUnset) {
-			n->style.border_radius[0] = value;
-			n->style.border_radius_percent[0] = kUnset;
+		if (n->style.border_radius[GEA_CSS_RADIUS_INDEX(0)] != value || n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(0)] != kUnset) {
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(0)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(0)] = kUnset;
+#endif
 			changed = 1;
 		}
 		break;
 	case Property::BorderRadiusTopRight:
-		if (n->style.border_radius[1] != value || n->style.border_radius_percent[1] != kUnset) {
-			n->style.border_radius[1] = value;
-			n->style.border_radius_percent[1] = kUnset;
+		if (n->style.border_radius[GEA_CSS_RADIUS_INDEX(1)] != value || n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(1)] != kUnset) {
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(1)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(1)] = kUnset;
+#endif
 			changed = 1;
 		}
 		break;
 	case Property::BorderRadiusBottomRight:
-		if (n->style.border_radius[2] != value || n->style.border_radius_percent[2] != kUnset) {
-			n->style.border_radius[2] = value;
-			n->style.border_radius_percent[2] = kUnset;
+		if (n->style.border_radius[GEA_CSS_RADIUS_INDEX(2)] != value || n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(2)] != kUnset) {
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(2)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(2)] = kUnset;
+#endif
 			changed = 1;
 		}
 		break;
 	case Property::BorderRadiusBottomLeft:
-		if (n->style.border_radius[3] != value || n->style.border_radius_percent[3] != kUnset) {
-			n->style.border_radius[3] = value;
-			n->style.border_radius_percent[3] = kUnset;
+		if (n->style.border_radius[GEA_CSS_RADIUS_INDEX(3)] != value || n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(3)] != kUnset) {
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(3)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(3)] = kUnset;
+#endif
 			changed = 1;
 		}
 		break;
+#if GEA_CSS_PERCENT_RADIUS
 	case Property::BorderRadiusTopLeftPercent:
-		if (n->style.border_radius_percent[0] != value || n->style.border_radius[0] != 0) {
-			n->style.border_radius_percent[0] = value;
-			n->style.border_radius[0] = 0;
+		if (n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(0)] != value || n->style.border_radius[GEA_CSS_RADIUS_INDEX(0)] != 0) {
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(0)] = value;
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(0)] = 0;
 			changed = 1;
 		}
 		break;
 	case Property::BorderRadiusTopRightPercent:
-		if (n->style.border_radius_percent[1] != value || n->style.border_radius[1] != 0) {
-			n->style.border_radius_percent[1] = value;
-			n->style.border_radius[1] = 0;
+		if (n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(1)] != value || n->style.border_radius[GEA_CSS_RADIUS_INDEX(1)] != 0) {
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(1)] = value;
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(1)] = 0;
 			changed = 1;
 		}
 		break;
 	case Property::BorderRadiusBottomRightPercent:
-		if (n->style.border_radius_percent[2] != value || n->style.border_radius[2] != 0) {
-			n->style.border_radius_percent[2] = value;
-			n->style.border_radius[2] = 0;
+		if (n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(2)] != value || n->style.border_radius[GEA_CSS_RADIUS_INDEX(2)] != 0) {
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(2)] = value;
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(2)] = 0;
 			changed = 1;
 		}
 		break;
 	case Property::BorderRadiusBottomLeftPercent:
-		if (n->style.border_radius_percent[3] != value || n->style.border_radius[3] != 0) {
-			n->style.border_radius_percent[3] = value;
-			n->style.border_radius[3] = 0;
+		if (n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(3)] != value || n->style.border_radius[GEA_CSS_RADIUS_INDEX(3)] != 0) {
+			n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(3)] = value;
+			n->style.border_radius[GEA_CSS_RADIUS_INDEX(3)] = 0;
 			changed = 1;
 		}
 		break;
+#endif
 	case Property::FontId:          if (n->style.font_id != value) { n->style.font_id = value; changed = 1; } break;
 	case Property::FontSize:        if (n->style.font_size != value) { n->style.font_size = value; changed = 1; } break;
 	case Property::FontWeight:      if (n->style.font_weight != value) { n->style.font_weight = value; changed = 1; } break;
 	case Property::LineHeight:
 		if (n->style.line_height_multiplier >= 0) { n->style.line_height_multiplier = -1; changed = 1; }
+#if GEA_CSS_LINE_HEIGHT_EXPRESSIONS
 		if (rstyle(n->style).line_height_expression >= 0) { rstyleMut(n->style).line_height_expression = -1; changed = 1; }
+#endif
 		if (n->style.line_height != value) { n->style.line_height = value; changed = 1; } break;
+#if GEA_CSS_LINE_HEIGHT_EXPRESSIONS
 	case Property::LineHeightExpression: {
 		if (n->style.line_height_multiplier >= 0) { n->style.line_height_multiplier = -1; changed = 1; }
 		const int height = resolveLineHeightExpression(node, value);
@@ -661,22 +859,38 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			rstyleMut(n->style).line_height_expression = value; n->style.line_height = height; changed = 1;
 		} break;
 	}
+#endif
 	case Property::LineHeightMultiplier: {
 		const int height = resolveLineHeightMultiplier(node, value);
+#if GEA_CSS_LINE_HEIGHT_EXPRESSIONS
 		if (rstyle(n->style).line_height_expression >= 0) { rstyleMut(n->style).line_height_expression = -1; changed = 1; }
+#endif
 		if (n->style.line_height_multiplier != value || n->style.line_height != height) {
 			n->style.line_height_multiplier = value; n->style.line_height = height; changed = 1;
 		} break;
 	}
 	case Property::TextAlign:       if (n->style.text_align != value) { n->style.text_align = value; changed = 1; } break;
+#if GEA_CSS_TEXT_DECORATION
 	case Property::TextDecoration:  if (n->style.text_decoration != value) { n->style.text_decoration = value; changed = 1; } break;
+#endif
+#if GEA_CSS_TEXT_TRANSFORM
 	case Property::TextTransform:   if (n->style.text_transform != value) { n->style.text_transform = value; changed = 1; } break;
+#endif
 	case Property::WhiteSpace:      if (n->style.white_space != static_cast<int8_t>(value)) { n->style.white_space = static_cast<int8_t>(value); changed = 1; } break;
 	case Property::TextOverflow:    if (n->style.text_overflow != static_cast<int8_t>(value)) { n->style.text_overflow = static_cast<int8_t>(value); changed = 1; } break;
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformStyle: if (rstyle(n->style).transform_preserve_3d != (value != 0)) { rstyleMut(n->style).transform_preserve_3d = value != 0; changed = 1; } break;
+#endif
+#if GEA_CSS_VISIBILITY
 	case Property::Visibility: if (n->style.visibility != static_cast<int8_t>(value)) { n->style.visibility = static_cast<int8_t>(value); changed = 1; } break;
+#endif
+#if GEA_CSS_TRANSFORMS
 	case Property::Backface:        if (n->style.backface_hidden != static_cast<int8_t>(value)) { n->style.backface_hidden = static_cast<int8_t>(value); changed = 1; } break;
+#endif
+#if GEA_CSS_POINTER_EVENTS
 	case Property::PointerEvents:   if (n->style.pointer_events != static_cast<int8_t>(value)) { n->style.pointer_events = static_cast<int8_t>(value); changed = 1; } break;
+#endif
+#if GEA_CSS_OVERFLOW_AXES
 	case Property::Overflow: {
 		const int8_t next = static_cast<int8_t>(value);
 		if (n->style.overflow != next || n->style.overflow_x != next || n->style.overflow_y != next) {
@@ -707,6 +921,16 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 	}
+#else
+	case Property::Overflow:
+	case Property::OverflowX:
+	case Property::OverflowY: {
+		const int8_t next = static_cast<int8_t>(value);
+		if (n->style.overflow != next) { n->style.overflow = next; changed = 1; }
+		break;
+	}
+#endif
+#if GEA_CSS_MASK
 	case Property::MaskRightFadeWidth: {
 		const int16_t next = static_cast<int16_t>(value < 0 ? 0 : value > 32767 ? 32767 : value);
 		if (n->style.mask_right_fade_width != next) {
@@ -715,8 +939,14 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 	}
+#endif
+#if GEA_UI_IMAGE_NODES
 	case Property::ImageId:         if (n->image_id != value) { n->image_id = value; changed = 1; } break;
+#endif
+#if GEA_CSS_IMAGE_FIT
 	case Property::ImageFit:        if (n->style.image_fit != value) { n->style.image_fit = value; changed = 1; } break;
+#endif
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformTranslateOuterAxes: if (rstyle(n->style).transform_translate_outer_axes != value) { rstyleMut(n->style).transform_translate_outer_axes = value; changed = 1; } break;
 	case Property::RotateAngle: if (rstyle(n->style).rotate_angle != value) { rstyleMut(n->style).rotate_angle = value; changed = 1; } break;
 	case Property::RotateAxisX: if (rstyle(n->style).rotate_axis_x != value) { rstyleMut(n->style).rotate_axis_x = value; changed = 1; } break;
@@ -734,7 +964,11 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	case Property::TransformPresent: if (rstyle(n->style).transform_present != (value != 0)) { rstyleMut(n->style).transform_present = value != 0; changed = 1; } break;
 	case Property::RotatePresent: if (rstyle(n->style).rotate_present != (value != 0)) { rstyleMut(n->style).rotate_present = value != 0; changed = 1; } break;
 	case Property::ScalePresent: if (rstyle(n->style).scale_present != (value != 0)) { rstyleMut(n->style).scale_present = value != 0; changed = 1; } break;
+#endif
+#if GEA_CSS_FILTERS
 	case Property::FilterPresent: if (rstyle(n->style).filter_present != (value != 0)) { rstyleMut(n->style).filter_present = value != 0; changed = 1; } break;
+#endif
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformRotate:
 		if (rstyle(n->style).transform_rotate != value) {
 			rstyleMut(n->style).transform_rotate = value;
@@ -756,26 +990,43 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	case Property::Perspective: if (rstyle(n->style).perspective != value) { rstyleMut(n->style).perspective = value; changed = 1; } break;
 	case Property::PerspectiveOriginX: if (rstyle(n->style).perspective_origin_x != value) { rstyleMut(n->style).perspective_origin_x = value; changed = 1; } break;
 	case Property::PerspectiveOriginY: if (rstyle(n->style).perspective_origin_y != value) { rstyleMut(n->style).perspective_origin_y = value; changed = 1; } break;
+#endif
+#if GEA_CSS_FILTERS
 	case Property::FilterBlur: if (rstyle(n->style).filter_blur_radius != value) { rstyleMut(n->style).filter_blur_radius = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowInset: {
 		const uint8_t next = value != 0 ? 1 : 0;
 		if (rstyle(n->style).box_shadow_inset != next) { rstyleMut(n->style).box_shadow_inset = next; changed = 1; }
 		break;
 	}
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowOffsetX: if (rstyle(n->style).box_shadow_offset_x != value) { rstyleMut(n->style).box_shadow_offset_x = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowOffsetY: if (rstyle(n->style).box_shadow_offset_y != value) { rstyleMut(n->style).box_shadow_offset_y = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowBlur: if (rstyle(n->style).box_shadow_blur_radius != value) { rstyleMut(n->style).box_shadow_blur_radius = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowSpread: if (rstyle(n->style).box_shadow_spread != value) { rstyleMut(n->style).box_shadow_spread = value; changed = 1; } break;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowColor: {
 		const style_color_t next = StyleValues::pixelFromStyleValue(value);
 		if (rstyle(n->style).box_shadow_color != next) { rstyleMut(n->style).box_shadow_color = next; changed = 1; }
 		break;
 	}
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowAlpha: {
 		const uint8_t next = static_cast<uint8_t>(value < 0 ? 0 : value > 255 ? 255 : value);
 		if (rstyle(n->style).box_shadow_alpha != next) { rstyleMut(n->style).box_shadow_alpha = next; changed = 1; }
 		break;
 	}
+#endif
 	default:
 		perf.treeSetStyleNoop++;
 		return;
@@ -793,6 +1044,10 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		perf.treeSetStylePaintChanged++;
 	if (state.styleInvalidationSuppressionDepth > 0) return;
 	if (!nodeParticipatesInMountedTree(state, node)) return;
+	const bool hadRecolor = n->render.bg_recolor_pending;
+	const bool canRecolor = !n->render.dirty || hadRecolor;
+	n->render.text_partial_dirty = 0;
+	n->render.bg_recolor_pending = 0;
 	if (prop == Property::Visibility || prop == Property::Backface || prop == Property::TransformStyle)
 		tree.markDisplayListDirty();
 	const int documentRoot = state.mountedRoot;
@@ -815,12 +1070,14 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			(n->style.height != kUnset || n->style.height_percent != kUnset);
 		if (fixedBox) {
 			n->render.dirty = 1;
+#if GEA_CSS_SCROLLING
 			n->render.non_scroll_dirty = 1;
+#endif
 			tree.markNodeDisplayCommandsDirty(node);
 			return;
 		}
 	}
-	if (prop == Property::BackgroundColor &&
+	if (canRecolor && prop == Property::BackgroundColor &&
 	    previousHasBg &&
 	    previousBgAlpha == 255 &&
 	    previousBgFill == 0 &&
@@ -836,9 +1093,8 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	    rstyle(n->style).bg_radial_gradient == 0 &&
 	    rstyle(n->style).bg_grid_axes == 0 &&
 	    previousBgColor != n->style.bg_color) {
+		if (!hadRecolor) n->render.bg_recolor_from = previousBgColor;
 		n->render.bg_recolor_pending = 1;
-		n->render.bg_recolor_from = previousBgColor;
-		n->render.bg_recolor_to = n->style.bg_color;
 	}
 	n->render.dirty = 1;
 	// Paint-only properties (background, colors, shadows, ...) repaint in
@@ -847,11 +1103,18 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	// not let a retained transform update suppress the required relayout.
 	if (isLayoutProperty(prop) || (isTransformProperty(prop) && state.fixedPositionUsed))
 		n->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	n->render.non_scroll_dirty = 1;
+#endif
 	if (isTransformProperty(prop)) {
+#if GEA_CSS_TRANSFORMS
 		n->render.transform_dirty = 1;
+#endif
+
+#if GEA_CSS_TRANSFORMS
 		state.transformScanSerial = ~0ull;
 		state.transformScanValid = false;  // a transform was added/changed → drop durable no-transform cache
+#endif
 	}
 	if (DisplayInvalidation::rebuildsNodeDisplayCommands(prop)) {
 		const bool stayLocal = DisplayInvalidation::nodeDisplayChangeCanStayLocal(node);
@@ -943,15 +1206,17 @@ void Tree::resetStyleForClassRecompute(int node)
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount) return;
 
-	Node defaults;
-	NodeLifecycle::init(&defaults, state.nodes[node].type);
-	state.nodes[node].style = defaults.style;
-	state.nodes[node].image_id = defaults.image_id;
+	NodeLifecycle::resetStyle(state.nodes[node].style);
+#if GEA_UI_IMAGE_NODES
+	state.nodes[node].image_id = -1;
+#endif
 	if (state.styleInvalidationSuppressionDepth > 0) return;
 	if (!nodeParticipatesInMountedTree(state, node)) return;
 	state.nodes[node].render.dirty = 1;
 	state.nodes[node].render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	state.nodes[node].render.non_scroll_dirty = 1;
+#endif
 	markDisplayListDirty();
 }
 

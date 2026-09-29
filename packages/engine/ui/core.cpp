@@ -4,6 +4,7 @@
 #include "document.h"
 #include "refresh_perf.h"
 #include "tree_state.h"
+#include "tree_inspection.h"
 
 namespace gea::embedded::ui {
 
@@ -50,11 +51,15 @@ void Tree::markNodeDisplayCommandsDirty(int node)
 
 void Tree::markScrollDirty(int node)
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	if (node < 0 || node >= kMaxNodes) return;
 	state.nodes[node].render.scroll_dirty = 1;
 	state.scrollDirtyNodes[node / 64] |= (1ull << (node % 64));
 	state.scrollDirtyAny = true;
+#else
+	(void)node;
+#endif
 }
 
 Node *Tree::nodes()
@@ -81,6 +86,24 @@ int Tree::nodeCount() const { return treeState().nodeCount; }
 int Tree::mountedRoot() const { return treeState().mountedRoot; }
 int Tree::mountedWidth() const { return treeState().mountedWidth; }
 int Tree::mountedHeight() const { return treeState().mountedHeight; }
+
+int TreeInspection::nodeCount() { return Tree::instance().nodeCount(); }
+int TreeInspection::mountedWidth() { return Tree::instance().mountedWidth(); }
+bool TreeInspection::hasMountedText(const char *text)
+{
+    if (!text) return false;
+    const auto &tree = Tree::instance();
+    for (int i = 0; i < tree.nodeCount(); ++i) {
+        if (tree.node(i).text != text) continue;
+        int node = i;
+        for (int depth = 0; node >= 0 && node < tree.nodeCount() && depth < tree.nodeCount(); ++depth) {
+            if (isDisplayNone(tree.node(node).style)) break;
+            if (node == tree.mountedRoot()) return true;
+            node = tree.node(node).parent;
+        }
+    }
+    return false;
+}
 
 bool Tree::displayListRebuildRequired() const { return treeState().displayListDirty; }
 bool Tree::refreshRequired() const

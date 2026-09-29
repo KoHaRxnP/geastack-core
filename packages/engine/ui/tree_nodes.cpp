@@ -104,7 +104,9 @@ void resetNodeSlot(TreeState &state, int id)
 	// gap before the next record reads freed memory.
 	if (!state.nodes[id].text.empty()) DisplayList::instance().scrubNodeText(state.nodes[id].text.c_str());
 	releaseRareData(id);  // frees the rare-data block: attributes, listeners, custom props, virtual-list
+#if GEA_CSS_RARE_STYLE
 	releaseRareStyle(state.nodes[id].style.rare_style);  // frees the cold-style block
+#endif
 	state.classLists[id].clear();
 	state.canvases.remove(id);
 	state.nodeCommandDirty[id] = 0;
@@ -134,8 +136,8 @@ bool localAbsoluteLeafTreeMutation(const TreeState &state, int child)
 	if (node.first_child >= 0) return false;
 	if (node.type == NodeType::Text || node.type == NodeType::Canvas || node.type == NodeType::VirtualList) return false;
 	if (!isViewLikeNodeType(node.type) && node.type != NodeType::Image) return false;
-	if (rstyle(node.style).filter_blur_radius > 0 || node.style.mask_right_fade_width > 0) return false;
-	if (rstyle(node.style).box_shadow_alpha > 0) return false;
+	if ((GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0) > 0 || node.style.mask_right_fade_width > 0) return false;
+	if ((GEA_CSS_BOX_SHADOW ? rstyle(node.style).box_shadow_alpha : 0) > 0) return false;
 	return true;
 }
 
@@ -184,9 +186,11 @@ void Tree::clear()
 	std::memset(state.nodeCommandDirty, 0, sizeof(state.nodeCommandDirty));
 	std::memset(state.nodeCommandDirtyBoundsValid, 0, sizeof(state.nodeCommandDirtyBoundsValid));
 	std::memset(state.nodeCommandDirtyCanOverpaint, 0, sizeof(state.nodeCommandDirtyCanOverpaint));
+#if GEA_CSS_SCROLLING
 	std::memset(state.scrollDirtyNodes, 0, sizeof(state.scrollDirtyNodes));
 	state.scrollDirtyAny = false;
 	state.pendingScrollIntoViewNode = -1;
+#endif
 	// Drop display-list commands and growable render scratch from the previous app.
 	// Per-frame DisplayList::clear() keeps capacity for reuse; app/tree reset is the
 	// point where a large app should stop poisoning a smaller app's memory shape.
@@ -243,15 +247,19 @@ int Tree::cloneNode(int sourceId, bool deep)
 	clone.style = source.style;
 	// clone.style copied source's rare_style HANDLE (shared pool entry). Give the
 	// clone its own entry with the same contents, so mutating one never aliases.
+#if GEA_CSS_RARE_STYLE
 	clone.style.rare_style = -1;
 	if (source.style.rare_style >= 0) rstyleMut(clone.style) = rstyle(source.style);
+#endif
 	clone.text = source.text;
+#if GEA_UI_IMAGE_NODES
 	clone.image_id = source.image_id;
+#endif
 	clone.tag_id = source.tag_id;  // interned tag id — just copy the handle
 	// Copy attributes + custom properties (DOM cloneNode semantics) but NOT
 	// listeners or virtual-list state. All live in the rare-data block; allocate
-	// one for the clone only if the source has any. (rareDataFor returns a deque
-	// element whose address is stable across the ensureRareData growth below, so
+	// one for the clone only if the source has any. (rareDataFor returns an owned
+	// record whose address is stable across the ensureRareData growth below, so
 	// srcRd stays valid.)
 	if (const NodeRareData *srcRd = rareDataFor(sourceId)) {
 		NodeRareData &cloneRd = ensureRareData(id);
@@ -260,9 +268,11 @@ int Tree::cloneNode(int sourceId, bool deep)
 		cloneRd.defaultStyles = srcRd->defaultStyles;
 		cloneRd.inlineStyles = srcRd->inlineStyles;
 		cloneRd.inlineCustomProperties = srcRd->inlineCustomProperties;
+#if GEA_CSS_GRID
 		cloneRd.inlineGridTemplates[0] = srcRd->inlineGridTemplates[0];
 		cloneRd.inlineGridTemplates[1] = srcRd->inlineGridTemplates[1];
 		cloneRd.inlineGridShorthandMask = srcRd->inlineGridShorthandMask;
+#endif
 	}
 	state.classLists[id] = state.classLists[sourceId];
 	// Listeners deliberately NOT copied (DOM cloneNode semantics) — compiled
@@ -466,7 +476,9 @@ void Tree::markCanvasDirty(int id)
 	if (surface && surface->displayBacked()) return;
 	state.nodes[id].render.dirty = 1;
 	state.nodes[id].render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	state.nodes[id].render.non_scroll_dirty = 1;
+#endif
 	// Content-only repaint: the canvas's BlitImage command is unchanged frame
 	// to frame (same surface pointer, same rect) — only the pixels it points
 	// at were redrawn. The in-place refresh path re-records and emits a flush
@@ -513,7 +525,9 @@ void Tree::setParent(int child, int parent)
 		if (!localMutation) {
 			old_parent->render.dirty = 1;
 			old_parent->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 			old_parent->render.non_scroll_dirty = 1;
+#endif
 		}
 	}
 	if (c->prev_sibling >= 0) state.nodes[c->prev_sibling].next_sibling = c->next_sibling;
@@ -530,11 +544,15 @@ void Tree::setParent(int child, int parent)
 	if (!localMutation) {
 		state.nodes[parent].render.dirty = 1;
 		state.nodes[parent].render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		state.nodes[parent].render.non_scroll_dirty = 1;
+#endif
 	}
 	c->render.dirty = 1;
 	c->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	c->render.non_scroll_dirty = 1;
+#endif
 	if (localMutation)
 		markDisplayListContentDirty();
 	else
@@ -566,7 +584,9 @@ void Tree::insertBefore(int child, int parent, int reference)
 		if (!localMutation) {
 			old_parent->render.dirty = 1;
 			old_parent->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 			old_parent->render.non_scroll_dirty = 1;
+#endif
 		}
 	}
 	if (c->prev_sibling >= 0) state.nodes[c->prev_sibling].next_sibling = c->next_sibling;
@@ -585,11 +605,15 @@ void Tree::insertBefore(int child, int parent, int reference)
 	if (!localMutation) {
 		state.nodes[parent].render.dirty = 1;
 		state.nodes[parent].render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		state.nodes[parent].render.non_scroll_dirty = 1;
+#endif
 	}
 	c->render.dirty = 1;
 	c->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	c->render.non_scroll_dirty = 1;
+#endif
 	if (localMutation)
 		markDisplayListContentDirty();
 	else
@@ -610,12 +634,16 @@ void Tree::removeNode(int id)
 	markDisplayListDirty();
 	n->render.dirty = 1;
 	n->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	n->render.non_scroll_dirty = 1;
+#endif
 	if (n->parent >= 0) {
 		Node *p = &state.nodes[n->parent];
 		p->render.dirty = 1;
 		p->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		p->render.non_scroll_dirty = 1;
+#endif
 		if (p->first_child == id) p->first_child = n->next_sibling;
 		if (p->last_child == id) p->last_child = n->prev_sibling;
 	}

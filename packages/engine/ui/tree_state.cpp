@@ -6,6 +6,8 @@
 #include <cstring>
 #include <deque>
 #include <new>
+#include <memory>
+#include <vector>
 #include <utility>
 
 // TreeState is a single large struct (kMaxNodes-scaled per-node arrays: nodes,
@@ -20,7 +22,165 @@
 #include "esp_heap_caps.h"
 #endif
 
-namespace gea::embedded::ui {
+namespace gea::embedded::ui
+{
+
+namespace
+{
+std::size_t g_nodeTextStorageBytes = 0;
+template <class T> struct NodeTextAllocator {
+	using value_type = T;
+	NodeTextAllocator() = default;
+	template <class U> NodeTextAllocator(const NodeTextAllocator<U> &) {}
+	T *allocate(std::size_t n)
+	{
+#if defined(ESP_PLATFORM)
+		// Match TreeState placement even when the board sends small ordinary
+		// allocations to SRAM. Node text must not steal the audio heap.
+		T *result = static_cast<T *>(heap_caps_malloc(n * sizeof(T), MALLOC_CAP_SPIRAM));
+		if (!result) result = std::allocator<T>{}.allocate(n);
+#else
+		T *result = std::allocator<T>{}.allocate(n);
+#endif
+		g_nodeTextStorageBytes += n * sizeof(T);
+		return result;
+	}
+	void deallocate(T *ptr, std::size_t n)
+	{
+		g_nodeTextStorageBytes -= n * sizeof(T);
+#if defined(ESP_PLATFORM)
+		// ESP-IDF new/delete and capability allocations use the same heap.
+		heap_caps_free(ptr);
+#else
+		std::allocator<T>{}.deallocate(ptr, n);
+#endif
+	}
+	template <class U> bool operator==(const NodeTextAllocator<U> &) const
+	{
+		return true;
+	}
+	template <class U> bool operator!=(const NodeTextAllocator<U> &) const
+	{
+		return false;
+	}
+};
+union NodeTextEntry {
+	// A free entry has no live string, so its reuse link occupies the same
+	// bytes instead of adding a word to every nonempty label.
+	std::string text;
+	std::uint32_t nextFree;
+	NodeTextEntry() : nextFree(UINT32_MAX) {}
+	~NodeTextEntry() {} // Live strings are destroyed when their owner clears.
+};
+struct NodeTextPool {
+	// Fixed small pages avoid libc++ deque's 4 KiB minimum block for a UI
+	// containing only a handful of labels. Page addresses never move.
+	static constexpr std::size_t kPageEntries = 16;
+	struct PageDeleter {
+		void operator()(NodeTextEntry *page) const {
+			for (std::size_t i = 0; i < kPageEntries; ++i) page[i].~NodeTextEntry();
+			NodeTextAllocator<NodeTextEntry>{}.deallocate(page, kPageEntries);
+		}
+	};
+	std::vector<NodeTextEntry *, NodeTextAllocator<NodeTextEntry *>> pages;
+	std::size_t size = 0;
+	std::uint32_t freeHead = UINT32_MAX;
+	NodeTextEntry &at(std::size_t index)
+	{
+		return pages[index / kPageEntries][index % kPageEntries];
+	}
+	void append()
+	{
+		if (size == pages.size() * kPageEntries) {
+			std::unique_ptr<NodeTextEntry[], PageDeleter> page(NodeTextAllocator<NodeTextEntry>{}.allocate(kPageEntries));
+			for (std::size_t i = 0; i < kPageEntries; ++i) new (&page[i]) NodeTextEntry;
+			pages.push_back(page.get());
+			page.release();
+		}
+		++size;
+	}
+};
+NodeTextPool *g_nodeTextPool = nullptr;
+const std::string g_emptyNodeText;
+NodeTextPool &nodeTextPool()
+{
+	if (!g_nodeTextPool)
+		g_nodeTextPool = new (NodeTextAllocator<NodeTextPool>{}.allocate(1)) NodeTextPool;
+	return *g_nodeTextPool;
+}
+} // namespace
+
+std::size_t NodeText::storageBytes()
+{
+	return g_nodeTextStorageBytes;
+}
+
+NodeText::NodeText(const NodeText &other)
+{
+	if (!other.empty())
+		assign(other.c_str());
+}
+NodeText::NodeText(NodeText &&other) noexcept : handle_(other.handle_)
+{
+	other.handle_ = kEmpty;
+}
+NodeText::~NodeText() { clear(); }
+NodeText &NodeText::operator=(const NodeText &other)
+{
+	if (this != &other) {
+		if (other.empty())
+			clear();
+		else
+			assign(other.c_str());
+	}
+	return *this;
+}
+NodeText &NodeText::operator=(NodeText &&other) noexcept
+{
+	if (this != &other) {
+		clear();
+		handle_ = other.handle_;
+		other.handle_ = kEmpty;
+	}
+	return *this;
+}
+const std::string &NodeText::str() const
+{
+	return empty() ? g_emptyNodeText : nodeTextPool().at(handle_).text;
+}
+void NodeText::clear()
+{
+	if (empty())
+		return;
+	auto &pool = nodeTextPool();
+	auto &entry = pool.at(handle_);
+	// Release long text allocations on removal, rather than retaining the
+	// largest label ever seen in every reusable slot.
+	entry.text.~basic_string();
+	entry.nextFree = pool.freeHead;
+	pool.freeHead = handle_;
+	handle_ = kEmpty;
+}
+void NodeText::assign(const char *text)
+{
+	if (!text || !*text) {
+		clear();
+		return;
+	}
+	auto &pool = nodeTextPool();
+	if (empty()) {
+		if (pool.freeHead == kEmpty) {
+			const auto index = pool.size;
+			pool.append();
+			handle_ = static_cast<std::uint32_t>(index);
+		} else {
+			handle_ = pool.freeHead;
+			pool.freeHead = pool.at(handle_).nextFree;
+		}
+		new (&pool.at(handle_).text) std::string;
+	}
+	pool.at(handle_).text.assign(text);
+}
 
 namespace {
 
@@ -307,137 +467,85 @@ std::string NodeClassList::value() const
 	return out;
 }
 
+// Empty override stores own nothing. One allocation contains both metadata
+// and values; computed styles remain ordinary aligned fields in Node.
+struct NodeStyleOverrideStore::Block {
+	std::size_t count = 0, capacity = 0;
+	NodeStyleOverride *values() { return reinterpret_cast<NodeStyleOverride *>(this + 1); }
+	const NodeStyleOverride *values() const { return reinterpret_cast<const NodeStyleOverride *>(this + 1); }
+};
 namespace {
-
-NodeStyleOverride &styleOverrideAt(NodeStyleOverrideStore &store, std::size_t index)
-{
-	return store.spilled ? store.spillValues[index] : store.inlineValues[index];
-}
-
 void appendStyleOverride(NodeStyleOverrideStore &store, NodeStyleOverride entry)
 {
-	if (!store.spilled && store.inlineCount < NodeStyleOverrideStore::kInlineCount) {
-		store.inlineValues[store.inlineCount++] = entry;
-		return;
+	auto *old = store.block;
+	if (!old || old->count == old->capacity) {
+		const std::size_t capacity = old ? old->capacity * 2 : 2;
+		auto *next = new (::operator new(sizeof(NodeStyleOverrideStore::Block) + capacity * sizeof(NodeStyleOverride))) NodeStyleOverrideStore::Block;
+		next->capacity = capacity;
+		if (old) {
+			next->count = old->count;
+			for (std::size_t i = 0; i < old->count; ++i) new (&next->values()[i]) NodeStyleOverride(old->values()[i]);
+			old->~Block();
+			::operator delete(old);
+		}
+		store.block = next;
 	}
-	if (!store.spilled) {
-		store.spillCapacity = NodeStyleOverrideStore::kInlineCount * 2;
-		store.spillValues = new NodeStyleOverride[store.spillCapacity];
-		for (std::size_t i = 0; i < store.inlineCount; ++i)
-			store.spillValues[i] = store.inlineValues[i];
-		store.spillCount = store.inlineCount;
-		store.spilled = true;
-	}
-	if (store.spillCount >= store.spillCapacity) {
-		const std::size_t nextCapacity = store.spillCapacity ? store.spillCapacity * 2 : NodeStyleOverrideStore::kInlineCount * 2;
-		auto *next = new NodeStyleOverride[nextCapacity];
-		for (std::size_t i = 0; i < store.spillCount; ++i)
-			next[i] = store.spillValues[i];
-		delete[] store.spillValues;
-		store.spillValues = next;
-		store.spillCapacity = nextCapacity;
-	}
-	store.spillValues[store.spillCount++] = entry;
+	new (&store.block->values()[store.block->count++]) NodeStyleOverride(entry);
 }
-
-}  // namespace
-
+}
 NodeStyleOverrideStore::NodeStyleOverrideStore(const NodeStyleOverrideStore &other)
 {
-	for (std::size_t i = 0, n = other.size(); i < n; ++i)
-		appendStyleOverride(*this, other.at(i));
+	for (std::size_t i = 0; i < other.size(); ++i) appendStyleOverride(*this, other.at(i));
 }
-
 NodeStyleOverrideStore &NodeStyleOverrideStore::operator=(const NodeStyleOverrideStore &other)
 {
-	if (this == &other) return *this;
-	clear();
-	for (std::size_t i = 0, n = other.size(); i < n; ++i)
-		appendStyleOverride(*this, other.at(i));
+	if (this != &other) {
+		NodeStyleOverrideStore copy(other);
+		*this = std::move(copy);
+	}
 	return *this;
 }
-
-NodeStyleOverrideStore::NodeStyleOverrideStore(NodeStyleOverrideStore &&other) noexcept
+NodeStyleOverrideStore::NodeStyleOverrideStore(NodeStyleOverrideStore &&other) noexcept : block(other.block)
 {
-	for (std::uint8_t i = 0; i < kInlineCount; ++i)
-		inlineValues[i] = other.inlineValues[i];
-	spillValues = other.spillValues;
-	spillCount = other.spillCount;
-	spillCapacity = other.spillCapacity;
-	inlineCount = other.inlineCount;
-	spilled = other.spilled;
-	other.spillValues = nullptr;
-	other.spillCount = 0;
-	other.spillCapacity = 0;
-	other.inlineCount = 0;
-	other.spilled = false;
+	other.block = nullptr;
 }
-
 NodeStyleOverrideStore &NodeStyleOverrideStore::operator=(NodeStyleOverrideStore &&other) noexcept
 {
-	if (this == &other) return *this;
-	delete[] spillValues;
-	for (std::uint8_t i = 0; i < kInlineCount; ++i)
-		inlineValues[i] = other.inlineValues[i];
-	spillValues = other.spillValues;
-	spillCount = other.spillCount;
-	spillCapacity = other.spillCapacity;
-	inlineCount = other.inlineCount;
-	spilled = other.spilled;
-	other.spillValues = nullptr;
-	other.spillCount = 0;
-	other.spillCapacity = 0;
-	other.inlineCount = 0;
-	other.spilled = false;
+	if (this != &other) {
+		clear();
+		block = other.block;
+		other.block = nullptr;
+	}
 	return *this;
 }
-
-NodeStyleOverrideStore::~NodeStyleOverrideStore()
-{
-	delete[] spillValues;
-}
-
+NodeStyleOverrideStore::~NodeStyleOverrideStore() { clear(); }
 void NodeStyleOverrideStore::clear()
 {
-	if (spilled)
-		spillCount = 0;
-	else
-		inlineCount = 0;
+	if (!block) return;
+	block->~Block();
+	::operator delete(block);
+	block = nullptr;
 }
-
+std::size_t NodeStyleOverrideStore::size() const { return block ? block->count : 0; }
 void NodeStyleOverrideStore::set(Property property, int value)
 {
-	for (std::size_t i = 0, n = size(); i < n; ++i) {
-		auto &entry = styleOverrideAt(*this, i);
-		if (entry.property != property) continue;
-		entry.value = value;
-		return;
+	for (std::size_t i = 0; i < size(); ++i) {
+		auto &entry = block->values()[i];
+		if (entry.property == property) { entry.value = value; return; }
 	}
 	appendStyleOverride(*this, {property, value});
 }
-
 bool NodeStyleOverrideStore::remove(Property property)
 {
-	for (std::size_t i = 0, n = size(); i < n; ++i) {
+	for (std::size_t i = 0; i < size(); ++i) {
 		if (at(i).property != property) continue;
-		if (spilled) {
-			for (std::size_t j = i + 1; j < spillCount; ++j)
-				spillValues[j - 1] = spillValues[j];
-			--spillCount;
-		} else {
-			for (std::size_t j = i + 1; j < inlineCount; ++j)
-				inlineValues[j - 1] = inlineValues[j];
-			--inlineCount;
-		}
+		for (std::size_t j = i + 1; j < block->count; ++j) block->values()[j - 1] = block->values()[j];
+		if (--block->count == 0) clear();
 		return true;
 	}
 	return false;
 }
-
-const NodeStyleOverride &NodeStyleOverrideStore::at(std::size_t index) const
-{
-	return spilled ? spillValues[index] : inlineValues[index];
-}
+const NodeStyleOverride &NodeStyleOverrideStore::at(std::size_t index) const { return block->values()[index]; }
 
 void NodeCustomPropertyStore::clear()
 {
@@ -450,9 +558,16 @@ void NodeCustomPropertyStore::set(const std::string &name, const std::string &va
 	set(internCssAtom(name), value);
 }
 
-CssAtomId customPropertyValueAtom(const std::string &value)
+void setCustomPropertyStorage(NodeCustomProperty &entry, const std::string &value)
 {
-	return value.empty() ? kInvalidCssAtom : internCssAtom(value);
+	const CssAtomId atom = value.empty() ? kInvalidCssAtom : internCssAtom(value);
+	// Form the replacement before releasing the old string: callers may pass
+	// the value returned by get(), including an uninterned overflow value.
+	auto storage = atom != kInvalidCssAtom || value.empty()
+	    ? std::shared_ptr<const std::string>(std::shared_ptr<const std::string>{}, &cssAtomString(atom))
+	    : std::make_shared<const std::string>(value);
+	entry.value = std::move(storage);
+	entry.valueAtom = atom;
 }
 
 void NodeCustomPropertyStore::set(CssAtomId nameId, const std::string &value)
@@ -460,15 +575,13 @@ void NodeCustomPropertyStore::set(CssAtomId nameId, const std::string &value)
 	if (nameId == kInvalidCssAtom) return;
 	for (auto &entry : values) {
 		if (entry.nameId != nameId) continue;
-		entry.value = value;
-		entry.valueAtom = customPropertyValueAtom(value);
+		setCustomPropertyStorage(entry, value);
 		entry.flags = 0;
 		return;
 	}
 	NodeCustomProperty entry;
 	entry.nameId = nameId;
-	entry.value = value;
-	entry.valueAtom = customPropertyValueAtom(value);
+	setCustomPropertyStorage(entry, value);
 	values.push_back(std::move(entry));
 }
 
@@ -481,8 +594,7 @@ void NodeCustomPropertyStore::setColor(CssAtomId nameId,
 	if (nameId == kInvalidCssAtom) return;
 	for (auto &entry : values) {
 		if (entry.nameId != nameId) continue;
-		entry.value = value;
-		entry.valueAtom = customPropertyValueAtom(value);
+		setCustomPropertyStorage(entry, value);
 		entry.colorStyle = styleColor;
 		entry.colorNative = nativeColor;
 		entry.colorAlpha = alpha;
@@ -491,8 +603,7 @@ void NodeCustomPropertyStore::setColor(CssAtomId nameId,
 	}
 	NodeCustomProperty entry;
 	entry.nameId = nameId;
-	entry.value = value;
-	entry.valueAtom = customPropertyValueAtom(value);
+	setCustomPropertyStorage(entry, value);
 	entry.colorStyle = styleColor;
 	entry.colorNative = nativeColor;
 	entry.colorAlpha = alpha;
@@ -505,11 +616,11 @@ void NodeCustomPropertyStore::setLength(CssAtomId nameId,
                                         float lengthValue,
                                         std::uint8_t lengthUnit)
 {
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	if (nameId == kInvalidCssAtom) return;
 	for (auto &entry : values) {
 		if (entry.nameId != nameId) continue;
-		entry.value = value;
-		entry.valueAtom = customPropertyValueAtom(value);
+		setCustomPropertyStorage(entry, value);
 		entry.lengthValue = lengthValue;
 		entry.lengthUnit = lengthUnit;
 		entry.flags = static_cast<std::uint8_t>((entry.flags & ~1u) | 2u);
@@ -517,12 +628,15 @@ void NodeCustomPropertyStore::setLength(CssAtomId nameId,
 	}
 	NodeCustomProperty entry;
 	entry.nameId = nameId;
-	entry.value = value;
-	entry.valueAtom = customPropertyValueAtom(value);
+	setCustomPropertyStorage(entry, value);
 	entry.lengthValue = lengthValue;
 	entry.lengthUnit = lengthUnit;
 	entry.flags = 2;
 	values.push_back(std::move(entry));
+#else
+	(void)lengthValue; (void)lengthUnit;
+	set(nameId, value);
+#endif
 }
 
 const std::string *NodeCustomPropertyStore::get(const std::string &name) const
@@ -534,7 +648,7 @@ const std::string *NodeCustomPropertyStore::get(const std::string &name) const
 const std::string *NodeCustomPropertyStore::get(CssAtomId nameId) const
 {
 	if (nameId == kInvalidCssAtom) return nullptr;
-	if (const NodeCustomProperty *entry = getEntry(nameId)) return &entry->value;
+	if (const NodeCustomProperty *entry = getEntry(nameId)) return entry->value.get();
 	return nullptr;
 }
 
@@ -571,4 +685,4 @@ TreeState &treeState()
 	return *g_treeState;
 }
 
-}  // namespace gea::embedded::ui
+} // namespace gea::embedded::ui

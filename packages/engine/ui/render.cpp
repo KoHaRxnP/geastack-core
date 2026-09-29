@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "renderer_features.h"
 #include "internal.h"
 #include "state_init.h"
 #include "canvas.h"
@@ -268,14 +269,14 @@ int gLastScrollUiFrame = -1000;
 #define GEA_EMBEDDED_RECOLOR_PIXEL_CACHE_SIZE 512
 #endif
 
-			constexpr int kTransformedGradientLutSlots = GEA_EMBEDDED_TRANSFORMED_GRADIENT_LUT_SLOTS;
+			constexpr int kTransformedGradientLutSlots = (GEA_EMBEDDED_RENDERER_TRANSFORMS && GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS) ? GEA_EMBEDDED_TRANSFORMED_GRADIENT_LUT_SLOTS : 1;
 			static_assert(kTransformedGradientLutSlots > 0);
-			constexpr int kTransformedGradientLutBanks = GEA_EMBEDDED_TRANSFORMED_GRADIENT_LUT_BANKS;
+			constexpr int kTransformedGradientLutBanks = (GEA_EMBEDDED_RENDERER_TRANSFORMS && GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS) ? GEA_EMBEDDED_TRANSFORMED_GRADIENT_LUT_BANKS : 1;
 			static_assert(kTransformedGradientLutBanks > 0);
 			constexpr bool kTransformedGradientA5Mirror = GEA_EMBEDDED_TRANSFORMED_GRADIENT_A5_MIRROR != 0;
 		static_assert(kTransformedGradientA5Mirror || GEA_EMBEDDED_PIE_BLEND_SPAN8_GATHER == 0,
 		              "GEA_EMBEDDED_PIE_BLEND_SPAN8_GATHER requires the transformed-gradient a5 mirror");
-		constexpr int kProjectedTextCacheBanks = GEA_EMBEDDED_PROJECTED_TEXT_CACHE_BANKS;
+		constexpr int kProjectedTextCacheBanks = GEA_EMBEDDED_RENDERER_TRANSFORMS ? GEA_EMBEDDED_PROJECTED_TEXT_CACHE_BANKS : 1;
 		static_assert(kProjectedTextCacheBanks > 0);
 		constexpr int kScratchDepth = 16;
 		constexpr int kFilterBlurPasses = 5;
@@ -1356,10 +1357,10 @@ int gLastScrollUiFrame = -1000;
 			const int halfMin = std::min(node.layout.width, node.layout.height) / 2;
 			const int minRadius = std::max(1, halfMin - 1);
 			return halfMin > 0 &&
-						 node.style.border_radius[0] >= minRadius &&
-						 node.style.border_radius[1] >= minRadius &&
-						 node.style.border_radius[2] >= minRadius &&
-						 node.style.border_radius[3] >= minRadius;
+						 node.style.border_radius[GEA_CSS_RADIUS_INDEX(0)] >= minRadius &&
+						 node.style.border_radius[GEA_CSS_RADIUS_INDEX(1)] >= minRadius &&
+						 node.style.border_radius[GEA_CSS_RADIUS_INDEX(2)] >= minRadius &&
+						 node.style.border_radius[GEA_CSS_RADIUS_INDEX(3)] >= minRadius;
 		}
 
 		bool screenToNodeRectHomography(const Node &node, double out[8])
@@ -2010,8 +2011,8 @@ int gLastScrollUiFrame = -1000;
 				return nx * nx + ny * ny <= 1.0;
 			}
 
-			const double radius = static_cast<double>(std::min(std::min(node.style.border_radius[0], node.style.border_radius[1]),
-																												 std::min(node.style.border_radius[2], node.style.border_radius[3])));
+			const double radius = static_cast<double>(std::min(std::min(node.style.border_radius[GEA_CSS_RADIUS_INDEX(0)], node.style.border_radius[GEA_CSS_RADIUS_INDEX(1)]),
+																												 std::min(node.style.border_radius[GEA_CSS_RADIUS_INDEX(2)], node.style.border_radius[GEA_CSS_RADIUS_INDEX(3)])));
 			const double r = std::max(0.0, std::min(radius, std::min(w, h) * 0.5));
 			if (r <= 0.0)
 				return true;
@@ -2125,7 +2126,7 @@ int gLastScrollUiFrame = -1000;
 			const double ry = h * 0.5;
 			if (rx <= 0.0 || ry <= 0.0)
 				return 0;
-			const double blur = std::max(1.0, static_cast<double>(rstyle(node.style).filter_blur_radius));
+			const double blur = std::max(1.0, static_cast<double>((GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0)));
 			const double dx = std::fabs(sx - (x + rx));
 			const double dy = std::fabs(sy - (y + ry));
 			const double alphaX = 1.0 - smoothStep(rx, rx + blur * 2.0, dx);
@@ -2743,9 +2744,10 @@ int gLastScrollUiFrame = -1000;
 			// thread). Falls back to the per-pixel scan if the label is implausibly large.
 			const int srcW = command.projectedText.srcW;
 			const int srcH = command.projectedText.srcH;
-			const bool useBuffer = static_cast<long long>(srcW) * static_cast<long long>(srcH) <= (1LL << 19);
 			const std::uint8_t *cb = nullptr;
 			int inkX0 = 0, inkY0 = 0, inkX1 = srcW - 1, inkY1 = srcH - 1;
+			const bool useBuffer = static_cast<long long>(srcW) * static_cast<long long>(srcH) <= (1LL << 19);
+#if GEA_EMBEDDED_RENDERER_TRANSFORMS
 			if (useBuffer)
 			{
 				// Coverage buffer is text-space (independent of the 3D projection), so it's
@@ -2901,6 +2903,21 @@ int gLastScrollUiFrame = -1000;
 				inkY1 = hit->ink[3];
 			}
 			else
+#else
+			// A native/dynamic instruction missed by source analysis still uses the
+			// identical coverage rasterization and Q8 sampling. Only this call owns
+			// the scratch; no transform-free app reserves a bank or retains a bitmap.
+			std::vector<std::uint8_t> uncachedCoverage;
+			if (useBuffer) {
+				uncachedCoverage.resize(static_cast<std::size_t>(srcW) * srcH);
+				int ink[4];
+				buildProjectedTextAlpha(command, font, uncachedCoverage.data(), srcW, srcH, ink);
+				if (ink[2] < ink[0]) return;
+				cb = uncachedCoverage.data();
+				inkX0 = ink[0]; inkY0 = ink[1]; inkX1 = ink[2]; inkY1 = ink[3];
+			}
+			else
+#endif
 			{
 				refreshPerfStatsMutable().projectedTextCacheFallbacks++;
 			}
@@ -3384,6 +3401,7 @@ int gLastScrollUiFrame = -1000;
 			// so an app that never fills a transformed gradient reserves ZERO RAM for
 			// this ~26 KB LUT bank scratch — it used to sit in .bss unconditionally for
 			// every app. Allocated on the first transformed-gradient fill; never freed.
+#if GEA_EMBEDDED_RENDERER_TRANSFORMS && GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
 			using FaceLutBank = FaceLutSlot[kTransformedGradientLutSlots];
 			static FaceLutBank *const slotsByBank = []() -> FaceLutBank *
 			{
@@ -3413,6 +3431,16 @@ int gLastScrollUiFrame = -1000;
 			auto &slots = slotsByBank[lutBank];
 			int &slotRR = slotRRByBank[lutBank];
 			std::uint8_t *const slotConstAlpha = slotConstAlphaByBank[lutBank];
+
+#else
+			FaceLutSlot slots[1]{};
+			int slotRR = 0;
+			std::uint8_t slotConstAlpha[1]{};
+#if GEA_EMBEDDED_TRANSFORMED_GRADIENT_LUT_LOCK
+			volatile unsigned char slotLockByBank[1]{};
+			constexpr int lutBank = 0;
+#endif
+#endif
 #if GEA_EMBEDDED_TRANSFORMED_GRADIENT_LUT_LOCK
 			volatile unsigned char &slotLock = slotLockByBank[lutBank];
 			auto lockSlots = [&slotLock]()
@@ -5285,6 +5313,29 @@ int gLastScrollUiFrame = -1000;
 				gea::framework::graphics::pixel::native_t color;
 			};
 
+			static DitherStop ditherStop(int r, int g, int b, uint8_t alpha)
+			{
+				DitherStop stop{};
+				auto split = [](int value, int levels, uint8_t &q, uint8_t &rem) {
+					const int scaled = std::clamp(value, 0, 255) * levels;
+					q = static_cast<uint8_t>(scaled / 255);
+					rem = static_cast<uint8_t>(scaled % 255);
+				};
+				split(r, 31, stop.qR, stop.remR);
+				split(g, 63, stop.qG, stop.remG);
+				split(b, 31, stop.qB, stop.remB);
+				stop.color = gea::framework::graphics::pixel::packNative8(r, g, b);
+				stop.alpha = alpha;
+				return stop;
+			}
+
+			static DitherStop ditherAt(const DisplayCommand &c, int p)
+			{
+				int r, g, b;
+				rgb888At(c, p, &r, &g, &b);
+				return ditherStop(r, g, b, alphaAt(c, p));
+			}
+
 			// Un-dithered RGB888 color at a gradient position. Carries every integer
 			// divide in the gradient (mid-stop remap, RGB565->888 unpack, channel
 			// interpolation). The S3 has no fast integer divide, so calling this per
@@ -5457,6 +5508,7 @@ int gLastScrollUiFrame = -1000;
 				// flush's expected per-row dirty pattern and hung the panel TX. Going through
 				// blitImage() keeps the cache provably equivalent to the stable path.) Gated on
 				// opaque + large + stable so animated/small/alpha gradients render normally.
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
 				auto *bgCanvas = gea::platform::display::Display::canvas();
 				int bgCap = 0;
 				gea::framework::graphics::pixel::native_t *bgBuf = gea_bg_cache(&bgCap);
@@ -5519,6 +5571,8 @@ int gLastScrollUiFrame = -1000;
 				{ roundedRowSpan(c, y, a, b); };
 				if (transCacheable && transCache.blit(transKey, 14, x0, y0, x1, y1, scrW, scrH, transSpan))
 					return;
+
+#endif
 
 				const double angleRadians = (static_cast<double>(c.gradient.angle) * kPi) / 1800.0;
 				double dx = std::sin(angleRadians);
@@ -5586,6 +5640,7 @@ int gLastScrollUiFrame = -1000;
 #ifndef GEA_EMBEDDED_LAZY_GRADIENT_LUTS
 #define GEA_EMBEDDED_LAZY_GRADIENT_LUTS 0
 #endif
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
 				struct LutSlot
 				{
 					DitherStop lut[1001];
@@ -5641,32 +5696,7 @@ int gLastScrollUiFrame = -1000;
 				{
 					for (int p = 0; p <= 1000; p++)
 					{
-						int r, g, b;
-						rgb888At(c, p, &r, &g, &b);
-						auto split = [](int value, int levels, uint8_t *q, uint8_t *rem)
-						{
-							if (value <= 0)
-							{
-								*q = 0;
-								*rem = 0;
-								return;
-							}
-							if (value >= 255)
-							{
-								*q = static_cast<uint8_t>(levels);
-								*rem = 0;
-								return;
-							}
-							const int scaled = value * levels;
-							const int qq = scaled / 255;
-							*q = static_cast<uint8_t>(qq);
-							*rem = static_cast<uint8_t>(scaled - qq * 255);
-						};
-						split(r, 31, &lut[p].qR, &lut[p].remR);
-						split(g, 63, &lut[p].qG, &lut[p].remG);
-						split(b, 31, &lut[p].qB, &lut[p].remB);
-						lut[p].color = gea::framework::graphics::pixel::packNative8(r, g, b);
-						lut[p].alpha = alphaAt(c, p);
+						lut[p] = ditherAt(c, p);
 					}
 					lutKey[0] = c.gradient.fromColor;
 					lutKey[1] = c.gradient.midColor;
@@ -5678,6 +5708,13 @@ int gLastScrollUiFrame = -1000;
 					lutKeyA[2] = c.gradient.toAlpha;
 					lutKeyA[3] = c.gradient.hasMid;
 				}
+#else
+				struct UncachedLut {
+					const DisplayCommand &command;
+					DitherStop operator[](int p) const { return ditherAt(command, p); }
+				} lut{c};
+#endif
+
 				static constexpr uint8_t bayer4[4][4] = {
 						{0, 8, 2, 10},
 						{12, 4, 14, 6},
@@ -5702,8 +5739,14 @@ int gLastScrollUiFrame = -1000;
 				const float stepY = static_cast<float>(dy);
 				const float fMinProjection = static_cast<float>(minProjection);
 				const float invSpanPermille = 1000.0f / static_cast<float>(projectionSpan);
-				static gea::framework::graphics::pixel::native_t rowColor[gea::platform::display::kWidth];
-				static uint8_t rowAlpha[gea::platform::display::kWidth];
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
+				static
+#endif
+				gea::framework::graphics::pixel::native_t rowColor[gea::platform::display::kWidth];
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
+				static
+#endif
+				uint8_t rowAlpha[gea::platform::display::kWidth];
 				for (int y = y0; y <= y1; y++)
 				{
 					int rowX0 = x0;
@@ -5772,6 +5815,7 @@ int gLastScrollUiFrame = -1000;
 					}
 				}
 
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
 				// Once the gradient has been identical for 2 frames, render it in full into
 				// the cache buffer (reusing the LUT/projection just computed); subsequent
 				// frames hit the blit fast-path above. One-time ~full-screen render; writes
@@ -5895,6 +5939,7 @@ int gLastScrollUiFrame = -1000;
 														}
 													});
 				}
+#endif
 			}
 		};
 
@@ -5989,6 +6034,16 @@ int gLastScrollUiFrame = -1000;
 																											localPermille(c, permille));
 			}
 
+			static LinearGradientDrawer::DitherStop ditherAt(const DisplayCommand &c, int p)
+			{
+				const int lp = localPermille(c, p);
+				int r, g, b;
+				LinearGradientDrawer::interpolatePremultipliedRgb888(c.radialGradient.fromColor, c.radialGradient.fromAlpha,
+				    c.radialGradient.toColor, c.radialGradient.toAlpha, lp, &r, &g, &b);
+				return LinearGradientDrawer::ditherStop(r, g, b,
+				    LinearGradientDrawer::interpolateAlpha(c.radialGradient.fromAlpha, c.radialGradient.toAlpha, lp));
+			}
+
 			static void replay(const DisplayCommand &c)
 			{
 				int cx0, cy0, cx1, cy1;
@@ -6015,6 +6070,7 @@ int gLastScrollUiFrame = -1000;
 				// warm-glow radial is static — fixed colors + box, identical across themes
 				// (only the base linear layer changes) — so cache it once and blit instead of
 				// recomputing sqrt + dither per pixel. Gated to reasonably large boxes.
+#if GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 				auto *rcanvas = gea::platform::display::Display::canvas();
 				const int scrW = rcanvas ? rcanvas->width() : 0;
 				const int scrH = rcanvas ? rcanvas->height() : 0;
@@ -6036,9 +6092,12 @@ int gLastScrollUiFrame = -1000;
 				if (cacheable && cache.blit(keyNow, 17, x0, y0, x1, y1, scrW, scrH, span))
 					return;
 
+#endif
+
 				// Divide-free dither LUT indexed by local permille (0..1000), cached across
 				// calls keyed by the color stops (mirrors LinearGradientDrawer). The per-pixel
 				// dither becomes a table read + 3 threshold compares — no divides.
+#if GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 #if GEA_EMBEDDED_LAZY_GRADIENT_LUTS
 				static auto lutStorage = std::make_unique<std::array<LinearGradientDrawer::DitherStop, 1001>>();
 				auto &lut = *lutStorage;
@@ -6058,34 +6117,7 @@ int gLastScrollUiFrame = -1000;
 					// clamps to 1000, which localPermille also maps to 1000).
 					for (int p = 0; p <= 1000; ++p)
 					{
-						const int lp = localPermille(c, p);
-						int r = 0, g = 0, b = 0;
-						LinearGradientDrawer::interpolatePremultipliedRgb888(c.radialGradient.fromColor, c.radialGradient.fromAlpha,
-																																 c.radialGradient.toColor, c.radialGradient.toAlpha, lp, &r, &g, &b);
-						auto split = [](int value, int levels, uint8_t *q, uint8_t *rem)
-						{
-							if (value <= 0)
-							{
-								*q = 0;
-								*rem = 0;
-								return;
-							}
-							if (value >= 255)
-							{
-								*q = static_cast<uint8_t>(levels);
-								*rem = 0;
-								return;
-							}
-							const int scaled = value * levels;
-							const int qq = scaled / 255;
-							*q = static_cast<uint8_t>(qq);
-							*rem = static_cast<uint8_t>(scaled - qq * 255);
-						};
-						split(r, 31, &lut[p].qR, &lut[p].remR);
-						split(g, 63, &lut[p].qG, &lut[p].remG);
-						split(b, 31, &lut[p].qB, &lut[p].remB);
-						lut[p].color = gea::framework::graphics::pixel::packNative8(r, g, b);
-						lut[p].alpha = LinearGradientDrawer::interpolateAlpha(c.radialGradient.fromAlpha, c.radialGradient.toAlpha, lp);
+						lut[p] = ditherAt(c, p);
 					}
 					lutKeyFrom = c.radialGradient.fromColor;
 					lutKeyTo = c.radialGradient.toColor;
@@ -6093,6 +6125,13 @@ int gLastScrollUiFrame = -1000;
 					lutKeyToA = c.radialGradient.toAlpha;
 					lutKeyStop = c.radialGradient.stopPermille;
 				}
+#else
+				struct UncachedLut {
+					const DisplayCommand &command;
+					LinearGradientDrawer::DitherStop operator[](int p) const { return ditherAt(command, p); }
+				} lut{c};
+#endif
+
 				static constexpr uint8_t bayer4[4][4] = {
 						{0, 8, 2, 10},
 						{12, 4, 14, 6},
@@ -6104,8 +6143,14 @@ int gLastScrollUiFrame = -1000;
 				// row into ~1px writes (each paying a clip + framebuffer read-back + dirty-list
 				// scan) — the radial's real cost, just like the linear drawer. blitImage clips
 				// and marks dirty once per row. (baseAlpha is read from Display::alpha() inside.)
-				static gea::framework::graphics::pixel::native_t rowColor[gea::platform::display::kWidth];
-				static uint8_t rowAlpha[gea::platform::display::kWidth];
+#if GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
+				static
+#endif
+				gea::framework::graphics::pixel::native_t rowColor[gea::platform::display::kWidth];
+#if GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
+				static
+#endif
+				uint8_t rowAlpha[gea::platform::display::kWidth];
 				// Mirror gate: a pixel xx and its mirror (mirrorSum - xx) have dx values
 				// that are exact float negations of each other when 2*centerX lands on an
 				// integer grid (e.g. the shell glow's `at 50%`), so dx*dx — and therefore
@@ -6115,7 +6160,10 @@ int gLastScrollUiFrame = -1000;
 				const float mirrorSumF = 2.0f * centerX - 1.0f;
 				const int mirrorSum = static_cast<int>(mirrorSumF);
 				const bool mirrorable = mirrorSumF == static_cast<float>(mirrorSum);
-				static std::uint16_t rowPermille[gea::platform::display::kWidth];
+#if GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
+				static
+#endif
+				std::uint16_t rowPermille[gea::platform::display::kWidth];
 				for (int y = y0; y <= y1; ++y)
 				{
 					int rowX0 = x0;
@@ -6163,6 +6211,7 @@ int gLastScrollUiFrame = -1000;
 					}
 				}
 
+#if GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 				// Bake the full box into the cache once params are stable for 2 frames.
 				if (cacheable)
 				{
@@ -6184,6 +6233,7 @@ int gLastScrollUiFrame = -1000;
 											 *alp = e.alpha;
 										 });
 				}
+#endif
 			}
 		};
 
@@ -6547,12 +6597,12 @@ int gLastScrollUiFrame = -1000;
 
 			static void recordFilterBlur(int id, const Node &node, DisplayCommandType type, uint8_t parentAlpha)
 			{
-				if (rstyle(node.style).filter_blur_radius <= 0)
+				if ((GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0) <= 0)
 					return;
 				if (node.layout.width <= 0 || node.layout.height <= 0)
 					return;
 				const bool sourceLayerBlur = filterBlurSourceAlphaCap(node, parentAlpha) >= 0;
-				const int localSpread = sourceLayerBlur ? std::max(0, static_cast<int>(rstyle(node.style).filter_blur_radius)) * kFilterBlurPasses : 0;
+				const int localSpread = sourceLayerBlur ? std::max(0, static_cast<int>((GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0))) * kFilterBlurPasses : 0;
 				int16_t xs[4] = {};
 				int16_t ys[4] = {};
 				ViewRenderer::transformedRectCorners(node, false,
@@ -6578,9 +6628,9 @@ int gLastScrollUiFrame = -1000;
 				}
 				if (x0 > x1 || y0 > y1)
 					return;
-				int radiusX = rstyle(node.style).filter_blur_radius;
-				int radiusY = rstyle(node.style).filter_blur_radius;
-				filterBlurScreenRadii(node, rstyle(node.style).filter_blur_radius, &radiusX, &radiusY);
+				int radiusX = (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0);
+				int radiusY = (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0);
+				filterBlurScreenRadii(node, (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0), &radiusX, &radiusY);
 				const int spreadX = sourceLayerBlur ? 0 : std::max(0, radiusX) * kFilterBlurPasses;
 				const int spreadY = sourceLayerBlur ? 0 : std::max(0, radiusY) * kFilterBlurPasses;
 				x0 -= spreadX;
@@ -6596,7 +6646,7 @@ int gLastScrollUiFrame = -1000;
 				cmd->bw = static_cast<int16_t>(clampInt(x1 - x0 + 1, 0, 32767));
 				cmd->bh = static_cast<int16_t>(clampInt(y1 - y0 + 1, 0, 32767));
 				cmd->filterBlur.nodeId = static_cast<int16_t>(id);
-				cmd->filterBlur.radius = rstyle(node.style).filter_blur_radius;
+				cmd->filterBlur.radius = (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0);
 				cmd->filterBlur.radiusX = static_cast<int16_t>(clampInt(radiusX, 0, 32767));
 				cmd->filterBlur.radiusY = static_cast<int16_t>(clampInt(radiusY, 0, 32767));
 				cmd->filterBlur.sourceAlphaCap = static_cast<int16_t>(filterBlurSourceAlphaCap(node, parentAlpha));
@@ -6731,7 +6781,7 @@ int gLastScrollUiFrame = -1000;
 				int draw_start = state.commandCount;
 				const bool paintsOwnBox = overlaps_clip && n->style.visibility == 0;
 				const bool nativeTextInput = isNativeTextInputView(*n);
-				const bool filtered = overlaps_clip && rstyle(n->style).filter_blur_radius > 0;
+				const bool filtered = overlaps_clip && (GEA_CSS_FILTERS ? rstyle(n->style).filter_blur_radius : 0) > 0;
 				uint8_t draw_alpha = cur_alpha;
 				bool pushed_mask_alpha = false;
 				if (active_mask && active_mask->style.mask_right_fade_width > 0)
@@ -7592,7 +7642,7 @@ int gLastScrollUiFrame = -1000;
 				for (int i = 0; i < nodeCount; i++)
 				{
 					const Node &node = nodes[i];
-					if (rstyle(node.style).filter_blur_radius > 0)
+					if ((GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0) > 0)
 						{ SRDBG("blur node", i); return false; }
 					if (node.style.opacity != 255 && node.style.opacity != 0)
 						{ SRDBG("opacity node", i); return false; }
@@ -7892,6 +7942,14 @@ int gLastScrollUiFrame = -1000;
 						for (int id = origin; id >= 0 && chainLen < 32; id = nodes[id].parent)
 							chain[chainLen++] = id;
 						const int originOrder = drawOrderIndexForSimpleReplay(origin);
+						// An opaque image can cover the origin's ancestors completely.
+						// Use the ordered cull walk instead of repainting those ancestors
+						// immediately before the image overwrites them.
+						if (occlusionCullStartIndex(x0, y0, x1, y1, nodes, nodeCount) > 0)
+						{
+							replaySimpleClippedDirtyRegionFast(x0, y0, x1, y1);
+							return;
+						}
 						if (!simpleOriginReplayCanSkipEarlierNodes(chain, chainLen, originOrder, x0, y0, x1, y1))
 						{
 							replaySimpleClippedDirtyRegionFast(x0, y0, x1, y1);
@@ -8363,12 +8421,12 @@ int gLastScrollUiFrame = -1000;
 			}
 
 			// Painter's-algorithm occlusion cull: the LAST node (in draw order) whose
-			// first command is an opaque FillRect fully covering the region occludes
+			// first command is an opaque fill or image covering the region occludes
 			// everything drawn before it — the replay walk can start there. A page-sized
 			// UI (e-reader page turn) stacks several full-bleed paper fills under the
 			// content; each is a full PSRAM write of the region, so skipping the covered
 			// ones removes ~100 ms/turn on a 540×960 GRAY4 panel. Conservative: the
-			// cover must be untransformed (a plain FillRect), at full effective alpha,
+			// cover must be untransformed, at full effective alpha,
 			// its node's first command, never blinking, and not shrunk by any ancestor
 			// overflow clip smaller than the region.
 			static int GEA_RENDER_HOT_SRAM occlusionCullStartIndex(int x0, int y0, int x1, int y1, Node *nodes, int nodeCount)
@@ -8390,10 +8448,16 @@ int gLastScrollUiFrame = -1000;
 					if (start < 0 || end <= start || end > state.commandCount)
 						continue;
 					const DisplayCommand &c = state.commands[start];
-					if (c.type != DisplayCommandType::FillRect)
-						continue;
-					if (c.fill.x > x0 || c.fill.y > y0 ||
-							c.fill.x + c.fill.w - 1 < x1 || c.fill.y + c.fill.h - 1 < y1)
+					bool covers = false;
+					if (c.type == DisplayCommandType::FillRect)
+						covers = c.fill.x <= x0 && c.fill.y <= y0 &&
+						         c.fill.x + c.fill.w - 1 >= x1 && c.fill.y + c.fill.h - 1 >= y1;
+					else if (c.type == DisplayCommandType::BlitImage)
+						covers = c.blit.pixels && !c.blit.alpha &&
+						         c.blit.dx <= x0 && c.blit.dy <= y0 &&
+						         c.blit.dx + c.blit.sourceWidth - 1 >= x1 &&
+						         c.blit.dy + c.blit.sourceHeight - 1 >= y1;
+					if (!covers || c.textClipOwner >= 0)
 						continue;
 					// The recorded paint bbox must also cover the region (guards against
 					// any recording that paints less than the command rect suggests).
@@ -9804,7 +9868,7 @@ int gLastScrollUiFrame = -1000;
 
 		for (int i = 0; i < tree.nodeCount(); i++)
 		{
-			if (rstyle(nodes[i].style).filter_blur_radius > 0)
+			if ((GEA_CSS_FILTERS ? rstyle(nodes[i].style).filter_blur_radius : 0) > 0)
 				return false;
 			if (nodes[i].style.overflow == 2)
 				return false;
@@ -10123,7 +10187,7 @@ int gLastScrollUiFrame = -1000;
 				const Node &probe = nodes[id];
 				const bool paintsBox =
 						(probe.style.has_bg && (probe.style.bg_alpha > 0 || styleHasBackgroundImage(probe.style))) ||
-						rstyle(probe.style).box_shadow_alpha > 0;
+						(GEA_CSS_BOX_SHADOW ? rstyle(probe.style).box_shadow_alpha : 0) > 0;
 				if (!paintsBox)
 					continue;
 			}
@@ -12316,6 +12380,7 @@ int gLastScrollUiFrame = -1000;
 
 	bool DisplayList::patchScrollbarThumb(int node)
 	{
+#if GEA_CSS_SCROLLING
 		Tree &tree = Tree::instance();
 		Node *nodes = tree.nodes();
 		if (!state.commands || node < 0 || node >= tree.nodeCount())
@@ -12362,7 +12427,10 @@ int gLastScrollUiFrame = -1000;
 			return true;
 		}
 		return false;
-	}
+	#else
+		(void)node; return true;
+#endif
+}
 
 	void DisplayList::replayDirectDirtyRegion(int x0, int y0, int x1, int y1, int origin)
 	{

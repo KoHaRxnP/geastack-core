@@ -1592,8 +1592,17 @@ void Tree::setText(int node, const char *text)
 	// fixed-width label appear equally wide. A shrinking update such as
 	// "San Francisco" -> "Lisbon" then dirtied only the new, shorter run (or even a
 	// sliver at the box edge), leaving the old trailing glyphs on the physical panel.
-	const bool gid_canPartial = gid_singleLine && target.style.white_space == 1 &&
+	const bool gid_hadPartial = target.render.text_partial_dirty;
+	const int gid_previousX0 = gid_hadPartial ? target.render.text_dirty.x0 : 0;
+	const int gid_previousX1 = gid_hadPartial ? target.render.text_dirty.x1 : 0;
+	const bool gid_canPartial = (!target.render.dirty || gid_hadPartial) &&
+			!target.render.bg_recolor_pending && gid_singleLine && target.style.white_space == 1 &&
 			target.style.text_align == 0 && gid_prefix < gid_newLen;
+	// Text and recolor shortcuts share their payload. Other pending paint
+	// changes require a full node repaint, while consecutive text runs union
+	// their extents so none of the earlier changes is forgotten.
+	target.render.bg_recolor_pending = 0;
+	target.render.text_partial_dirty = 0;
 	int gid_preW = 0;
 	int gid_rightW = 0;
 	if (gid_canPartial) {
@@ -1619,7 +1628,9 @@ void Tree::setText(int node, const char *text)
 	const bool gid_hadLayoutDirty = target.render.layout_dirty != 0;
 	target.render.dirty = 1;
 	target.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	target.render.non_scroll_dirty = 1;
+#endif
 	target.render.text_layout_stable = 0;
 	markNodeDisplayCommandsDirty(node);
 	// assign() past capacity reallocates and frees the old buffer, leaving any
@@ -1670,8 +1681,10 @@ void Tree::setText(int node, const char *text)
 			if (gid_sameHeight && gid_canPartial) {
 				const int gid_originX = target.layout.x + target.style.padding[3];
 				constexpr int kTextDirtyPadPx = 4;  // AA / glyph-overhang guard
-				target.render.text_dirty_x0 = static_cast<int16_t>(gid_originX + gid_preW - kTextDirtyPadPx);
-				target.render.text_dirty_x1 = static_cast<int16_t>(gid_originX + gid_rightW + kTextDirtyPadPx);
+				const int x0 = gid_originX + gid_preW - kTextDirtyPadPx;
+				const int x1 = gid_originX + gid_rightW + kTextDirtyPadPx;
+				target.render.text_dirty.x0 = static_cast<int16_t>(gid_hadPartial ? std::min(gid_previousX0, x0) : x0);
+				target.render.text_dirty.x1 = static_cast<int16_t>(gid_hadPartial ? std::max(gid_previousX1, x1) : x1);
 				target.render.text_partial_dirty = 1;
 			}
 		}
@@ -1911,6 +1924,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	const Node *n = &node;
 	if (n->type != NodeType::Text || n->text.empty()) return;
 
+#if GEA_CSS_FIRST_LINE
 	// A first-line background belongs to the inline fragment, not the block's
 	// entire width. Layout records this run's first line box/advance only when an
 	// ancestor has a resolved ::first-line background. Emit it before the text
@@ -1981,6 +1995,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	}
 
 
+#endif
 	int x = n->layout.x;
 	int y = n->layout.y;
 	int w = n->layout.width;
@@ -2122,7 +2137,12 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 			    usesRowLayout(n->style)) {
 				const int contentH = h - boxInset(n->style, 0) - boxInset(n->style, 2);
 				const int slack = contentH - paintMeasure.height;
-				const int alignment = usedAlignment(n->style.align_items, slack, (n->style.flex_wrap & 3) == 2);
+#if GEA_CSS_FLEX_WRAP
+                const bool reverseCrossAxis = (n->style.flex_wrap & 3) == 2;
+#else
+                constexpr bool reverseCrossAxis = false;
+#endif
+                const int alignment = usedAlignment(n->style.align_items, slack, reverseCrossAxis);
 				if (alignment == 1) drawY += slack / 2;
 				else if (alignment == 2) drawY += slack;
 			}

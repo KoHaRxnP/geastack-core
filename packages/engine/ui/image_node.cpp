@@ -73,18 +73,18 @@ private:
 
 bool hasImageRadius(const Node &node)
 {
-	return node.style.border_radius[0] > 0 ||
-	       node.style.border_radius[1] > 0 ||
-	       node.style.border_radius[2] > 0 ||
-	       node.style.border_radius[3] > 0;
+	return node.style.border_radius[GEA_CSS_RADIUS_INDEX(0)] > 0 ||
+	       node.style.border_radius[GEA_CSS_RADIUS_INDEX(1)] > 0 ||
+	       node.style.border_radius[GEA_CSS_RADIUS_INDEX(2)] > 0 ||
+	       node.style.border_radius[GEA_CSS_RADIUS_INDEX(3)] > 0;
 }
 
 void setScaledBlitRadius(DisplayCommand *cmd, const Node &node)
 {
-	cmd->scaledBlit.tl = node.style.border_radius[0];
-	cmd->scaledBlit.tr = node.style.border_radius[1];
-	cmd->scaledBlit.br = node.style.border_radius[2];
-	cmd->scaledBlit.bl = node.style.border_radius[3];
+	cmd->scaledBlit.tl = node.style.border_radius[GEA_CSS_RADIUS_INDEX(0)];
+	cmd->scaledBlit.tr = node.style.border_radius[GEA_CSS_RADIUS_INDEX(1)];
+	cmd->scaledBlit.br = node.style.border_radius[GEA_CSS_RADIUS_INDEX(2)];
+	cmd->scaledBlit.bl = node.style.border_radius[GEA_CSS_RADIUS_INDEX(3)];
 }
 
 bool applyAxisAlignedTransform(const Node &node, ImageFitRect &rect)
@@ -106,6 +106,7 @@ bool applyAxisAlignedTransform(const Node &node, ImageFitRect &rect)
 
 void ImageRenderer::layout(int id)
 {
+	if (!GEA_UI_IMAGE_NODES) return;
 	Node *n = &Tree::instance().nodes()[id];
 	auto &images = gea::framework::graphics::ImageStore::instance();
 	int iw = images.width(n->image_id);

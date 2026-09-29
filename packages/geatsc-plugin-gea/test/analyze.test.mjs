@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { analyzeSourceHostBindings } from '../dist/analyze.js'
+import { analyzeSourceHostBindings as analyzeAllFeatures } from '../dist/analyze.js'
+// These assertions cover the pre-existing host/cache feature contract. Semantic
+// CSS elimination has separate end-to-end assertions below.
+function analyzeSourceHostBindings(entry) {
+  const result = analyzeAllFeatures(entry)
+  return { ...result, features: result.features.filter(feature => !feature.startsWith('css-') && !feature.startsWith('node-')) }
+}
 
 function app(t, files) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gea-plugin-analyze-'))
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  for (const [name, text] of Object.entries(files)) {
-    fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true })
-    fs.writeFileSync(path.join(root, name), text)
-  }
+  const root = path.resolve('/virtual-gea-plugin-analyze')
+  const sources = new Map(Object.entries(files).map(([name, text]) => [path.join(root, name), text]))
+  t.mock.method(fs, 'existsSync', (file) => sources.has(file))
+  t.mock.method(fs, 'statSync', () => ({ isFile: () => true }))
+  t.mock.method(fs, 'readFileSync', (file) => sources.get(file))
   return path.join(root, 'index.tsx')
 }
 
@@ -21,19 +25,796 @@ test('an https literal reached through a relative import reports the https featu
     'index.tsx': "import { Display, mount } from '@geastack/core'\nimport { weather } from './stores/WeatherStore'\n// see https://example.com for the API\nmount(weather)\n",
     'stores/WeatherStore.ts': "import { Store, WiFi } from '@geastack/core'\nexport class WeatherStore extends Store {\n  fetchInFlight = 0\n  async load(id: number) {\n    const response = await fetch('https://api.open-meteo.com/v1/forecast?id=' + id)\n    return response.json()\n  }\n}\nexport const weather = new WeatherStore()\n",
   })
-  assert.deepEqual(analyzeSourceHostBindings(entry), { bindings: ['display', 'fetch', 'wifi'], features: ['https'] })
+  assert.deepEqual(analyzeSourceHostBindings(entry), { bindings: ['display', 'fetch', 'wifi'], features: ['https', 'renderer-analysis-v1'] })
 })
 
 test('a comment citing an https URL does not link TLS, and a member fetch is not the host global', (t) => {
   const entry = app(t, {
     'index.tsx': "import { Display } from '@geastack/core'\n// Source: https://github.com/example/example\nclass Loader { fetch(url: string) { return url } }\nnew Loader().fetch('http://192.168.1.2/tile')\n",
   })
-  assert.deepEqual(analyzeSourceHostBindings(entry), { bindings: ['display'], features: [] })
+  assert.deepEqual(analyzeSourceHostBindings(entry), { bindings: ['display'], features: ['renderer-analysis-v1'] })
 })
 
 test('a WebSocket constructor and a wss literal both bring the network stack', (t) => {
   const entry = app(t, {
     'index.tsx': "const socket = new WebSocket(`wss://${host}/stream`)\n",
   })
-  assert.deepEqual(analyzeSourceHostBindings(entry), { bindings: ['websocket'], features: ['https'] })
+  assert.deepEqual(analyzeSourceHostBindings(entry), { bindings: ['websocket'], features: ['https', 'renderer-analysis-v1'] })
 })
+
+test('video-only canvas with ordinary rounded CSS has no renderer caches', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'; const frame = <canvas style={{ width: width, borderRadius: 16 }} />;
+      ctx.clearRect(0, 0, 240, 240); ctx.drawImage(image, 0, 0); pixels[i] = value;`,
+    'style.css': 'canvas { border-radius: 16px; background: #123; }',
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1'])
+})
+
+test('CSS imports recurse through quoted and unquoted url imports', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './styles/base.css'`,
+    'styles/base.css': `@import 'colors.css'; @import url(motion.css);`,
+    'styles/colors.css': '.card { background: linear-gradient(red, blue); }',
+    'styles/motion.css': `@import url('base.css'); @keyframes spin { to { transform: rotate(1turn); } }`,
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-linear-gradients', 'renderer-transforms'])
+})
+
+test('inline styles, assignments and canvas shapes retain only their own features', (t) => {
+  const entry = app(t, {
+    'index.tsx': `const look = { backgroundImage: 'radial-gradient(red, blue)' }; const card = <div style={look} />;
+      element.style.transform = rotation; ctx.arc(2, 2, 1, 0, 6.28);`,
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-circles', 'renderer-radial-gradients', 'renderer-transforms'])
+})
+
+for (const source of [
+  'const card = <div style={theme} />',
+  'element.style.cssText = cssFromNetwork',
+  'element.style[property] = value',
+  'element.style.setProperty(property, value)',
+  `element.setAttribute('style', styles)`,
+  'Object.assign(element.style, theme)',
+  'const styles = element.style; styles[property] = value',
+  'const styles = element.style; Object.assign(styles, theme)',
+  'sheet.insertRule(rule)',
+  'const card = <div {...props} />',
+  'const card = <div style={{ ...theme }} />',
+]) test(`dynamic style conservatively retains renderer features: ${source}`, (t) => {
+  const entry = app(t, { 'index.tsx': source })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-linear-gradients', 'renderer-radial-gradients', 'renderer-transforms'])
+})
+
+test('dynamic backgrounds retain gradients and a computed canvas call retains shapes too', (t) => {
+  const entry = app(t, { 'index.tsx': `ctx[operation](...args); const card = <div style={{ background: theme }} />` })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-circles', 'renderer-linear-gradients', 'renderer-radial-gradients', 'renderer-transforms'])
+})
+
+test('unresolved style imports cannot certify renderer features as absent', (t) => {
+  const entry = app(t, { 'index.tsx': `import './not-generated-yet.css'` })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-circles', 'renderer-linear-gradients', 'renderer-radial-gradients', 'renderer-transforms'])
+})
+
+test('NodeNext imports follow the original TypeScript module', (t) => {
+  const entry = app(t, { 'index.tsx': `export { look } from './look.js'`, 'look.ts': `export const look = { transform: 'rotate(12deg)' }` })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-transforms'])
+})
+
+test('opaque package imports retain rendering features conservatively', (t) => {
+  const entry = app(t, { 'index.tsx': `import { Card } from 'custom-components'; const card = <Card />` })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-circles', 'renderer-linear-gradients', 'renderer-radial-gradients', 'renderer-transforms'])
+})
+
+function cssFeatures(entry) { return analyzeAllFeatures(entry).features.filter(feature => feature.startsWith('css-') && !feature.startsWith('css-range') && !['css-text-alpha', 'css-border-alpha', 'css-pseudo-elements'].includes(feature)) }
+
+test('CSS engine capabilities are inferred without app opt-ins', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'; const node = <div style={{ width: liveWidth }} />`,
+    'style.css': `.card { box-sizing: border-box; display: flex; width: calc(100% - 20px); border: 0; }`,
+  })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15'])
+})
+
+test('CSS shorthand and selectors retain only reachable semantic families', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'`,
+    'style.css': `.card { border: 3px inset blue; display: grid; } @keyframes spin { to { transform: rotate(1turn); } }`,
+  })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-animations', 'css-border-relief', 'css-grid', 'css-transforms'])
+})
+
+test('dynamic style names and unknown modules retain all semantics automatically', (t) => {
+  const entry = app(t, { 'index.tsx': `element.style[property] = value` })
+  assert.deepEqual(cssFeatures(entry), ['css-align-content', 'css-align-self', 'css-analysis-v15', 'css-animations', 'css-aspect-ratio', 'css-axis-gap', 'css-background-layers', 'css-blink', 'css-border-relief', 'css-box-expressions', 'css-box-shadow', 'css-containment', 'css-corner-radius', 'css-custom-property-lengths', 'css-filters', 'css-first-line', 'css-flex-basis', 'css-flex-basis-expressions', 'css-flex-line-count', 'css-flex-wrap', 'css-floats', 'css-grid', 'css-height-expressions', 'css-image-fit', 'css-justify-items', 'css-justify-self', 'css-line-height-expressions', 'css-margin-trim', 'css-mask', 'css-max-height', 'css-min-width', 'css-opacity', 'css-order', 'css-overflow-axes', 'css-percent-gap', 'css-percent-radius', 'css-pointer-events', 'css-position-bottom', 'css-position-bottom-percent', 'css-position-left', 'css-position-left-percent', 'css-position-right', 'css-position-right-percent', 'css-position-top', 'css-position-top-percent', 'css-scrolling', 'css-side-borders', 'css-text-decoration', 'css-text-transform', 'css-transforms', 'css-visibility', 'css-writing-mode', 'css-z-index'])
+})
+
+test('dynamic values retain their family without retaining unrelated CSS', (t) => {
+  const entry = app(t, { 'index.tsx': `const node = <div style={{ display: mode, borderStyle: style, width: liveWidth }} />` })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-border-relief', 'css-grid', 'css-side-borders'])
+})
+
+
+test('shadowed constants cannot incorrectly remove a border capability', (t) => {
+  const entry = app(t, { 'index.tsx': `function f() { const border = '3px inset blue'; return <div style={{border}}/> } const border = '0';` })
+  assert.ok(cssFeatures(entry).includes('css-border-relief'))
+})
+
+test('escaping style objects and aliased style setters preserve semantic support', (t) => {
+  const entry = app(t, { 'index.tsx': `mutate(node.style); const setter = node.style.setProperty; setter(name, value);` })
+  assert.deepEqual(cssFeatures(entry), ['css-align-content', 'css-align-self', 'css-analysis-v15', 'css-animations', 'css-aspect-ratio', 'css-axis-gap', 'css-background-layers', 'css-blink', 'css-border-relief', 'css-box-expressions', 'css-box-shadow', 'css-containment', 'css-corner-radius', 'css-custom-property-lengths', 'css-filters', 'css-first-line', 'css-flex-basis', 'css-flex-basis-expressions', 'css-flex-line-count', 'css-flex-wrap', 'css-floats', 'css-grid', 'css-height-expressions', 'css-image-fit', 'css-justify-items', 'css-justify-self', 'css-line-height-expressions', 'css-margin-trim', 'css-mask', 'css-max-height', 'css-min-width', 'css-opacity', 'css-order', 'css-overflow-axes', 'css-percent-gap', 'css-percent-radius', 'css-pointer-events', 'css-position-bottom', 'css-position-bottom-percent', 'css-position-left', 'css-position-left-percent', 'css-position-right', 'css-position-right-percent', 'css-position-top', 'css-position-top-percent', 'css-scrolling', 'css-side-borders', 'css-text-decoration', 'css-text-transform', 'css-transforms', 'css-visibility', 'css-writing-mode', 'css-z-index'])
+})
+
+for (const source of [
+  `const display = 'flex'; function card(display) { return <div style={{display}}/> }`,
+  `const display = 'flex'; function card({display}) { return <div style={{display}}/> }`,
+]) test(`shadowing a literal with a parameter preserves grid: ${source}`, (t) => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': source })).includes('css-grid'))
+})
+
+for (const source of [
+  `const styles = {}; styles[key] = value; const card = <div style={styles}/>`,
+  `element.innerHTML = markup`,
+  `const sheet = document.createElement('style'); sheet.textContent = css`,
+]) test(`opaque style construction preserves semantic support: ${source}`, (t) => {
+  assert.deepEqual(cssFeatures(app(t, { 'index.tsx': source })), ['css-align-content', 'css-align-self', 'css-analysis-v15', 'css-animations', 'css-aspect-ratio', 'css-axis-gap', 'css-background-layers', 'css-blink', 'css-border-relief', 'css-box-expressions', 'css-box-shadow', 'css-containment', 'css-corner-radius', 'css-custom-property-lengths', 'css-filters', 'css-first-line', 'css-flex-basis', 'css-flex-basis-expressions', 'css-flex-line-count', 'css-flex-wrap', 'css-floats', 'css-grid', 'css-height-expressions', 'css-image-fit', 'css-justify-items', 'css-justify-self', 'css-line-height-expressions', 'css-margin-trim', 'css-mask', 'css-max-height', 'css-min-width', 'css-opacity', 'css-order', 'css-overflow-axes', 'css-percent-gap', 'css-percent-radius', 'css-pointer-events', 'css-position-bottom', 'css-position-bottom-percent', 'css-position-left', 'css-position-left-percent', 'css-position-right', 'css-position-right-percent', 'css-position-top', 'css-position-top-percent', 'css-scrolling', 'css-side-borders', 'css-text-decoration', 'css-text-transform', 'css-transforms', 'css-visibility', 'css-writing-mode', 'css-z-index'])
+})
+
+for (const source of [`const card = <div dir="rtl"/>`, `element.dir = direction`, `element.setAttribute('dir', direction)`])
+  test(`HTML direction preserves writing-mode support: ${source}`, (t) => {
+    assert.ok(cssFeatures(app(t, { 'index.tsx': source })).includes('css-writing-mode'))
+  })
+
+
+test('CSS property escapes retain semantics while icon escapes add no features', (t) => {
+  const entry = app(t, { 'index.tsx': `import './style.css'`, 'style.css': String.raw`.icon { content: "\f001"; } .card { tr\61 nsform: rotate(10deg); }` })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-transforms'])
+})
+
+for (const mutation of ['mutate(styles)', 'const alias = styles; mutate(alias)', 'mutate({ appearance: styles })', 'const alias = styles; alias[key] = value'])
+  test(`escaped style objects retain support: ${mutation}`, (t) => {
+    const entry = app(t, { 'index.tsx': `const styles = { display: 'flex' }; ${mutation}; const card = <div style={styles}/>` })
+    assert.ok(cssFeatures(entry).includes('css-grid'))
+    assert.ok(cssFeatures(entry).includes('css-transforms'))
+  })
+
+for (const source of [
+  'const node = <div style={{ blinkInterval: interval, order: priority }} />',
+  'element.style.blinkInterval = interval; element.style.order = priority',
+]) test(`individual style fields retain direct storage when used: ${source}`, (t) => {
+  const entry = app(t, { 'index.tsx': source })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-blink', 'css-order'])
+})
+
+test('CSS order retains storage and unknown property names retain blink too', (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': '.card { order: -2; }' })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-order'])
+})
+
+
+test('literal pixel radii and gaps omit percentage storage automatically', (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': '.card { border-radius: 3px 2em; gap: 0 12px; }' })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-axis-gap', 'css-corner-radius'])
+})
+for (const value of ['25%', 'calc(25% + 2px)', 'var(--size)'])
+  test(`percentage radius/gap representation remains for ${value}`, (t) => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.card { border-top-left-radius: ${value}; column-gap: ${value}; }` })
+    assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-axis-gap', 'css-corner-radius', 'css-percent-gap', 'css-percent-radius'])
+  })
+test('dynamic radius/gap values retain the percentage representation', (t) => {
+  const entry = app(t, { 'index.tsx': 'const node = <div style={{ borderRadius: radius, rowGap: gap }} />' })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-axis-gap', 'css-corner-radius', 'css-percent-gap', 'css-percent-radius'])
+})
+
+for (const [property, feature] of [
+  ['opacity', 'css-opacity'], ['objectFit', 'css-image-fit'],
+  ['textDecorationLine', 'css-text-decoration'], ['textTransform', 'css-text-transform'],
+  ['visibility', 'css-visibility'], ['pointerEvents', 'css-pointer-events'],
+  ['maskImage', 'css-mask'], ['-webkit-mask-image', 'css-mask'],
+]) test(`optional property storage is retained automatically: ${property}`, t => {
+  const entry = app(t, { 'index.tsx': `const element = <div style={{ '${property}': dynamicValue }} />` })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', feature, ...(property === 'placeSelf' ? ['css-justify-self'] : [])].sort())
+})
+for (const source of [
+  `const element = <div data-anim="opacity" />`,
+  `element.setAttribute('data-anim', kind)`,
+  `element.setAttribute(attribute, value)`,
+  `element.dataset.anim = kind`,
+  `const props = { 'data-anim': kind }; const element = <div {...props} />`,
+]) test(`attribute-driven animations retain style semantics: ${source}`, t => {
+  const result = cssFeatures(app(t, { 'index.tsx': source }))
+  assert.ok(result.includes('css-opacity'))
+  assert.ok(result.includes('css-transforms'))
+})
+test('keyframes preserve opacity and text presentation fields', t => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': '@keyframes pulse { from { opacity: 0; visibility: hidden; } to { opacity: 1; visibility: visible; } }' })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-animations', 'css-opacity', 'css-visibility'])
+})
+
+for (const [property, feature] of [
+  ['filter', 'css-filters'], ['boxShadow', 'css-box-shadow'],
+  ['flexFlow', 'css-flex-wrap'], ['placeItems', 'css-justify-items'],
+  ['placeContent', 'css-align-content'], ['placeSelf', 'css-align-self'],
+  ['minWidth', 'css-min-width'], ['minInlineSize', 'css-min-width'],
+]) test(`layout/effect storage is retained for ${property}`, t => {
+  const entry = app(t, { 'index.tsx': `const node = <div style={{ ${property}: value }} />` })
+  assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', feature, ...(property === 'placeSelf' ? ['css-justify-self'] : [])].sort())
+})
+for (const value of ['10px', '25%', '0', 'auto', 'inherit', '20px !important'])
+  test(`simple height ${value} needs no deferred expression`, t => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.node { height: ${value}; }` })
+    assert.deepEqual(cssFeatures(entry), ['css-analysis-v15'])
+  })
+for (const value of ['calc(100% - 10px)', 'var(--height)', 'max-content', 'fit-content', '10vh', '2em'])
+  test(`height ${value} retains deferred representation`, t => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.node { height: ${value}; }` })
+    assert.deepEqual(cssFeatures(entry), ['css-analysis-v15', 'css-height-expressions'])
+  })
+test('dynamic heights and logical sizes retain height expressions', t => {
+  for (const source of ['const node = <div style={{height: size}} />', 'element.style.blockSize = size']) {
+    assert.ok(cssFeatures(app(t, { 'index.tsx': source })).includes('css-height-expressions'))
+  }
+})
+
+for (const [property, feature] of [
+  ['zIndex', 'css-z-index'], ['aspectRatio', 'css-aspect-ratio'],
+  ['marginTrim', 'css-margin-trim'], ['contain', 'css-containment'],
+  ['contentVisibility', 'css-containment'], ['justifySelf', 'css-justify-self'],
+  ['flexLineCount', 'css-flex-line-count'],
+]) test(`optional sizing/stacking storage follows ${property}`, t => {
+  assert.deepEqual(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ ${property}: value }} />` })), ['css-analysis-v15', feature].sort())
+})
+for (const value of ['0', '4px', '3px 7px', '0 auto', '-1.5px', 'inherit', '1px 2px 3px 4px !important'])
+  test(`fixed edges ${value} need no deferred storage`, t => {
+    assert.deepEqual(cssFeatures(app(t, { 'index.tsx': "import './style.css'", 'style.css': `.node { margin: ${value}; padding: ${value}; }` })), ['css-analysis-v15'])
+  })
+for (const value of ['10%', '0 10%', '2em', 'calc(10% - 2px)', 'var(--edge)', 'env(safe-area-inset-top)'])
+  test(`relative edges ${value} retain deferred storage`, t => {
+    assert.deepEqual(cssFeatures(app(t, { 'index.tsx': "import './style.css'", 'style.css': `.node { padding-inline: ${value}; margin-block-start: ${value}; }` })), ['css-analysis-v15', 'css-box-expressions'])
+  })
+test('dynamic edges retain deferred storage', t => {
+  assert.deepEqual(cssFeatures(app(t, { 'index.tsx': 'element.style.marginLeft = edge' })), ['css-analysis-v15', 'css-box-expressions'])
+})
+
+
+test('literal colour variables across discovered files do not reserve gradient caches', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './use.css'; import './colors.css'`,
+    'use.css': '.card { background: var(--paint); } .other { background: var(--Paint, #1234); }',
+    'colors.css': '.a { --paint: #fff; --Paint: #12345678; } .b { --paint: #abcdef !important; }',
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1'])
+})
+
+for (const [label, declarations, use] of [
+  ['undefined name', '', 'var(--paint)'],
+  ['case-sensitive names', '--Paint: #123', 'var(--paint)'],
+  ['gradient override', '--paint: #123; --paint: linear-gradient(red, blue)', 'var(--paint)'],
+  ['variable alias', '--paint: var(--other); --other: #123', 'var(--paint)'],
+  ['opaque value', '--paint: env(theme)', 'var(--paint)'],
+  ['complex background', '--paint: #123', 'var(--paint) var(--size)'],
+  ['gradient fallback', '--paint: #123', 'var(--paint, radial-gradient(red, blue))'],
+  ['nested fallback', '--paint: #123; --fallback: #456', 'var(--paint, var(--fallback))'],
+]) test(`variable gradient analysis retains caches for ${label}`, (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'`,
+    'style.css': `.card { ${declarations}; background: ${use}; }`,
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-linear-gradients', 'renderer-radial-gradients'])
+})
+
+for (const mutation of [
+  `element.style.setProperty('--paint', liveColor)`,
+  `element.style['--paint'] = liveColor`,
+  `const styles = element.style; styles[name] = liveColor`,
+  `const style = { '--paint': '#123' }; mutate(style); const node = <div style={style} />`,
+  'const sheet = css`body { --paint: ${theme}; }`',
+  `CSS.registerProperty({ name: '--paint', initialValue: theme })`,
+]) test(`unknown custom property writes retain variable caches: ${mutation}`, (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'; ${mutation}`,
+    'style.css': '.card { --paint: #123; background: var(--paint); }',
+  })
+  const features = analyzeSourceHostBindings(entry).features
+  assert.ok(features.includes('renderer-linear-gradients'))
+  assert.ok(features.includes('renderer-radial-gradients'))
+})
+
+test('literal custom property assignments keep the proof, independent of import order', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'; import './colors'; element.style.setProperty('--paint', '#abcdef')`,
+    'style.css': '.card { background: var(--paint, transparent); }',
+    'colors.tsx': `const card = <div style={{ '--paint': '#123' }} />`,
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1'])
+})
+
+test('escaped colour variable declarations are decoded before matching', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'`,
+    'style.css': String.raw`.card { --p\61 int: #123; background: var(--paint); }`,
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1'])
+})
+
+
+test('standard CSS property names stay case-insensitive while variable names stay exact', (t) => {
+  const entry = app(t, {
+    'index.tsx': `import './style.css'`,
+    'style.css': '.card { --paint: #123; BACKGROUND: var(--Unknown); }',
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1', 'renderer-linear-gradients', 'renderer-radial-gradients'])
+})
+
+
+for (const value of ['0', '12px', '1.5px', '3em', '25%', '4px 4px', 'initial', 'inherit', 'unset'])
+  test(`uniform literal radii/gaps share their stored value: ${value}`, (t) => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.card { border-radius: ${value}; gap: ${value}; }` })
+    const features = cssFeatures(entry)
+    assert.ok(!features.includes('css-corner-radius'))
+    assert.ok(!features.includes('css-axis-gap'))
+    if (value.includes('%')) assert.ok(features.includes('css-percent-radius') && features.includes('css-percent-gap'))
+  })
+
+for (const [property, value, feature] of [
+  ['border-radius', '3px 4px', 'css-corner-radius'],
+  ['border-radius', '4px / 8px', 'css-corner-radius'],
+  ['border-radius', 'var(--radius)', 'css-corner-radius'],
+  ['border-top-left-radius', '4px', 'css-corner-radius'],
+  ['border-start-end-radius', '4px', 'css-corner-radius'],
+  ['gap', '3px 4px', 'css-axis-gap'],
+  ['gap', 'calc(10% + 2px)', 'css-axis-gap'],
+  ['gap', 'var(--gap)', 'css-axis-gap'],
+  ['row-gap', '3px', 'css-axis-gap'],
+  ['grid-column-gap', '3px', 'css-axis-gap'],
+]) test(`independent storage retained for ${property}: ${value}`, (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.card { ${property}: ${value}; }` })
+  assert.ok(cssFeatures(entry).includes(feature))
+})
+
+test('dynamic corner and axis values keep their independent storage', (t) => {
+  const entry = app(t, { 'index.tsx': `const n = <div style={{ borderRadius: liveRadius, gap: liveGap }} />` })
+  const features = cssFeatures(entry)
+  assert.ok(features.includes('css-corner-radius'))
+  assert.ok(features.includes('css-axis-gap'))
+})
+
+
+for (const selector of ['p::first-line', 'p:first-line', 'P::FIRST-LINE', String.raw`p::first-\6c ine`])
+  test(`first-line storage follows reachable selectors: ${selector}`, (t) => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `${selector} { background: #123; }` })
+    assert.ok(cssFeatures(entry).includes('css-first-line'))
+  })
+
+test('ordinary inline text and first-letter rules do not enable first-line records', (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'; const n = <span>text</span>", 'style.css': 'p::first-letter { color: red; }' })
+  assert.ok(!cssFeatures(entry).includes('css-first-line'))
+})
+
+for (const source of [
+  `sheet.insertRule('p::first-line { background: #123; }')`,
+  `sheet.insertRule(runtimeRule)`,
+  'const rule = css`p::${pseudo} { color: red; }`',
+]) test(`dynamic sheets preserve first-line support: ${source}`, (t) => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': source })).includes('css-first-line'))
+})
+
+for (const declaration of ['border: 2px solid #123', 'border-width: 2px 2px', 'border-style: solid solid solid', 'border-color: var(--Color)', 'background: var(--Color, #456)', 'line-height: 1.15', 'line-height: 14px', 'font: inherit']) {
+  test(`uniform/flat styles omit unused rare families: ${declaration}`, (t) => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `:root { --Color: #123; } .x { ${declaration}; }` })
+    const features = cssFeatures(entry)
+    for (const feature of ['css-side-borders', 'css-background-layers', 'css-line-height-expressions']) assert.ok(!features.includes(feature), feature)
+  })
+}
+for (const [declaration, feature] of [
+  ['border-left: 2px solid #123', 'css-side-borders'], ['border-inline-width: 2px', 'css-side-borders'],
+  ['border-width: 2px 3px', 'css-side-borders'], ['border-style: solid none', 'css-side-borders'],
+  ['border-color: #123 #456', 'css-side-borders'], ['border-color: var(--unknown)', 'css-side-borders'],
+  ['background-image: none, none', 'css-background-layers'], ['background-clip: content-box', 'css-background-layers'],
+  ['background: linear-gradient(#123, #456)', 'css-background-layers'], ['background: var(--unknown)', 'css-background-layers'],
+  ['line-height: calc(100% + 1px)', 'css-line-height-expressions'], ['line-height: 1.5em', 'css-line-height-expressions'],
+  ['font: 14px/120% serif', 'css-line-height-expressions'],
+]) test(`rare storage remains for ${declaration}`, (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.x { ${declaration}; }` })
+  assert.ok(cssFeatures(entry).includes(feature))
+})
+for (const definition of ['--Color: var(--alias); --alias: #123', '--Color: #123; --Color: #123 #456', '--color: #123']) {
+  test(`variable proof retains support for alias, nonuniform or wrong case: ${definition}`, (t) => {
+    const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': `.x { ${definition}; background: var(--Color); border-color: var(--Color); }` })
+    const features = cssFeatures(entry)
+    assert.ok(features.includes('css-side-borders'))
+    assert.ok(features.includes('css-background-layers'))
+  })
+}
+for (const [property, feature] of [['borderWidth', 'css-side-borders'], ['borderColor', 'css-side-borders'], ['background', 'css-background-layers'], ['lineHeight', 'css-line-height-expressions']]) {
+  test(`dynamic ${property} retains its storage`, (t) => assert.ok(cssFeatures(app(t, { 'index.tsx': `node.style.${property} = value` })).includes(feature)))
+}
+
+for (const value of ['visible', 'hidden', 'clip', 'hidden clip', 'clip visible !important', 'initial', 'inherit']) test(`non-scrolling overflow ${value} omits scroll state`, t => {
+  assert.ok(!cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ overflow: '${value}' }} />` })).includes('css-scrolling'))
+})
+for (const value of ['auto', 'scroll', 'overlay', 'hidden auto', 'var(--overflow)', 'calc(1px)']) test(`overflow ${value} retains scroll state`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ overflow: '${value}' }} />` })).includes('css-scrolling'))
+})
+for (const source of [
+  'const node = <virtual-list />', 'const node = <input />', 'const node = <textarea />', 'const node = <select />',
+  "document.createElement('virtual-list')", 'tree.createVirtualList()', 'node.style.overflowY = value',
+  'document.createElement(tag)', 'const create = document.createElement; create(tag)',
+  'const {createElement: create} = document; create(tag)', 'document.createElementNS(namespace, tag)',
+  "const node = <div style={{ backgroundAttachment: 'local' }} />",
+  "const node = <div style={{ background: 'url(pic.png) local' }} />",
+]) test(`native or opaque scroll usage retains state: ${source}`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': source })).includes('css-scrolling'))
+})
+test('literal color variables and clipped axes require no scroll metadata', t => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': ':root { --panel: #123; } div { background: var(--panel); overflow: hidden clip; }' })
+  assert.ok(!cssFeatures(entry).includes('css-scrolling'))
+})
+
+for (const value of ['visible hidden', 'hidden visible', 'visible hidden !important']) test(`coupled overflow axes ${value} retain scrolling`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ overflow: '${value}' }} />` })).includes('css-scrolling'))
+})
+for (const property of ['overflowX', 'overflowY', 'overflowInline', 'overflowBlock']) test(`cascading ${property} retains coupled-axis scrolling`, t => {
+  for (const value of ['hidden', 'visible', 'clip', 'inherit']) assert.ok(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ ${property}: '${value}' }} />` })).includes('css-scrolling'))
+})
+
+for (const value of ['none', 'auto', '1', '1 0', '1 0 20px', '0 1 auto']) test(`fixed flex ${value} needs no deferred basis`, t => {
+  assert.ok(!cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ flex: '${value}' }} />` })).includes('css-flex-basis-expressions'))
+})
+for (const value of ['20%', 'calc(50% - 2px)', '2em', 'var(--basis)']) test(`deferred flex basis ${value} retains storage`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ flexBasis: '${value}' }} />` })).includes('css-flex-basis-expressions'))
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ flex: '1 0 ${value}' }} />` })).includes('css-flex-basis-expressions'))
+})
+test('dynamic flex declarations retain deferred storage', t => {
+  for (const property of ['flex', 'flexBasis']) assert.ok(cssFeatures(app(t, { 'index.tsx': `const node = <div style={{ ${property}: value }} />` })).includes('css-flex-basis-expressions'))
+})
+test('proven color custom properties omit length caches', t => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': ':root { --one: #123; --two: #123456; --three: transparent; } .box { background: var(--one); }' })
+  assert.ok(!cssFeatures(entry).includes('css-custom-property-lengths'))
+})
+for (const value of ['1', '20px', '2em', 'var(--other)', 'calc(10px + 20px)']) test(`custom property ${value} retains length cache`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': "import './style.css'", 'style.css': `:root { --value: ${value}; }` })).includes('css-custom-property-lengths'))
+})
+
+for (const value of ['"20px"', "'123'", String.raw`'ABCDEFG#0123456789-\2014'`, "'hello' !important"]) test(`quoted custom property ${value} needs no length cache`, t => {
+  assert.ok(!cssFeatures(app(t, { 'index.tsx': "import './style.css'", 'style.css': `:root { --value: ${value}; }` })).includes('css-custom-property-lengths'))
+})
+test('quoted custom properties do not hide numeric definitions elsewhere', t => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': ':root { --value: "20px"; } .other { --value: 20px; }' })
+  assert.ok(cssFeatures(entry).includes('css-custom-property-lengths'))
+})
+
+test('decoded escaped quotes conservatively retain custom-property length support', t => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': String.raw`:root { --value: "a\"b"; }` })
+  assert.ok(cssFeatures(entry).includes('css-custom-property-lengths'))
+})
+
+for (const value of ['none', 'auto', '1', '1 0', 'initial']) test(`implicit flex basis ${value} needs no scalar field`, t => {
+  assert.ok(!cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ flex: '${value}' }} />` })).includes('css-flex-basis'))
+})
+for (const value of ['20px', '20%', 'auto', 'calc(50% - 2px)']) test(`explicit flex basis ${value} retains scalar support`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ flexBasis: '${value}' }} />` })).includes('css-flex-basis'))
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ flex: '1 0 ${value}' }} />` })).includes('css-flex-basis'))
+})
+for (const property of ['maxHeight', 'maxBlockSize', 'maxInlineSize']) test(`${property} retains maximum-height support`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ ${property}: value }} />` })).includes('css-max-height'))
+})
+for (const value of ['hidden', 'clip', 'visible', 'auto', 'scroll', 'hidden hidden', 'inherit']) test(`uniform overflow ${value} needs one field`, t => {
+  assert.ok(!cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ overflow: '${value}' }} />` })).includes('css-overflow-axes'))
+})
+for (const value of ['visible hidden', 'hidden clip', 'clip visible', 'var(--axes)']) test(`distinct or unknown overflow ${value} retains axis fields`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ overflow: '${value}' }} />` })).includes('css-overflow-axes'))
+})
+test('native inputs and lists retain independent overflow axes', t => {
+  for (const tag of ['input', 'virtual-list', 'textarea']) assert.ok(cssFeatures(app(t, { 'index.tsx': `const n = <${tag} />` })).includes('css-overflow-axes'))
+})
+
+function rangeFeatures(entry) { return analyzeAllFeatures(entry).features.filter(feature => feature.startsWith('css-range')) }
+
+test('range proof keeps raw values separate from CSS pixels and closes over inheritance', (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'", 'style.css': '.a { padding: 0 9px; gap: 7px; border: 0; border-width: 2px; border-radius: 65px; font-size: 52px; line-height: 1.15; flex: 2 3 10px; } .b { padding: inherit; font: inherit; line-height: 56px; }' })
+  const features = rangeFeatures(entry)
+  for (const feature of ['css-ranges-v1', 'css-range-padding-px-9', 'css-range-gap-px-7', 'css-range-border-px-2', 'css-range-radius-px-65', 'css-range-font-px-52', 'css-range-line-height-px-104', 'css-range-flex-raw-3']) assert.ok(features.includes(feature), feature)
+  assert.ok(!features.includes('css-ranges-unknown'))
+})
+
+for (const [property, value, family] of [
+  ['padding', '10%', 'padding'], ['paddingInline', '1em', 'padding'], ['gap', 'var(--gap)', 'gap'],
+  ['border', 'var(--stroke) solid red', 'border'], ['borderWidth', '-1px', 'border'],
+  ['borderRadius', '50%', 'radius'], ['fontSize', '2em', 'font'],
+  ['lineHeight', 'calc(1em + 2px)', 'line-height'], ['flex', '1 var(--shrink)', 'flex'],
+  ['padding', '1px 2px 3px 4px 5px', 'padding'], ['fontSize', '1e20px', 'font'],
+]) test(`range proof retains wide ${property}: ${value}`, (t) => {
+  const features = rangeFeatures(app(t, { 'index.tsx': `const n = <div style={{ ${property}: '${value}' }} />` }))
+  assert.ok(!features.some(feature => feature.startsWith(`css-range-${family}-`)))
+})
+
+for (const source of [
+  `node.style.padding = value`, `node.style.setProperty('padding', value)`,
+  `const look = { padding: '2px' }; mutate(look); const n = <div style={look} />`,
+  `import { Button } from '@geastack/core'; const n = <Button />`,
+  `import { Display as Screen } from '@geastack/core'; Screen.setDevicePixelRatio(8)`,
+  `host['setDevicePixelRatio'](8)`, `const n = <input />`, `__gea_Button.create()`,
+  `node.style.fontSize(value)`, `const n = <div style={{ transition: 'padding 1s cubic-bezier(0, 2, 1, 2)' }} />`,
+]) test(`unknown runtime bounds cannot narrow padding: ${source}`, (t) => {
+  const features = rangeFeatures(app(t, { 'index.tsx': source }))
+  assert.ok(features.includes('css-ranges-unknown') || !features.some(feature => feature.startsWith('css-range-padding-')))
+})
+
+test('unknown font sizes invalidate inherited multiplier line-height bounds', (t) => {
+  const features = rangeFeatures(app(t, { 'index.tsx': `const n = <div style={{ fontSize: size, lineHeight: 1.2 }} />` }))
+  assert.ok(!features.some(feature => feature.startsWith('css-range-line-height-')))
+})
+
+test('unknown imports and keyframe overshoot do not create a range proof', (t) => {
+  const entry = app(t, { 'index.tsx': "import './style.css'; import { C } from 'opaque'", 'style.css': '@keyframes pulse { from { padding: 0; } to { padding: 40px; } }' })
+  assert.ok(rangeFeatures(entry).includes('css-ranges-unknown'))
+})
+
+for (const imports of [
+  `import './style.css'; import { Component } from '@geastack/core'`,
+  `import './style.css'; export { helper } from './helper'`,
+  `require('./style.css'); const value = 'from ignored';`,
+  `import styles = require('./style.css')`,
+]) test(`source discovery retains leading stylesheet: ${imports}`, (t) => {
+  const entry = app(t, { 'index.tsx': imports, 'style.css': '.root { border-radius: 65px; transform: scale(2); }', 'helper.ts': 'export const helper = 1' })
+  const features = analyzeAllFeatures(entry).features
+  assert.ok(features.includes('css-transforms'))
+  assert.ok(features.includes('renderer-transforms'))
+  assert.ok(features.includes('css-range-radius-px-65'))
+})
+
+test('computed require retains all semantics and cannot establish bounded storage', (t) => {
+  const features = analyzeAllFeatures(app(t, { 'index.tsx': 'const widget = require(name)' })).features
+  assert.ok(features.includes('css-transforms') && features.includes('css-ranges-unknown'))
+})
+
+
+const nativeNodes = entry => analyzeAllFeatures(entry).features.filter(feature => ['node-analysis-v1', 'node-images', 'node-inputs'].includes(feature))
+test('basic DOM and a custom button keyboard need no native image/input payloads', t => {
+  const entry = app(t, { 'index.tsx': `import { Component, type GeaElement } from '@geastack/core';
+    export class App extends Component { template() { return <div><button>Key</button><span>Value</span></div> } }` })
+  assert.deepEqual(nativeNodes(entry), ['node-analysis-v1'])
+})
+for (const source of [`<img src="x" />`, `document.createElement('img')`, `document.createElementNS('x', 'image')`, `new Image()`, `<svg:image />`, `document.createElement('IMG')`, `new HTMLImageElement()`]) test(`image node payload retained: ${source}`, t => {
+  const entry = app(t, { 'index.tsx': source })
+  assert.ok(nativeNodes(entry).includes('node-images'))
+})
+for (const source of [`<input />`, `<textarea />`, `<select />`, `<div contentEditable />`, `document.createElement('input')`, `new VirtualKeyboard()`, `document.createElement('INPUT')`, `new HTMLInputElement()`, `new HTMLTextAreaElement()`, `new HTMLSelectElement()`]) test(`native input payload retained: ${source}`, t => {
+  const entry = app(t, { 'index.tsx': source })
+  assert.ok(nativeNodes(entry).includes('node-inputs'))
+})
+for (const source of [`document.createElement(tag)`, `const create = document.createElement; create(tag)`, `element.innerHTML = markup`, `new DOMParser()`, `import { Something } from '@geastack/core'`, `import Widget from './missing'`, `__gea_Document.createElement(tag)`, `element['tagName'] = tag`, `document.write(markup)`, `range.createContextualFragment(markup)`, `const { createElement: make } = document; make(tag)`, `createElement(tag)`, `const { 'createElement': make } = document; make(tag)`]) test(`opaque native node creation keeps both payloads: ${source}`, t => {
+  const entry = app(t, { 'index.tsx': source })
+  assert.deepEqual(nativeNodes(entry), ['node-analysis-v1', 'node-images', 'node-inputs'])
+})
+
+
+test('a known bracket-access factory keeps ordinary nodes compact', t => {
+  assert.deepEqual(nativeNodes(app(t, { 'index.tsx': `document['createElement']('button')` })), ['node-analysis-v1'])
+})
+
+for (const edge of ['top', 'right', 'bottom', 'left']) {
+  for (const value of ['0', '-6px', 'auto', 'inherit', 'initial', '3px !important']) test(`fixed ${edge} ${value} omits other edges and percentages`, t => {
+    const result = cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ ${edge}: '${value}' }} />` }))
+    assert.deepEqual(result.filter(f => f.startsWith('css-position-')), [`css-position-${edge}`])
+  })
+  for (const value of ["'25%'", "'calc(50% - 3px)'", "'var(--offset)'", 'position']) test(`dynamic ${edge} ${value} retains percent representation`, t => {
+    const result = cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ ${edge}: ${value} }} />` }))
+    assert.deepEqual(result.filter(f => f.startsWith('css-position-')), [`css-position-${edge}`, `css-position-${edge}-percent`])
+  })
+}
+for (const property of ['inset', 'insetInline', 'insetBlockStart']) test(`${property} conservatively retains every edge`, t => {
+  const result = cssFeatures(app(t, { 'index.tsx': `const n = <div style={{ ${property}: value }} />` }))
+  assert.equal(result.filter(f => f.startsWith('css-position-')).length, 8)
+})
+for (const tag of ['input', 'textarea', 'virtual-list']) test(`${tag} native defaults retain positions`, t => {
+  const result = cssFeatures(app(t, { 'index.tsx': `const n = <${tag} />` }))
+  assert.equal(result.filter(f => f.startsWith('css-position-')).length, 8)
+})
+
+const classCapacity = entry => analyzeAllFeatures(entry).features.filter(f => f.startsWith('node-class-capacity-'))
+for (const [source, count] of [
+  ['const n = <div class="one" />', 1],
+  ['const n = <div class="one two" />', 2],
+  ['const n = <div class="one two three" />', 3],
+  ['const n = <div class="one two three four" />', undefined],
+  ["const n = <div class={{ one: true, two: condition }} />", 2],
+  ["const n = <div class={condition ? 'one two' : 'three'} />", 2],
+  ["const n = <div class={'one' + ' ' + 'two'} />", 2],
+  ["const n = <div class={'one' + '' + 'two'} />", 1],
+  ["const n = <div class={`one ${condition ? 'two' : ''}`} />", 2],
+  ["function row(slot: number) { return <div class={`one slot-${slot}`} /> }", 2],
+  ["function row({ slot }: { slot: number }) { return <div class={`one slot-${slot}`} /> }", 2],
+  ["const n = <div class={dynamicClass} />", undefined],
+  ["const n = <div class={{ ...classes }} />", undefined],
+  ["const n = <div {...props} />", undefined],
+  ["const n = <div class={`one ${value as number}`} />", undefined],
+  ["const name = value as 'single'; const n = <div class={name} />", undefined],
+  ["function row(name: 'single') { return <div class={name} /> }", undefined],
+  ["const n = <div class={`one ${value as 'single'}`} />", undefined],
+  ["const n = <div class={`one ${names[index]}`} />", undefined],
+  ["const n = <div class='one' />; element.classList.add('two')", undefined],
+  ["const n = <div classList={classes} />", undefined],
+  ["const n = <div class:one={flag} />", undefined],
+  ["element.getAttributeNode('class').value = names", undefined],
+  ["const attrs = element.attributes; attrs[0].value = names", undefined],
+  ["const n = <div class='one' />; element[key] = value", undefined],
+  ["const n = <div class='one' />; Object.assign(element, properties)", undefined],
+  ["const { assign } = Object; assign(element, properties)", undefined],
+  ["const n = <list class='one' />", undefined],
+  ["document.createElement('list')", undefined],
+  ["const n = <input class='one' />", undefined],
+  ["import { Widget } from 'opaque'; const n = <div class='one' />", undefined],
+]) test(`class inline capacity proof: ${source}`, t => {
+  const actual = classCapacity(app(t, { 'index.tsx': source }))
+  assert.deepEqual(actual, count === undefined ? [] : [`node-class-capacity-v1-${count}`])
+})
+
+test('class numeric property proof follows discovered relative stores', t => {
+  const entry = app(t, {
+    'index.tsx': "import { store } from './store'; const n = <div class={`status lit-${store.selected}`} />",
+    'store.ts': 'class Store { selected = 0 }; export const store = new Store()',
+  })
+  assert.deepEqual(classCapacity(entry), ['node-class-capacity-v1-2'])
+})
+
+for (const separator of ['\t', '\n', '\r', '\v', '\f', '\x1f', ' ']) test(`class token proof retains native separator ${JSON.stringify(separator)}`, t => {
+  const entry = app(t, { 'index.tsx': `const n = <div class={'one' + ${JSON.stringify(separator)} + 'two'} />` })
+  assert.deepEqual(classCapacity(entry), ['node-class-capacity-v1-2'])
+})
+
+for (const source of [
+  `const n = <div style={{ animation: 'fade 1s' }} />`,
+  `el.style.animationName = name`, `el.style.WebkitAnimationDuration = time`,
+  `el.style.transition = duration`, `el.style.setProperty('animation', value)`,
+  `const n = <div data-anim="width" />`,
+  `el.setAttribute('data-anim', value)`, `el.dataset.anim = 'width'`,
+  `const set = el.setAttribute; set('data-anim', value)`,
+  `const { 'setAttribute': set } = el; set('data-anim', value)`,
+  `el.animate(frames, options)`, `el['animate'](frames, options)`,
+  `const run = el.animate; run(frames)`, `const { 'animate': run } = el; run(frames)`,
+  `new KeyframeEffect(el, frames)`, `new Animation(effect)`,
+  `const run = Reflect.get(el, 'animate'); run(frames)`,
+  `const run = Object.getOwnPropertyDescriptor(el, 'animate').value; run(frames)`,
+  `const { [method]: run } = el; run(frames)`,
+  `const add = sheet.insertRule; add(rule)`,
+  `const { insertRule: add } = sheet; add(rule)`,
+  `const run = el[method]; const alias = run; alias(frames)`,
+  `const run = el[method]; run.call(el, frames)`,
+  `el[method](frames)`, `el.style.cssText = styles`,
+  `import './missing.css'`, `const n = <div {...props} />`,
+]) test(`animation reachability survives dynamic and aliased use: ${source}`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': source })).includes('css-animations'))
+})
+for (const css of [
+  '@keyframes move { to { width: 42px } }',
+  '@-webkit-keyframes move { to { width: 42px } }',
+  '.a { -webkit-animation: move 2s }',
+  '.a { animation-name: var(--motion) }',
+  String.raw`.a { anim\61tion: move 1s }`,
+]) test(`CSS animation detection: ${css}`, t => {
+  assert.ok(cssFeatures(app(t, { 'index.tsx': `import './app.css'`, 'app.css': css })).includes('css-animations'))
+})
+test('animation frame callbacks and ordinary CSS do not retain CSS animation storage', t => {
+  const features = cssFeatures(app(t, { 'index.tsx': `import './app.css'; requestAnimationFrame(tick); cancelAnimationFrame(id); const n = <div />`, 'app.css': '.a { color: #123; width: 20px }' }))
+  assert.ok(features.includes('css-analysis-v15'))
+  assert.ok(!features.includes('css-animations'))
+})
+
+
+const alphaFeatures = entry => analyzeAllFeatures(entry).features.filter(feature => ['css-text-alpha', 'css-border-alpha'].includes(feature))
+for (const color of ['#123', '#123f', '#112233', '#112233ff', 'inherit', 'currentColor']) test(`opaque text/border ${color} removes alpha storage`, t => {
+  assert.deepEqual(alphaFeatures(app(t, { 'index.tsx': `import './app.css'`, 'app.css': `.n { color: ${color}; border: 1px solid ${color} }` })), [])
+})
+for (const color of ['transparent', '#1230', '#11223388', 'rgba(1,2,3,.5)', 'rgb(1 2 3 / .5)', 'var(--missing)']) test(`nonopaque text/border ${color} retains alpha storage`, t => {
+  assert.deepEqual(alphaFeatures(app(t, { 'index.tsx': `import './app.css'`, 'app.css': `.n { color: ${color}; border-color: ${color} }` })), ['css-border-alpha', 'css-text-alpha'])
+})
+test('opaque custom colors prove across all definitions and inherited currentColor', t => {
+  assert.deepEqual(alphaFeatures(app(t, { 'index.tsx': `import './app.css'`, 'app.css': `:root { --ink:#123; --edge:var(--ink) } .a { --ink:#456; color:var(--ink); border-color:var(--edge); } .b { border: 1px solid; color:var(--absent,#abc) }` })), [])
+})
+for (const extra of ['.b {--ink:transparent}', '.b {--ink:var(--missing)}', '.b {--ink:var(--ink)}']) test(`uncertain custom color retains alpha: ${extra}`, t => {
+  assert.deepEqual(alphaFeatures(app(t, { 'index.tsx': `import './app.css'`, 'app.css': `:root {--ink:#123} .a { color:var(--ink); border-color:currentColor } ${extra}` })), ['css-border-alpha', 'css-text-alpha'])
+})
+test('text and border alpha proofs are independent', t => {
+  assert.deepEqual(alphaFeatures(app(t, { 'index.tsx': `const n = <div style={{ color:'#123', borderColor:'transparent' }} />` })), ['css-border-alpha'])
+})
+test('local immutable instance and literal palette getters prove dynamic colors', t => {
+  assert.deepEqual(alphaFeatures(app(t, {
+    'index.tsx': `import { store } from './store'; const n = <div style={{ color:store.ink, borderColor:store.edge }} />`,
+    'store.ts': `import { palette as colors } from './colors'; class Store { index=0; ink='#123'; change(on:boolean) {this.ink=on?'#456':'#789'} get edge(){return colors[this.index]} } export const store=new Store()`,
+    'colors.ts': `export const palette=['#123','#456','#789']`,
+  })), [])
+})
+for (const extra of [
+  `store.ink = network`,
+  `const alias = store; alias.ink = 'transparent'`,
+  `store[field] = 'transparent'`,
+  `Object.assign(store, theme)`,
+  `Reflect.set(store, 'ink', 'transparent')`,
+]) test(`dynamic field write retains text alpha: ${extra}`, t => {
+  assert.ok(alphaFeatures(app(t, { 'index.tsx': `class Store { ink='#123' } const store=new Store(); ${extra}; const n=<div style={{color:store.ink}} />` })).includes('css-text-alpha'))
+})
+for (const extra of [
+  `palette[0]='transparent'`, `palette.push('transparent')`,
+  `const alias=palette; alias[0]='transparent'`, `mutate(palette)`,
+]) test(`escaped or mutated palette retains text alpha: ${extra}`, t => {
+  assert.ok(alphaFeatures(app(t, { 'index.tsx': `const palette=['#123','#456']; let index=0; ${extra}; const n=<div style={{color:palette[index]}} />` })).includes('css-text-alpha'))
+})
+test('renamed imported palette mutations invalidate the original palette proof', t => {
+  assert.ok(alphaFeatures(app(t, {
+    'index.tsx': `import {palette} from './colors'; import './mutation'; let index=0; const n=<div style={{color:palette[index]}} />`,
+    'colors.ts': `export const palette=['#123','#456']`,
+    'mutation.ts': `import {palette as alias} from './colors'; alias[0]='transparent'`,
+  })).includes('css-text-alpha'))
+})
+for (const source of [
+  `class Store { ink='#123' } let store=new Store(); store=foreign; const n=<div style={{color:store.ink}} />`,
+  `class Store { ink='#123' } const other:any=foreign; const n=<div style={{color:other.ink}} />`,
+  `const ink='#123'; function render(ink:string) { return <div style={{color:ink}} /> }`,
+  `const ink='#123'; function render() { function ink(){return network} return <div style={{color:ink}} /> }`,
+  `const ink=network as '#123'; const n=<div style={{color:ink}} />`,
+  `class Store { ink='#123'; constructor(){return foreign} } const store=new Store(); const n=<div style={{color:store.ink}} />`,
+  `class Store { ink='#123' } function render(store:Store) {return <div style={{color:store.ink}} />}`,
+]) test(`opaque receiver or binding cannot borrow a literal proof: ${source}`, t => {
+  assert.ok(alphaFeatures(app(t, { 'index.tsx':source })).includes('css-text-alpha'))
+})
+for (const source of [
+  `node.style.all='initial'`, `node.style.colorAlpha=value; node.style.borderAlpha=value`,
+  `node.animate(keyframes)`, `import widget from 'external-widget'; const n=<widget />`,
+]) test(`opaque style entry retains both alpha fields: ${source}`, t => {
+  assert.deepEqual(alphaFeatures(app(t, { 'index.tsx':source })), ['css-border-alpha', 'css-text-alpha'])
+})
+
+test('recursive palettes retain alpha instead of recursing in the proof', t => {
+  assert.ok(alphaFeatures(app(t, {'index.tsx': `const palette=[palette[0]]; const n=<div style={{color:palette[0]}} />`})).includes('css-text-alpha'))
+})
+
+for (const escape of [
+  'foreign(store)', 'foreign({store})', 'window.shared=store',
+  'function expose(){return store}', 'unknown.call(store)',
+]) test(`escaping local receivers retain dynamic color alpha: ${escape}`, t => {
+  assert.ok(alphaFeatures(app(t, {'index.tsx': `class Store {ink='#123'} const store=new Store(); ${escape}; const n=<div style={{color:store.ink}} />`})).includes('css-text-alpha'))
+})
+test('constructor callback receiving this cannot establish an opaque-color proof', t => {
+  assert.ok(alphaFeatures(app(t, {'index.tsx': `class Store {ink='#123'; constructor(mutate:any){mutate(this)} } const store=new Store(foreign); const n=<div style={{color:store.ink}} />`})).includes('css-text-alpha'))
+})
+
+for (const definition of [
+  `class Store {ink='#123'; mutate=foreign} const store=new Store(); store.mutate()`,
+  `class Store {ink='#123'; mutate(){} } const store=new Store(); store.mutate=foreign; store.mutate()`,
+  `const store={ink:'#123', mutate:foreign}; store.mutate()`,
+]) test(`opaque methods cannot mutate a supposedly proven receiver: ${definition}`, t => {
+  assert.ok(alphaFeatures(app(t, {'index.tsx': `${definition}; const n=<div style={{color:store.ink}} />`})).includes('css-text-alpha'))
+})
+
+for (const escape of [
+  'const wrapper=[store]; foreign(wrapper)',
+  'const wrapper={store}; foreign(wrapper.store)',
+  'const wrapper={nested:[store]}; foreign(wrapper.nested)',
+  'let alias=store; foreign(alias)',
+]) test(`nested receiver escape retains alpha: ${escape}`, t => {
+  assert.ok(alphaFeatures(app(t, {'index.tsx': `class Store {ink='#123'} const store=new Store(); ${escape}; const n=<div style={{color:store.ink}} />`})).includes('css-text-alpha'))
+})
+
+for (const selector of ['.x::before', '.x::after', '.x:before', '.x:after', '.x::BEFORE']) {
+  test(`generated pseudo-elements retained for ${selector}`, (t) => {
+    const entry = app(t, { 'index.tsx': "import './base.css'", 'base.css': "@import './nested.css';", 'nested.css': `@media (min-width: 1px) { ${selector} { color: red; } }` })
+    assert.ok(analyzeAllFeatures(entry).features.includes('css-pseudo-elements'))
+  })
+}
+for (const source of [
+  `sheet.insertRule('.x::after { content: "x"; }')`,
+  `element.style.content = text`,
+  `const node = <div style={{ content: 'x' }} />`,
+  `element.style.cssText = remoteCss`,
+]) test(`generated pseudo-elements retained by ${source}`, (t) => {
+  assert.ok(analyzeAllFeatures(app(t, { 'index.tsx': source })).features.includes('css-pseudo-elements'))
+})
+for (const selector of ['.x:first-child', '.x:last-child', '.x::first-line', '.x:hover', '.before .after']) {
+  test(`ordinary selector does not enable generated pseudo-elements: ${selector}`, (t) => {
+    const features = analyzeAllFeatures(app(t, { 'index.tsx': "import './style.css'", 'style.css': `${selector} { color: red; justify-content: center; }` })).features
+    assert.ok(!features.includes('css-pseudo-elements'))
+    if (selector.includes('first-line')) assert.ok(features.includes('css-first-line'))
+  })
+}

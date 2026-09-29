@@ -25,6 +25,7 @@
 
 namespace gea::css {
 
+#if GEA_CSS_ANIMATIONS
 class AnimationEngine {
 public:
   static AnimationEngine &instance()
@@ -224,5 +225,23 @@ private:
   RunningList running_;
   int nextHandle_ = 1;
 };
+
+#else
+// The shared runtime still calls tick/clear in an animation-free app. These
+// compile away without allocating an active-list singleton. A native producer
+// must retain support; accidental use fails at compile time rather than dropping
+// an animation silently.
+class AnimationEngine {
+public:
+  static AnimationEngine &instance() { static AnimationEngine engine; return engine; }
+  int start(Animation, uint32_t) = delete;
+  void cancel(int) {}
+  void cancelNode(int) {}
+  void clear() {}
+  bool active() const { return false; }
+  std::size_t count() const { return 0; }
+  void tick(uint32_t) {}
+};
+#endif
 
 }  // namespace gea::css

@@ -13,20 +13,27 @@ void LayoutSnapshot::capture()
 	// !anyTransformActive), and anyTransformActive checks both current and previous
 	// transforms — so for a tree with no transforms (e.g. bouncing-balls) these reads
 	// are pure per-frame waste and the stale previous_* values are never observed. Skip
-	// them. The filter snapshot is independent (no transform), so it always runs.
+	// them. The filter snapshot is independent and retained when filters are reachable.
+#if GEA_CSS_TRANSFORMS
 	const bool captureTransforms = ViewRenderer::anyTransformActive();
+#endif
 	for (int i = 0; i < state.nodeCount; i++) {
 		state.nodes[i].layout.previous_x = state.nodes[i].layout.x;
 		state.nodes[i].layout.previous_y = state.nodes[i].layout.y;
 		state.nodes[i].layout.previous_width = state.nodes[i].layout.width;
 		state.nodes[i].layout.previous_height = state.nodes[i].layout.height;
+#if GEA_CSS_SCROLLING
 		state.nodes[i].layout.previous_scroll_x = state.nodes[i].layout.scroll_x;
 		state.nodes[i].layout.previous_scroll_y = state.nodes[i].layout.scroll_y;
+#endif
 		// ONE RareStyle pool lookup per node, not ~16 — rstyle() is an out-of-line
 		// deque index (separate cache line from the node). Per-field lookups here cost
 		// ~1ms/frame on the spinning css-3d-cube (the "snap" phase); spine read these as
 		// direct ComputedStyle fields. (Same regression class as the reproject path.)
+#if GEA_CSS_TRANSFORMS || GEA_CSS_FILTERS
 		const RareStyle &rs = rstyle(state.nodes[i].style);
+#endif
+#if GEA_CSS_TRANSFORMS
 		state.nodes[i].render.previous_transformable_box = ViewRenderer::isTransformableBox(state.nodes[i]);
 		if (captureTransforms) {
 			state.nodes[i].render.previous_rotate_angle = rs.rotate_angle;
@@ -60,12 +67,21 @@ void LayoutSnapshot::capture()
 			state.nodes[i].render.previous_perspective_origin_x = rs.perspective_origin_x;
 			state.nodes[i].render.previous_perspective_origin_y = rs.perspective_origin_y;
 		}
+#endif
+#if GEA_CSS_FILTERS
 		state.nodes[i].render.previous_filter_blur_radius = rs.filter_blur_radius;
+#endif
 		state.nodes[i].render.dirty = 0;
 		state.nodes[i].render.layout_dirty = 0;
+#if GEA_CSS_SCROLLING
 		state.nodes[i].render.scroll_dirty = 0;
+#endif
+#if GEA_CSS_SCROLLING
 		state.nodes[i].render.non_scroll_dirty = 0;
+#endif
+#if GEA_CSS_TRANSFORMS
 		state.nodes[i].render.transform_dirty = 0;
+#endif
 		state.nodes[i].render.bg_recolor_pending = 0;
 		state.nodes[i].render.text_layout_stable = 0;
 		state.nodes[i].render.text_partial_dirty = 0;
@@ -74,9 +90,18 @@ void LayoutSnapshot::capture()
 		state.nodeCommandDirtyCanOverpaint[i] = 0;
 		if (state.nodes[i].type == NodeType::VirtualList) VirtualListRenderer::captureSnapshot(i);
 	}
+#if GEA_CSS_SCROLLING
 	for (int i = 0; i < kScrollDirtyWordCount; i++)
 		state.scrollDirtyNodes[i] = 0;
 	state.scrollDirtyAny = false;
+#endif
+	// Previous-frame transforms just changed. Geometry cached while collecting
+	// dirty bounds refers to the old snapshot; callers after capture must observe
+	// the new one, just as the uncached path does. The refresh serial is the
+	// geometry cache's authority for both current and previous transforms.
+#if GEA_CSS_TRANSFORMS
+	if (captureTransforms && ++state.refreshSerial == 0) state.refreshSerial = 1;
+#endif
 }
 
 void LayoutSnapshot::markChangesDirty()
@@ -90,7 +115,9 @@ void LayoutSnapshot::markChangesDirty()
 		    n->layout.height != n->layout.previous_height) {
 			n->render.dirty = 1;
 			n->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 			n->render.non_scroll_dirty = 1;
+#endif
 		}
 	}
 }

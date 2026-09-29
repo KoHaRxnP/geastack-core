@@ -141,22 +141,29 @@ bool scrollResolvedNodeIntoView(TreeState &state, int node)
 
 void VirtualListRenderer::init(int node)
 {
+#if GEA_CSS_SCROLLING
 	if (node < 0 || node >= kMaxNodes) return;
 	auto &state = treeState();
-	ensureRareData(node).virtualList.itemCount = 0;
+	ensureRareData(node).ensureVirtualList().itemCount = 0;
 	// Behave like any overflow:scroll container so the generic scroll, clip and
 	// scrollbar paths drive the list. The app's CSS may also set this; forcing
 	// it here keeps a bare <virtual-list> scrollable.
 	state.nodes[node].style.overflow = 2;
+#if GEA_CSS_OVERFLOW_AXES
 	state.nodes[node].style.overflow_x = 0;
 	state.nodes[node].style.overflow_y = 2;
+#endif
+#else
+	(void)node;
+#endif
 }
 
 void VirtualListRenderer::configureAttribute(int node, const char *name, const char *value)
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || state.nodes[node].type != NodeType::VirtualList) return;
-	auto &list = ensureRareData(node).virtualList;
+	auto &list = ensureRareData(node).ensureVirtualList();
 
 	if (sameName(name, "item-count") || sameName(name, "itemCount")) {
 		const int next = parseIntAttribute(value, list.itemCount);
@@ -165,9 +172,14 @@ void VirtualListRenderer::configureAttribute(int node, const char *name, const c
 		Node &n = state.nodes[node];
 		n.render.dirty = 1;
 		n.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		n.render.non_scroll_dirty = 1;
+#endif
 		Tree::instance().markNodeDisplayCommandsDirty(node);
 	}
+#else
+	(void)node; (void)name; (void)value;
+#endif
 }
 
 int VirtualListRenderer::itemCount(int node)
@@ -175,11 +187,12 @@ int VirtualListRenderer::itemCount(int node)
 	const auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || state.nodes[node].type != NodeType::VirtualList) return 0;
 	const NodeRareData *rd = rareDataFor(node);
-	return rd ? rd->virtualList.itemCount : 0;
+	return rd && rd->virtualList ? rd->virtualList->itemCount : 0;
 }
 
 int VirtualListRenderer::virtualContentHeight(int node, int rowHeight)
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || state.nodes[node].type != NodeType::VirtualList) return 0;
 	// Cache the measured row height (the first slot child's rendered CSS layout
@@ -187,12 +200,15 @@ int VirtualListRenderer::virtualContentHeight(int node, int rowHeight)
 	// and position/window its recycled slots from the SAME value the native
 	// scroll geometry uses — one source of truth, instead of the app
 	// recomputing ITEM_HEIGHT and hand-syncing it to the CSS.
-	if (rowHeight > 0) ensureRareData(node).virtualList.rowHeight = static_cast<int32_t>(rowHeight);
+	if (rowHeight > 0) ensureRareData(node).ensureVirtualList().rowHeight = static_cast<int32_t>(rowHeight);
 	const NodeRareData *rd = rareDataFor(node);
-	const int count = rd ? rd->virtualList.itemCount : 0;
+	const int count = rd && rd->virtualList ? rd->virtualList->itemCount : 0;
 	if (count <= 0 || rowHeight <= 0) return 0;
 	const int64_t raw = static_cast<int64_t>(count) * static_cast<int64_t>(rowHeight);
 	return raw > 0x3fffffffLL ? 0x3fffffff : static_cast<int>(raw);
+#else
+	(void)node; (void)rowHeight; return 0;
+#endif
 }
 
 int VirtualListRenderer::rowHeight(int node)
@@ -200,7 +216,7 @@ int VirtualListRenderer::rowHeight(int node)
 	const auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || state.nodes[node].type != NodeType::VirtualList) return 0;
 	const NodeRareData *rd = rareDataFor(node);
-	return rd ? rd->virtualList.rowHeight : 0;
+	return rd && rd->virtualList ? rd->virtualList->rowHeight : 0;
 }
 
 int VirtualListRenderer::scrollTop(int node)
@@ -228,6 +244,7 @@ int VirtualListRenderer::scrollMaxY(int node)
 
 bool VirtualListRenderer::setScrollTop(int node, int scrollTop)
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || state.nodes[node].type != NodeType::VirtualList) return false;
 	Node &n = state.nodes[node];
@@ -239,14 +256,21 @@ bool VirtualListRenderer::setScrollTop(int node, int scrollTop)
 	Tree::instance().markScrollDirty(node);
 	dispatchScrollEvent(node);
 	return true;
+#else
+	(void)node; (void)scrollTop; return false;
+#endif
 }
 
 void VirtualListRenderer::captureSnapshot(int node)
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || state.nodes[node].type != NodeType::VirtualList) return;
 	Node &n = state.nodes[node];
 	n.layout.previous_scroll_y = n.layout.scroll_y;
+#else
+	(void)node;
+#endif
 }
 
 int Tree::scrollTop(int node) const
@@ -263,6 +287,7 @@ int Tree::scrollLeft(int node) const
 
 void Tree::setScrollLeft(int node, int scrollLeft)
 {
+#if GEA_CSS_SCROLLING
 	if (node < 0 || node >= nodeCount()) return;
 	Node &n = treeState().nodes[node];
 	if (!isViewLikeNodeType(n.type) || !scrollsOverflowX(n.style) || n.type == NodeType::VirtualList) return;
@@ -273,12 +298,18 @@ void Tree::setScrollLeft(int node, int scrollLeft)
 	n.layout.scroll_x = static_cast<int32_t>(scrollLeft);
 	n.render.dirty = 1;
 	n.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	n.render.non_scroll_dirty = 1;
+#endif
 	markScrollDirty(node);
+#else
+	(void)node; (void)scrollLeft;
+#endif
 }
 
 void Tree::setScrollTop(int node, int scrollTop)
 {
+#if GEA_CSS_SCROLLING
 	if (node < 0 || node >= nodeCount()) return;
 	Node &n = treeState().nodes[node];
 	if (n.type == NodeType::VirtualList) {
@@ -294,19 +325,27 @@ void Tree::setScrollTop(int node, int scrollTop)
 	n.render.dirty = 1;
 	n.render.layout_dirty = 1;
 	markScrollDirty(node);
+#else
+	(void)node; (void)scrollTop;
+#endif
 }
 
 void Tree::scrollIntoView(int node)
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount || !state.nodeActive[node]) return;
 	state.pendingScrollIntoViewNode = node;
 	scrollResolvedNodeIntoView(state, node);
 	markDisplayListContentDirty();
+#else
+	(void)node;
+#endif
 }
 
 void Tree::applyPendingScrollIntoView()
 {
+#if GEA_CSS_SCROLLING
 	auto &state = treeState();
 	const int node = state.pendingScrollIntoViewNode;
 	if (node < 0) return;
@@ -338,6 +377,9 @@ void Tree::applyPendingScrollIntoView()
 	}
 	state.pendingScrollIntoViewNode = -1;
 	setScrollTop(scroller, next);
+#else
+
+#endif
 }
 
 }  // namespace gea::embedded::ui

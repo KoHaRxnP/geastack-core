@@ -15,9 +15,20 @@ inline constexpr int kMaxNodeAttributes = 8;
 inline constexpr int kNodeAttributeNameMax = 32;
 inline constexpr int kNodeAttributeValueMax = 64;
 
-struct NodeAttribute {
-	char name[kNodeAttributeNameMax]{};
-	char value[kNodeAttributeValueMax]{};
+struct NodeAttributeEntry;
+struct NodeAttributeDeleter {
+	void operator()(NodeAttributeEntry *entry) const;
+};
+using NodeAttributePtr = std::unique_ptr<NodeAttributeEntry, NodeAttributeDeleter>;
+struct NodeAttributeEntry {
+	NodeAttributePtr next;
+	std::uint8_t nameBytes = 0, valueCapacity = 0;
+	// The allocation continues with nameBytes + valueCapacity bytes. Updating
+	// another attribute never moves this entry or invalidates its string.
+	const char *name() const { return reinterpret_cast<const char *>(this + 1); }
+	char *value() { return reinterpret_cast<char *>(this + 1) + nameBytes; }
+	const char *value() const { return reinterpret_cast<const char *>(this + 1) + nameBytes; }
+	static NodeAttributePtr create(const char *name, const char *value);
 };
 
 struct NodeAttributeStore {
@@ -25,7 +36,15 @@ struct NodeAttributeStore {
 	int16_t pressValue = -1;
 	CssAtomId idAtom = kInvalidCssAtom;
 	uint8_t count = 0;
-	NodeAttribute values[kMaxNodeAttributes]{};
+	// Allocate only attributes that exist. Entries stay at stable addresses
+	// as other attributes are added/removed; an empty store allocates nothing.
+	NodeAttributePtr values;
+
+	NodeAttributeStore() = default;
+	NodeAttributeStore(const NodeAttributeStore &other);
+	NodeAttributeStore &operator=(const NodeAttributeStore &other);
+	NodeAttributeStore(NodeAttributeStore &&other) noexcept;
+	NodeAttributeStore &operator=(NodeAttributeStore &&other) noexcept;
 
 	void clear();
 	void set(const char *name, const char *value);
@@ -39,28 +58,17 @@ using gea::framework::events::kInvalidEventListenerId;
 
 struct NodeEventListenerEntry {
 	EventListenerId id = kInvalidEventListenerId;
+	std::uint8_t type = 0;
 	std::shared_ptr<gea::framework::events::EventListener> listener;
 };
 
-struct NodeEventListenerList {
-	std::vector<NodeEventListenerEntry> entries;
-
-	bool empty() const { return entries.empty(); }
-};
-
 struct NodeEventListeners {
-	NodeEventListenerList click;
-	NodeEventListenerList touchstart;
-	NodeEventListenerList touchmove;
-	NodeEventListenerList touchend;
-	NodeEventListenerList input;
-	NodeEventListenerList keydown;
-	NodeEventListenerList scroll;
+	std::vector<NodeEventListenerEntry> entries;
+	std::uint8_t types = 0;
 
 	void clear();
-	NodeEventListenerList *listenersFor(const char *type);
-	const NodeEventListenerList *listenersFor(const char *type) const;
-	bool hasAny() const;
+	bool hasType(int type) const { return type >= 0 && (types & (1u << type)); }
+	bool hasAny() const { return types != 0; }
 };
 
 // NOTE: the NodeRareData block (which bundles attributes + listeners + other

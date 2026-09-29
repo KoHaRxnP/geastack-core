@@ -6,10 +6,11 @@
 #include "tree_internal.h"
 #include "tree_state.h"
 
+#include <algorithm>
+#include <new>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <utility>
 #include <vector>
 
@@ -154,12 +155,13 @@ bool dispatchDocumentKeyDown(gea::framework::events::PointerEvent &event)
 // Cold/optional per-node state (currently event listeners) lives here instead
 // of a dense [kMaxNodes] array. A node holds an int16 handle (Node::rare_data,
 // -1 = none) into this pool; a block is allocated lazily the first time a node
-// needs one and returned to a free list when the node is reset. A std::deque
-// backs the pool because its element addresses are STABLE across growth — the
-// dispatcher holds a NodeRareData* across the (re-entrant) handler call, exactly
-// as the old fixed array allowed. The free list keeps it bounded and reused.
+// needs one and returned to a free list when the node is reset. Owned records
+// keep their addresses STABLE while the pointer table grows: the dispatcher
+// retains NodeRareData* across re-entrant handlers. A direct pointer table also
+// avoids deque's block arithmetic changing when record compaction crosses its
+// block-size thresholds. The free list keeps allocations bounded and reused.
 namespace {
-std::deque<NodeRareData> g_rareDataPool;
+std::vector<std::unique_ptr<NodeRareData>> g_rareDataPool;
 std::vector<int16_t> g_rareDataFreeList;
 }  // namespace
 
@@ -167,16 +169,16 @@ NodeRareData &ensureRareData(int node)
 {
 	auto &state = treeState();
 	int16_t handle = state.nodes[node].rare_data;
-	if (handle >= 0) return g_rareDataPool[static_cast<std::size_t>(handle)];
+	if (handle >= 0) return *g_rareDataPool[static_cast<std::size_t>(handle)];
 	if (!g_rareDataFreeList.empty()) {
 		handle = g_rareDataFreeList.back();
 		g_rareDataFreeList.pop_back();
 	} else {
 		handle = static_cast<int16_t>(g_rareDataPool.size());
-		g_rareDataPool.emplace_back();
+		g_rareDataPool.emplace_back(std::make_unique<NodeRareData>());
 	}
 	state.nodes[node].rare_data = handle;
-	return g_rareDataPool[static_cast<std::size_t>(handle)];
+	return *g_rareDataPool[static_cast<std::size_t>(handle)];
 }
 
 NodeRareData *rareDataFor(int node)
@@ -184,7 +186,7 @@ NodeRareData *rareDataFor(int node)
 	auto &state = treeState();
 	if (node < 0 || node >= kMaxNodes) return nullptr;
 	const int16_t handle = state.nodes[node].rare_data;
-	return handle >= 0 ? &g_rareDataPool[static_cast<std::size_t>(handle)] : nullptr;
+	return handle >= 0 ? g_rareDataPool[static_cast<std::size_t>(handle)].get() : nullptr;
 }
 
 void releaseRareData(int node)
@@ -193,9 +195,63 @@ void releaseRareData(int node)
 	if (node < 0 || node >= kMaxNodes) return;
 	const int16_t handle = state.nodes[node].rare_data;
 	if (handle < 0) return;
-	g_rareDataPool[static_cast<std::size_t>(handle)].clear();
+	g_rareDataPool[static_cast<std::size_t>(handle)]->clear();
 	g_rareDataFreeList.push_back(handle);
 	state.nodes[node].rare_data = -1;
+}
+
+void NodeAttributeDeleter::operator()(NodeAttributeEntry *entry) const
+{
+	entry->~NodeAttributeEntry();
+	::operator delete(entry);
+}
+NodeAttributePtr NodeAttributeEntry::create(const char *name, const char *value)
+{
+	if (!value) value = "";
+	const auto nameBytes = std::min(std::strlen(name), std::size_t(kNodeAttributeNameMax - 1)) + 1;
+	const auto valueBytes = std::min(std::strlen(value), std::size_t(kNodeAttributeValueMax - 1)) + 1;
+	auto *entry = new (::operator new(sizeof(NodeAttributeEntry) + nameBytes + valueBytes)) NodeAttributeEntry;
+	entry->nameBytes = nameBytes;
+	entry->valueCapacity = valueBytes;
+	copyBounded(reinterpret_cast<char *>(entry + 1), nameBytes, name);
+	copyBounded(entry->value(), valueBytes, value);
+	return NodeAttributePtr(entry);
+}
+
+NodeAttributeStore::NodeAttributeStore(const NodeAttributeStore &other)
+    : pressId(other.pressId), pressValue(other.pressValue), idAtom(other.idAtom), count(other.count)
+{
+	auto *tail = &values;
+	for (auto *entry = other.values.get(); entry; entry = entry->next.get()) {
+		*tail = NodeAttributeEntry::create(entry->name(), entry->value());
+		tail = &(*tail)->next;
+	}
+}
+
+NodeAttributeStore &NodeAttributeStore::operator=(const NodeAttributeStore &other)
+{
+	if (this != &other) {
+		NodeAttributeStore copy(other);
+		*this = std::move(copy);
+	}
+	return *this;
+}
+
+NodeAttributeStore::NodeAttributeStore(NodeAttributeStore &&other) noexcept
+{
+	*this = std::move(other);
+}
+
+NodeAttributeStore &NodeAttributeStore::operator=(NodeAttributeStore &&other) noexcept
+{
+	if (this == &other) return *this;
+	values = std::move(other.values);
+	pressId = other.pressId;
+	pressValue = other.pressValue;
+	idAtom = other.idAtom;
+	count = other.count;
+	other.clear();
+	return *this;
 }
 
 void NodeAttributeStore::clear()
@@ -204,41 +260,50 @@ void NodeAttributeStore::clear()
 	pressValue = -1;
 	idAtom = kInvalidCssAtom;
 	count = 0;
-	for (auto &attr : values) {
-		attr.name[0] = '\0';
-		attr.value[0] = '\0';
-	}
+	values.reset();
 }
 
 void NodeAttributeStore::set(const char *name, const char *value)
 {
-	if (!name || name[0] == '\0') return;
+	if (!name || !*name) return;
+	if (!value) value = "";
 	const bool isId = sameName(name, "id");
-	for (uint8_t i = 0; i < count; i++) {
-		if (!sameName(values[i].name, name)) continue;
-		copyBounded(values[i].value, kNodeAttributeValueMax, value);
-		if (isId) idAtom = internCssAtom(values[i].value);
-		return;
+	auto *tail = &values;
+	while (*tail) {
+		auto &entry = **tail;
+		if (sameName(entry.name(), name)) {
+			const auto bytes = std::min(std::strlen(value), std::size_t(kNodeAttributeValueMax - 1)) + 1;
+			if (bytes > entry.valueCapacity) {
+				// Allocate/copy first: value may point into the existing entry.
+				auto replacement = NodeAttributeEntry::create(name, value);
+				replacement->next = std::move(entry.next);
+				*tail = std::move(replacement);
+			} else {
+				std::memmove(entry.value(), value, bytes - 1);
+				entry.value()[bytes - 1] = 0;
+			}
+			if (isId) idAtom = internCssAtom((*tail)->value());
+			return;
+		}
+		tail = &entry.next;
 	}
 	if (count >= kMaxNodeAttributes) return;
-	copyBounded(values[count].name, kNodeAttributeNameMax, name);
-	copyBounded(values[count].value, kNodeAttributeValueMax, value);
-	if (isId) idAtom = internCssAtom(values[count].value);
-	count++;
+	auto entry = NodeAttributeEntry::create(name, value);
+	if (isId) idAtom = internCssAtom(entry->value());
+	*tail = std::move(entry);
+	++count;
 }
 
 bool NodeAttributeStore::remove(const char *name)
 {
 	if (!name) return false;
-	for (uint8_t i = 0; i < count; i++) {
-		if (!sameName(values[i].name, name)) continue;
+	for (auto *link = &values; *link; link = &(*link)->next) {
+		if (!sameName((*link)->name(), name)) continue;
 		if (sameName(name, "id")) idAtom = kInvalidCssAtom;
-		for (uint8_t j = i; j + 1 < count; j++) {
-			values[j] = values[j + 1];
-		}
+		// Keep the removed owner alive while moving its next link.
+		auto removed = std::move(*link);
+		*link = std::move(removed->next);
 		count--;
-		values[count].name[0] = '\0';
-		values[count].value[0] = '\0';
 		return true;
 	}
 	return false;
@@ -247,8 +312,8 @@ bool NodeAttributeStore::remove(const char *name)
 const char *NodeAttributeStore::get(const char *name) const
 {
 	if (!name) return "";
-	for (uint8_t i = 0; i < count; i++) {
-		if (sameName(values[i].name, name)) return values[i].value;
+	for (auto *entry = values.get(); entry; entry = entry->next.get()) {
+		if (sameName(entry->name(), name)) return entry->value();
 	}
 	return "";
 }
@@ -256,52 +321,18 @@ const char *NodeAttributeStore::get(const char *name) const
 bool NodeAttributeStore::has(const char *name) const
 {
 	if (!name) return false;
-	for (uint8_t i = 0; i < count; i++) {
-		if (sameName(values[i].name, name)) return true;
+	for (auto *entry = values.get(); entry; entry = entry->next.get()) {
+		if (sameName(entry->name(), name)) return true;
 	}
 	return false;
 }
 
 void NodeEventListeners::clear()
 {
-	// Releasing a non-empty list drops a node from its type's live-listener count, so
-	// the dispatcher stops walking the tree for a type once its last listener
-	// goes away.
-	const auto release = [](NodeEventListenerList &list, int index) {
-		if (!list.empty() && g_listenerTypeCounts[index] > 0) g_listenerTypeCounts[index]--;
-		list.entries.clear();
-	};
-	release(click, 0);
-	release(touchstart, 1);
-	release(touchmove, 2);
-	release(touchend, 3);
-	release(input, 4);
-	release(keydown, 5);
-	release(scroll, 6);
-}
-
-NodeEventListenerList *NodeEventListeners::listenersFor(const char *type)
-{
-	if (sameName(type, "click")) return &click;
-	// Pointer events alias onto their touch* sibling slot — see eventTypeIndex.
-	if (sameName(type, "touchstart") || sameName(type, "pointerdown")) return &touchstart;
-	if (sameName(type, "touchmove") || sameName(type, "pointermove")) return &touchmove;
-	if (sameName(type, "touchend") || sameName(type, "pointerup")) return &touchend;
-	if (sameName(type, "input")) return &input;
-	if (sameName(type, "keydown")) return &keydown;
-	if (sameName(type, "scroll")) return &scroll;
-	return nullptr;
-}
-
-const NodeEventListenerList *NodeEventListeners::listenersFor(const char *type) const
-{
-	return const_cast<NodeEventListeners *>(this)->listenersFor(type);
-}
-
-bool NodeEventListeners::hasAny() const
-{
-	return !click.empty() || !touchstart.empty() || !touchmove.empty() ||
-	       !touchend.empty() || !input.empty() || !keydown.empty() || !scroll.empty();
+	for (int type = 0; type < 7; ++type)
+		if (hasType(type) && g_listenerTypeCounts[type] > 0) --g_listenerTypeCounts[type];
+	entries.clear();
+	types = 0;
 }
 
 EventListenerId Tree::setEventListener(int node, const char *type, gea::framework::events::EventListener listener)
@@ -312,16 +343,16 @@ EventListenerId Tree::setEventListener(int node, const char *type, gea::framewor
 	// Don't allocate a rare-data block for an unrecognized event type (the set
 	// listenerFor knows == the set eventTypeIndex tracks).
 	if (eventTypeIndex(type) < 0) return kInvalidEventListenerId;
-	auto *list = ensureRareData(node).listeners.listenersFor(type);
-	if (!list) return kInvalidEventListenerId;
-	// First listener for this (node, type): bump the type's live count so the
-	// dispatcher knows the type is worth walking the tree for.
+	auto &list = ensureRareData(node).listeners;
 	const int typeIndex = eventTypeIndex(type);
-	if (list->empty() && typeIndex >= 0) g_listenerTypeCounts[typeIndex]++;
+	if (!list.hasType(typeIndex)) {
+		++g_listenerTypeCounts[typeIndex];
+		list.types |= 1u << typeIndex;
+	}
 	EventListenerId id = g_nextEventListenerId++;
 	if (id == kInvalidEventListenerId) id = g_nextEventListenerId++;
-	list->entries.push_back(NodeEventListenerEntry{
-		id,
+	list.entries.push_back(NodeEventListenerEntry{
+		id, static_cast<std::uint8_t>(typeIndex),
 		std::make_shared<gea::framework::events::EventListener>(std::move(listener))});
 	return id;
 }
@@ -332,14 +363,17 @@ bool Tree::removeEventListener(int node, const char *type, EventListenerId liste
 	if (node < 0 || node >= state.nodeCount || listenerId == kInvalidEventListenerId) return false;
 	NodeRareData *rd = rareDataFor(node);
 	if (!rd) return false;
-	NodeEventListenerList *list = rd->listeners.listenersFor(type);
-	if (!list) return false;
-	for (auto it = list->entries.begin(); it != list->entries.end(); ++it) {
-		if (it->id != listenerId) continue;
-		list->entries.erase(it);
-		if (list->empty()) {
-			const int typeIndex = eventTypeIndex(type);
-			if (typeIndex >= 0 && g_listenerTypeCounts[typeIndex] > 0) g_listenerTypeCounts[typeIndex]--;
+	auto &list = rd->listeners;
+	const int typeIndex = eventTypeIndex(type);
+	if (!list.hasType(typeIndex)) return false;
+	for (auto it = list.entries.begin(); it != list.entries.end(); ++it) {
+		if (it->id != listenerId || it->type != typeIndex) continue;
+		list.entries.erase(it);
+		const bool remains = std::any_of(list.entries.begin(), list.entries.end(),
+		    [typeIndex](const auto &entry) { return entry.type == typeIndex; });
+		if (!remains) {
+			list.types &= ~(1u << typeIndex);
+			if (g_listenerTypeCounts[typeIndex] > 0) --g_listenerTypeCounts[typeIndex];
 		}
 		return true;
 	}
@@ -373,8 +407,8 @@ bool Tree::dispatchEvent(gea::framework::events::PointerEvent &event)
 		if (!event.bubbles && node != event.targetId) break;
 		NodeRareData *rd = rareDataFor(node);
 		if (!rd) continue;
-		auto *initialList = rd->listeners.listenersFor(event.typeName());
-		if (!initialList || initialList->empty()) continue;
+		const int typeIndex = eventTypeIndex(event.typeName());
+		if (!rd->listeners.hasType(typeIndex)) continue;
 
 		event.currentTargetId = node;
 		event.currentTarget = gea::framework::events::EventTarget(node);
@@ -393,16 +427,16 @@ bool Tree::dispatchEvent(gea::framework::events::PointerEvent &event)
 		// keeps the in-flight function alive after its entry is erased. Reacquire the
 		// list after every callback and advance by monotonic listener id; listeners
 		// added during this dispatch are above maxId and do not receive this event.
-		const EventListenerId maxId = initialList->entries.back().id;
+		const EventListenerId maxId = rd->listeners.entries.back().id;
 		EventListenerId cursor = kInvalidEventListenerId;
 		for (;;) {
 			rd = rareDataFor(node);
 			if (!rd) break;
-			auto *list = rd->listeners.listenersFor(event.typeName());
-			if (!list || list->empty()) break;
+			if (!rd->listeners.hasType(typeIndex)) break;
 			EventListenerId nextId = kInvalidEventListenerId;
 			std::shared_ptr<gea::framework::events::EventListener> callback;
-			for (const auto &entry : list->entries) {
+			for (const auto &entry : rd->listeners.entries) {
+				if (entry.type != typeIndex) continue;
 				if (entry.id <= cursor || entry.id > maxId) continue;
 				nextId = entry.id;
 				callback = entry.listener;
@@ -498,7 +532,9 @@ void Tree::setAttribute(int node, const char *name, const char *value)
 			// (e.g. an EPUB cover applied via setAttribute) never paints.
 			markDisplayListDirty();
 			state.nodes[node].render.dirty = 1;
+#if GEA_CSS_SCROLLING
 			state.nodes[node].render.non_scroll_dirty = 1;
+#endif
 		}
 	}
 	if (state.nodes[node].type == NodeType::Image && sameName(name, "fit")) {
@@ -518,7 +554,9 @@ void Tree::setAttribute(int node, const char *name, const char *value)
 		state.displayListDirty = true;
 		state.nodes[node].render.dirty = 1;
 		state.nodes[node].render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		state.nodes[node].render.non_scroll_dirty = 1;
+#endif
 	}
 }
 
@@ -541,7 +579,9 @@ void Tree::removeAttribute(int node, const char *name)
 		state.displayListDirty = true;
 		state.nodes[node].render.dirty = 1;
 		state.nodes[node].render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		state.nodes[node].render.non_scroll_dirty = 1;
+#endif
 	}
 }
 

@@ -135,6 +135,7 @@ namespace gea::embedded::ui
 		}
 #endif
 
+#if GEA_CSS_SCROLLING
 		struct PreservedScrollOffset
 		{
 			int32_t x = 0;
@@ -213,6 +214,8 @@ namespace gea::embedded::ui
 			}
 		}
 
+#endif
+
 		int dirtyRectArea(const DirtyRegions::Rect &r)
 		{
 			if (r.x0 > r.x1 || r.y0 > r.y1)
@@ -244,10 +247,12 @@ namespace gea::embedded::ui
 		{
 			for (int i = 0; i < 4; ++i)
 			{
-				if (style.border_radius[i] > 0)
+				if (style.border_radius[GEA_CSS_RADIUS_INDEX(i)] > 0)
 					return true;
-				if (style.border_radius_percent[i] != kUnset && style.border_radius_percent[i] > 0)
+#if GEA_CSS_PERCENT_RADIUS
+				if (style.border_radius_percent[GEA_CSS_RADIUS_INDEX(i)] != kUnset && style.border_radius_percent[GEA_CSS_RADIUS_INDEX(i)] > 0)
 					return true;
+#endif
 			}
 			return false;
 		}
@@ -256,11 +261,11 @@ namespace gea::embedded::ui
 		{
 			if (hasAnyBorder(node.style))
 				return true;
-			if (rstyle(node.style).filter_blur_radius > 0 || node.render.previous_filter_blur_radius > 0)
+			if ((GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0) > 0 || node.render.previous_filter_blur_radius > 0)
 				return true;
 			if (node.style.mask_right_fade_width > 0)
 				return true;
-			if (rstyle(node.style).box_shadow_alpha > 0)
+			if ((GEA_CSS_BOX_SHADOW ? rstyle(node.style).box_shadow_alpha : 0) > 0)
 				return true;
 			return node.style.has_bg && (styleHasRoundedRasterEdge(node.style) || node.style.bg_alpha < 255);
 		}
@@ -510,15 +515,17 @@ namespace gea::embedded::ui
 			double ry[4]{};
 			for (int i = 0; i < 4; ++i)
 			{
-				if (node.style.border_radius_percent[i] != kUnset)
+#if GEA_CSS_PERCENT_RADIUS
+				if (node.style.border_radius_percent[GEA_CSS_RADIUS_INDEX(i)] != kUnset)
 				{
-					const double p = static_cast<double>(node.style.border_radius_percent[i]) / 1000.0;
+					const double p = static_cast<double>(node.style.border_radius_percent[GEA_CSS_RADIUS_INDEX(i)]) / 1000.0;
 					rx[i] = std::max(0.0, width * p);
 					ry[i] = std::max(0.0, height * p);
 				}
 				else
+#endif
 				{
-					const double r = static_cast<double>(std::max(0, static_cast<int>(node.style.border_radius[i])));
+					const double r = static_cast<double>(std::max(0, static_cast<int>(node.style.border_radius[GEA_CSS_RADIUS_INDEX(i)])));
 					rx[i] = r;
 					ry[i] = r;
 				}
@@ -646,7 +653,7 @@ namespace gea::embedded::ui
 				return true;
 			if (node.style.has_bg || hasAnyBorder(node.style))
 				return true;
-			if (rstyle(node.style).box_shadow_alpha > 0 || rstyle(node.style).filter_blur_radius > 0)
+			if ((GEA_CSS_BOX_SHADOW ? rstyle(node.style).box_shadow_alpha : 0) > 0 || (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0) > 0)
 				return true;
 			if (node.style.mask_right_fade_width > 0)
 				return true;
@@ -905,7 +912,7 @@ namespace gea::embedded::ui
 
 		int filterBlurRadiusForNode(const Node &node, bool usePrevious)
 		{
-			return usePrevious ? node.render.previous_filter_blur_radius : rstyle(node.style).filter_blur_radius;
+			return usePrevious ? node.render.previous_filter_blur_radius : (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0);
 		}
 
 		DirtyRegions::Rect filterBlurBoundsRect(const Node &node, bool usePrevious, int origin)
@@ -1205,18 +1212,20 @@ namespace gea::embedded::ui
 				return false;
 			for (int r = 0; r < 4; r++)
 			{
-				if (n.style.border_radius[r] != 0)
+				if (n.style.border_radius[GEA_CSS_RADIUS_INDEX(r)] != 0)
 					return false;
-				if (n.style.border_radius_percent[r] != kUnset && n.style.border_radius_percent[r] != 0)
+#if GEA_CSS_PERCENT_RADIUS
+				if (n.style.border_radius_percent[GEA_CSS_RADIUS_INDEX(r)] != kUnset && n.style.border_radius_percent[GEA_CSS_RADIUS_INDEX(r)] != 0)
 					return false;
+#endif
 			}
-			if (rstyle(n.style).filter_blur_radius > 0)
+			if ((GEA_CSS_FILTERS ? rstyle(n.style).filter_blur_radius : 0) > 0)
 				return false;
 			if (n.style.mask_right_fade_width > 0)
 				return false;
-			if (rstyle(n.style).box_shadow_alpha > 0 &&
-					(rstyle(n.style).box_shadow_offset_x != 0 || rstyle(n.style).box_shadow_offset_y != 0 ||
-					 rstyle(n.style).box_shadow_blur_radius != 0 || rstyle(n.style).box_shadow_spread != 0))
+			if ((GEA_CSS_BOX_SHADOW ? rstyle(n.style).box_shadow_alpha : 0) > 0 &&
+					((GEA_CSS_BOX_SHADOW ? rstyle(n.style).box_shadow_offset_x : 0) != 0 || (GEA_CSS_BOX_SHADOW ? rstyle(n.style).box_shadow_offset_y : 0) != 0 ||
+					 (GEA_CSS_BOX_SHADOW ? rstyle(n.style).box_shadow_blur_radius : 0) != 0 || (GEA_CSS_BOX_SHADOW ? rstyle(n.style).box_shadow_spread : 0) != 0))
 				return false;
 			if (n.style.has_bg)
 			{
@@ -1716,11 +1725,15 @@ namespace gea::embedded::ui
 		}
 		else
 		{
+#if GEA_CSS_SCROLLING
 			PreservedScrollOffset scrollOffsets[kMaxNodes];
 			preserveScrollOffsets(scrollOffsets, kMaxNodes);
+#endif
 			LayoutEngine::instance().beginLayoutPass();
 		LayoutEngine::instance().layoutNode(root, width, height);
+#if GEA_CSS_SCROLLING
 			restoreScrollOffsetsAfterLayout(scrollOffsets, kMaxNodes);
+#endif
 			applyPendingScrollIntoView();
 			LayoutEngine::instance().resolveAbsoluteCoords(root, 0, 0);
 			noteLaidOutViewport(root, width, height);
@@ -1923,8 +1936,10 @@ namespace gea::embedded::ui
 		}
 		else
 		{
+#if GEA_CSS_SCROLLING
 			PreservedScrollOffset scrollOffsets[kMaxNodes];
 			preserveScrollOffsets(scrollOffsets, kMaxNodes);
+#endif
 			// Scoped relayout: when every dirty node sits under a box-stable
 			// ancestor (e.g. a city-name text growing inside a fixed-size header),
 			// re-lay only that subtree — the memoized available box makes the
@@ -1975,7 +1990,9 @@ namespace gea::embedded::ui
 				LayoutEngine::instance().beginLayoutPass();
 				LayoutEngine::instance().layoutNode(root, width, height);
 			}
+#if GEA_CSS_SCROLLING
 			restoreScrollOffsetsAfterLayout(scrollOffsets, kMaxNodes);
+#endif
 			applyPendingScrollIntoView();
 			if (!scoped)
 				LayoutEngine::instance().resolveAbsoluteCoords(root, 0, 0);
@@ -2018,7 +2035,9 @@ namespace gea::embedded::ui
 				}
 				n.render.dirty = 1;
 				n.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 				n.render.non_scroll_dirty = 1;
+#endif
 			}
 			}  // anyLayoutDirty
 		}
@@ -2404,7 +2423,7 @@ namespace gea::embedded::ui
 					py0 = state.nodeCommandDirtyY0[i];
 					py1 = state.nodeCommandDirtyY1[i];
 				}
-				DirtyRegions::Rect partial{n->render.text_dirty_x0, py0, n->render.text_dirty_x1, py1, i};
+				DirtyRegions::Rect partial{n->render.text_dirty.x0, py0, n->render.text_dirty.x1, py1, i};
 				partial = expandDirtyRect(partial, GEA_EMBEDDED_TEXT_DIRTY_GUARD_PX);
 				partial = dirtyRectWithRasterGuard(*n, partial);
 				addDirtyRegion(rects, &rect_count, partial, width, height);
@@ -2419,8 +2438,8 @@ namespace gea::embedded::ui
 					n->first_child < 0 &&
 					!hasAnyBorder(n->style) &&
 					n->style.opacity == 255 &&
-					rstyle(n->style).filter_blur_radius <= 0 &&
-					rstyle(n->style).box_shadow_blur_radius <= 0 &&
+					(GEA_CSS_FILTERS ? rstyle(n->style).filter_blur_radius : 0) <= 0 &&
+					(GEA_CSS_BOX_SHADOW ? rstyle(n->style).box_shadow_blur_radius : 0) <= 0 &&
 					n->layout.x == n->layout.previous_x &&
 					n->layout.y == n->layout.previous_y &&
 					n->layout.width == n->layout.previous_width &&
@@ -2433,7 +2452,7 @@ namespace gea::embedded::ui
 				int recolorY1 = -1;
 				if (DisplayList::instance().recolorRetainedSolidBackground(i,
 																																	 n->render.bg_recolor_from,
-																																	 n->render.bg_recolor_to,
+																																	 n->style.bg_color,
 																																	 &recolorX0,
 																																	 &recolorY0,
 																																	 &recolorX1,
@@ -2483,7 +2502,9 @@ namespace gea::embedded::ui
 					perf.treeBgRecolorPixels += recolorPixels;
 					n->render.dirty = 0;
 					n->render.layout_dirty = 0;
+#if GEA_CSS_SCROLLING
 					n->render.non_scroll_dirty = 0;
+#endif
 					n->render.bg_recolor_pending = 0;
 					continue;
 				}
@@ -3105,6 +3126,7 @@ namespace gea::embedded::ui
 		tickInputCaret(timestamp_ms);
 
 		int changed = 0;
+#if GEA_CSS_BLINK
 		for (int i = 0; i < state.nodeCount; i++)
 		{
 			Node *n = &state.nodes[i];
@@ -3115,7 +3137,9 @@ namespace gea::embedded::ui
 					n->style.blink_visible = 1;
 					n->render.dirty = 1;
 					n->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 					n->render.non_scroll_dirty = 1;
+#endif
 					changed = 1;
 				}
 				continue;
@@ -3130,10 +3154,13 @@ namespace gea::embedded::ui
 			n->style.blink_visible = visible;
 			n->render.dirty = 1;
 			n->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 			n->render.non_scroll_dirty = 1;
+#endif
 			markDisplayListDirty();
 			changed = 1;
 		}
+#endif
 
 		// Live <camera> preview: while a camera is streaming, repaint each camera
 		// leaf every frame so fresh frames reach the panel — the same idea as the
@@ -3165,7 +3192,9 @@ namespace gea::embedded::ui
 				}
 				n->render.dirty = 1;
 				n->render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 				n->render.non_scroll_dirty = 1;
+#endif
 				// Content-only: the camera's blit command is unchanged frame to frame —
 				// only the surface pixels it points at are refreshed — so there's no
 				// draw-order change. Using the structural markDisplayListDirty() forced a

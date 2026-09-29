@@ -412,12 +412,14 @@ bool styleEqualExceptTextPaint(const ComputedStyle &a, const ComputedStyle &b)
 	    a.gap != b.gap ||
 	    ar.grid_column_count != br.grid_column_count ||
 	    ar.grid_row_count != br.grid_row_count) return false;
+#if GEA_CSS_GRID
 	for (int i = 0; i < kMaxGridTracks; ++i) {
 		if (ar.grid_column_type[i] != br.grid_column_type[i] ||
 		    ar.grid_row_type[i] != br.grid_row_type[i] ||
 		    ar.grid_column_value[i] != br.grid_column_value[i] ||
 		    ar.grid_row_value[i] != br.grid_row_value[i]) return false;
 	}
+#endif
 	if (a.width != b.width ||
 	    a.height != b.height ||
 	    a.width_expression != b.width_expression ||
@@ -434,20 +436,40 @@ bool styleEqualExceptTextPaint(const ComputedStyle &a, const ComputedStyle &b)
 	    ar.flex_basis_expression != br.flex_basis_expression ||
 	    ar.line_height_expression != br.line_height_expression ||
 	    a.line_height_multiplier != b.line_height_multiplier) return false;
+	if (GEA_CSS_POSITION_PX_0(a) != GEA_CSS_POSITION_PX_0(b) ||
+	    GEA_CSS_POSITION_PX_1(a) != GEA_CSS_POSITION_PX_1(b) ||
+	    GEA_CSS_POSITION_PX_2(a) != GEA_CSS_POSITION_PX_2(b) ||
+	    GEA_CSS_POSITION_PX_3(a) != GEA_CSS_POSITION_PX_3(b) ||
+	    GEA_CSS_POSITION_PERCENT_0(a) != GEA_CSS_POSITION_PERCENT_0(b) ||
+	    GEA_CSS_POSITION_PERCENT_1(a) != GEA_CSS_POSITION_PERCENT_1(b) ||
+	    GEA_CSS_POSITION_PERCENT_2(a) != GEA_CSS_POSITION_PERCENT_2(b) ||
+	    GEA_CSS_POSITION_PERCENT_3(a) != GEA_CSS_POSITION_PERCENT_3(b)) return false;
 	for (int i = 0; i < 4; ++i) {
 		if (a.padding[i] != b.padding[i] ||
 		    a.margin[i] != b.margin[i] ||
+#if GEA_CSS_BOX_EXPRESSIONS
 		    ar.margin_expression[i] != br.margin_expression[i] ||
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 		    ar.padding_expression[i] != br.padding_expression[i] ||
-		    a.pos_offsets[i] != b.pos_offsets[i] ||
-		    a.pos_offset_percent[i] != b.pos_offset_percent[i] ||
+#endif
+#if GEA_CSS_SIDE_BORDERS
 		    ar.border_side_width[i] != br.border_side_width[i] ||
+#endif
+#if GEA_CSS_BORDER_RELIEF
 		    ar.border_relief[i] != br.border_relief[i] ||
-		    ar.border_color_flags != br.border_color_flags ||
+#endif
+		    a.border_color_flags != b.border_color_flags ||
+#if GEA_CSS_SIDE_BORDERS
 		    ar.border_side_color[i] != br.border_side_color[i] ||
+#endif
+#if GEA_CSS_SIDE_BORDERS
 		    ar.border_side_alpha[i] != br.border_side_alpha[i] ||
-		    a.border_radius[i] != b.border_radius[i] ||
-		    a.border_radius_percent[i] != b.border_radius_percent[i]) return false;
+#endif
+#if GEA_CSS_PERCENT_RADIUS
+		    a.border_radius_percent[GEA_CSS_RADIUS_INDEX(i)] != b.border_radius_percent[GEA_CSS_RADIUS_INDEX(i)] ||
+#endif
+		    a.border_radius[GEA_CSS_RADIUS_INDEX(i)] != b.border_radius[GEA_CSS_RADIUS_INDEX(i)]) return false;
 	}
 	if (a.position != b.position ||
 	    a.z_index != b.z_index ||
@@ -610,12 +632,14 @@ bool styleEqualExceptLocalDisplayCommands(const ComputedStyle &a, const Computed
 	    a.gap != b.gap ||
 	    ar.grid_column_count != br.grid_column_count ||
 	    ar.grid_row_count != br.grid_row_count) return false;
+#if GEA_CSS_GRID
 	for (int i = 0; i < kMaxGridTracks; ++i) {
 		if (ar.grid_column_type[i] != br.grid_column_type[i] ||
 		    ar.grid_row_type[i] != br.grid_row_type[i] ||
 		    ar.grid_column_value[i] != br.grid_column_value[i] ||
 		    ar.grid_row_value[i] != br.grid_row_value[i]) return false;
 	}
+#endif
 	if (a.width != b.width ||
 	    a.height != b.height ||
 	    a.width_expression != b.width_expression ||
@@ -632,14 +656,25 @@ bool styleEqualExceptLocalDisplayCommands(const ComputedStyle &a, const Computed
 	    ar.flex_basis_expression != br.flex_basis_expression ||
 	    ar.line_height_expression != br.line_height_expression ||
 	    a.line_height_multiplier != b.line_height_multiplier) return false;
+	if (GEA_CSS_POSITION_PX_0(a) != GEA_CSS_POSITION_PX_0(b) ||
+	    GEA_CSS_POSITION_PX_1(a) != GEA_CSS_POSITION_PX_1(b) ||
+	    GEA_CSS_POSITION_PX_2(a) != GEA_CSS_POSITION_PX_2(b) ||
+	    GEA_CSS_POSITION_PX_3(a) != GEA_CSS_POSITION_PX_3(b) ||
+	    GEA_CSS_POSITION_PERCENT_0(a) != GEA_CSS_POSITION_PERCENT_0(b) ||
+	    GEA_CSS_POSITION_PERCENT_1(a) != GEA_CSS_POSITION_PERCENT_1(b) ||
+	    GEA_CSS_POSITION_PERCENT_2(a) != GEA_CSS_POSITION_PERCENT_2(b) ||
+	    GEA_CSS_POSITION_PERCENT_3(a) != GEA_CSS_POSITION_PERCENT_3(b)) return false;
 	for (int i = 0; i < 4; ++i) {
 		if (boxInset(a, i) != boxInset(b, i) ||
 		    a.padding[i] != b.padding[i] ||
 		    a.margin[i] != b.margin[i] ||
+#if GEA_CSS_BOX_EXPRESSIONS
 		    ar.margin_expression[i] != br.margin_expression[i] ||
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 		    ar.padding_expression[i] != br.padding_expression[i] ||
-		    a.pos_offsets[i] != b.pos_offsets[i] ||
-		    a.pos_offset_percent[i] != b.pos_offset_percent[i]) return false;
+#endif
+		    false) return false;
 	}
 	if (a.position != b.position ||
 	    a.z_index != b.z_index ||
@@ -708,10 +743,16 @@ void markClassRecomputeStyleDiff(int node, const ComputedStyle &beforeStyle, int
 	Node &target = state.nodes[node];
 	if (beforeImageId == target.image_id && styleExactlyEqual(beforeStyle, target.style) && !firstLineChanged) return;
 	if (!nodeParticipatesInMountedTree(state, node)) return;
+	const bool hadRecolor = target.render.bg_recolor_pending;
+	const bool canRecolor = !target.render.dirty || hadRecolor;
+	target.render.text_partial_dirty = 0;
+	target.render.bg_recolor_pending = 0;
 	if (firstLineChanged) {
 		target.render.dirty = 1;
 		target.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		target.render.non_scroll_dirty = 1;
+#endif
 		Tree::instance().markNodeDisplayCommandsDirty(node);
 		// First-line backgrounds are recorded with descendant text fragments.
 		// Rebuilding only the owner's box would retain their old fill commands.
@@ -719,7 +760,9 @@ void markClassRecomputeStyleDiff(int node, const ComputedStyle &beforeStyle, int
 			for (int child = state.nodes[parent].first_child; child >= 0; child = state.nodes[child].next_sibling) {
 				if (state.nodes[child].type == NodeType::Text) {
 					state.nodes[child].render.dirty = 1;
+#if GEA_CSS_SCROLLING
 					state.nodes[child].render.non_scroll_dirty = 1;
+#endif
 					Tree::instance().markNodeDisplayCommandsDirty(child);
 				}
 				self(self, child);
@@ -734,7 +777,9 @@ void markClassRecomputeStyleDiff(int node, const ComputedStyle &beforeStyle, int
 	if (beforeImageId == target.image_id && styleEqualExceptTextPaint(beforeStyle, target.style)) {
 		if (target.type == NodeType::Text || borderUsesCurrentColor(target.style) || borderUsesCurrentColor(beforeStyle)) {
 			target.render.dirty = 1;  // paint-only: text color; geometry untouched
+#if GEA_CSS_SCROLLING
 			target.render.non_scroll_dirty = 1;
+#endif
 			Tree::instance().markNodeDisplayCommandsDirty(node);
 		}
 		return;
@@ -748,20 +793,23 @@ void markClassRecomputeStyleDiff(int node, const ComputedStyle &beforeStyle, int
 		// is still the original (A) from the last render — so almost nothing matches and
 		// the background only partially recolors, leaving a patchwork that never
 		// converges. Capture `from` only on the first change since the last render (when
-		// the framebuffer still matches the current style), and just advance `to`.
-		if (!target.render.bg_recolor_pending) {
+		// the framebuffer still matches the current style), and read the destination from the current style.
+		if (canRecolor && !firstLineChanged) {
+			if (!hadRecolor) target.render.bg_recolor_from = beforeStyle.bg_color;
 			target.render.bg_recolor_pending = 1;
-			target.render.bg_recolor_from = beforeStyle.bg_color;
 		}
-		target.render.bg_recolor_to = target.style.bg_color;
 		target.render.dirty = 1;  // paint-only: background recolor; geometry untouched
+#if GEA_CSS_SCROLLING
 		target.render.non_scroll_dirty = 1;
+#endif
 		Tree::instance().markNodeDisplayCommandsDirty(node);
 		return;
 	}
 
 	target.render.dirty = 1;
+#if GEA_CSS_SCROLLING
 	target.render.non_scroll_dirty = 1;
+#endif
 	if (preserves3D(beforeStyle) != preserves3D(target.style))
 		Tree::instance().markDisplayListDirty();
 	if (beforeImageId == target.image_id && styleEqualExceptLocalDisplayCommands(beforeStyle, target.style)) {
@@ -798,10 +846,15 @@ void markClassRecomputeStyleDiff(int node, const ComputedStyle &beforeStyle, int
 		    beforeRare.perspective != targetRare.perspective ||
 		    beforeRare.perspective_origin_x != targetRare.perspective_origin_x ||
 		    beforeRare.perspective_origin_y != targetRare.perspective_origin_y) {
+#if GEA_CSS_TRANSFORMS
 			target.render.transform_dirty = 1;
+#endif
 			if (state.fixedPositionUsed) target.render.layout_dirty = 1;
+
+#if GEA_CSS_TRANSFORMS
 			state.transformScanSerial = ~0ull;
 			state.transformScanValid = false;  // a transform was added/changed → drop durable no-transform cache
+#endif
 		}
 		Tree::instance().markNodeDisplayCommandsDirty(node);
 		// Flattened backface visibility changes the whole descendant paint group.
@@ -1306,8 +1359,8 @@ struct ResolvedCssLength {
 };
 
 struct CachedCssColor {
-	std::int32_t styleColor = 0;
-	std::int32_t nativeColor = 0;
+	NodeCustomProperty::ColorValue styleColor = 0;
+	NodeCustomProperty::ColorValue nativeColor = 0;
 	std::uint8_t alpha = 255;
 	bool valid = false;
 };
@@ -1342,7 +1395,9 @@ struct CssCompiledValue {
 	std::uint16_t flags = 0;
 	std::uint8_t aux = 0;
 	CssLengthSpec lengths[4];
-	std::int32_t values[11]{};
+	// Four direct-property pairs are the largest scalar payload. Transform
+	// rotation and scale occupy slots 0..5; translations use lengths[].
+	std::int32_t values[8]{};
 };
 
 CssLengthSpec cssLengthSpecForStatic(StaticStyleLengthSpec spec);
@@ -1421,7 +1476,9 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &value
 int containmentValue(const std::string &value);
 
 std::uint16_t compileCustomPropertyValue(const CssText &value);
+#if GEA_CSS_ANIMATIONS
 std::uint16_t compileCssAnimationSpec(const CssText &value);
+#endif
 std::uint16_t compileSelectorPlan(const CssText &selector);
 std::uint16_t compileMediaConditionPlan(const CssText &condition);
 void clearCompiledCssBackgrounds();
@@ -1430,13 +1487,13 @@ void clearCompiledCssLengthExpressions();
 void clearStaticLengthExpressionResolutionCache();
 
 struct CssRule {
-	enum class SelectorType {
+	enum class SelectorType : std::uint8_t {
 		Class,
 		Element,
 		Selector
 	};
 
-	enum class PseudoElement {
+	enum class PseudoElement : std::uint8_t {
 		None,
 		Before,
 		After,
@@ -1449,7 +1506,9 @@ struct CssRule {
 	CssRuleProperty propertyKind;
 	CssDeclarationId declaration;
 	std::uint16_t compiledValue;
+#if GEA_CSS_ANIMATIONS
 	std::uint16_t compiledAnimationSpec;
+#endif
 	CssAtomId selectorAtom;
 	CssAtomId propertyAtom;
 	int16_t selectorTagId;
@@ -1462,8 +1521,8 @@ struct CssRule {
 };
 
 struct CssKeyframeRule {
-	CssAtomId nameAtom;
 	int offsetPermille;
+	CssAtomId nameAtom;
 	CssRuleProperty propertyKind;
 	CssDeclarationId declaration;
 	std::uint16_t compiledValue;
@@ -1535,7 +1594,9 @@ void recomputeDescendantClassStyles(int node);
 void recomputeSubtreeClassStyles(int node);
 void setStyleValue(NodeHandle node, Property property, int value, StyleApplicationSource source);
 struct ActiveRulePlan;
+#if GEA_CSS_ANIMATIONS
 void primeCssAnimationsForNode(int node, const ActiveRulePlan *activePlan = nullptr);
+#endif
 int parseOriginPart(const std::string &part, int fallback);
 
 // File-scope lazy pointer rather than a function-local static: the static-local
@@ -1646,7 +1707,9 @@ struct KeyframeRuleIndex {
 	DenseRuleBuckets byName;
 };
 
+#if GEA_CSS_ANIMATIONS
 KeyframeRuleIndex g_keyframeRuleIndex;
+#endif
 
 struct DenseIdSet {
 	std::vector<std::uint8_t> bits;
@@ -1681,15 +1744,20 @@ struct DenseIdSet {
 
 void invalidateKeyframeRuleIndex()
 {
+#if GEA_CSS_ANIMATIONS
 	g_keyframeRuleIndex.valid = false;
+#endif
 }
 
 void clearKeyframeRuleIndex()
 {
+#if GEA_CSS_ANIMATIONS
 	g_keyframeRuleIndex.byName.clear();
 	g_keyframeRuleIndex.valid = false;
+#endif
 }
 
+#if GEA_CSS_ANIMATIONS
 void rebuildKeyframeRuleIndexIfNeeded()
 {
 	if (g_keyframeRuleIndex.valid) return;
@@ -1709,6 +1777,8 @@ DenseRuleBucketSpan keyframeRuleIndicesForName(CssAtomId name)
 	rebuildKeyframeRuleIndexIfNeeded();
 	return g_keyframeRuleIndex.byName.get(name);
 }
+
+#endif
 
 std::vector<CssCompiledValue> &compiledCssValues()
 {
@@ -1764,12 +1834,12 @@ std::uint16_t storeDirectPropertyGroupCompiledValue(std::initializer_list<Static
 	int count = 0;
 	for (const StaticStylePropertyValue &entry : properties) {
 		if (count >= 4) break;
-		compiled.values[1 + count * 2] = static_cast<int>(entry.property);
-		compiled.values[2 + count * 2] = entry.value;
+		compiled.values[count * 2] = static_cast<int>(entry.property);
+		compiled.values[1 + count * 2] = entry.value;
 		count++;
 	}
 	if (count == 0) return kNoCompiledCssValue;
-	compiled.values[0] = count;
+	compiled.aux = static_cast<std::uint8_t>(count);
 	list.push_back(compiled);
 	return static_cast<std::uint16_t>(list.size() - 1);
 }
@@ -2393,13 +2463,17 @@ CssRule makeCssRule(CssRule::SelectorType selectorType,
 	const std::uint16_t compiledValue = declaration == CssDeclarationId::Custom
 	    ? compileCustomPropertyValue(value)
 	    : compileCssValue(declaration, value);
+#if GEA_CSS_ANIMATIONS
 	const std::uint16_t compiledAnimationSpec = declaration == CssDeclarationId::Animation
 	    ? compileCssAnimationSpec(value)
 	    : kNoCompiledCssAnimationSpec;
+#endif
 	const std::uint16_t mediaPlan = compileMediaConditionPlan(media);
 	const bool keepValueText =
 	    declaration == CssDeclarationId::Custom ||
+#if GEA_CSS_ANIMATIONS
 	    (declaration == CssDeclarationId::Animation && compiledAnimationSpec == kNoCompiledCssAnimationSpec) ||
+#endif
 	    (declaration != CssDeclarationId::Animation &&
 	     !compiledCssValueCanSkipRuleText(compiledValue));
 	const bool keepPropertyText =
@@ -2416,7 +2490,9 @@ CssRule makeCssRule(CssRule::SelectorType selectorType,
 	    ? storeCssRuleText(std::move(media))
 	    : kNoCssRuleText;
 	CssRule rule{selectorType, pseudoElement, rulePropertyKind(declaration), declaration, compiledValue,
+#if GEA_CSS_ANIMATIONS
 	             compiledAnimationSpec,
+#endif
 	             selectorAtom, propertyAtom, selectorTagId, selectorPlan, mediaPlan,
 	             propertyText, valueText, mediaText};
 	return rule;
@@ -2627,9 +2703,9 @@ std::uint16_t storeStaticTransformCompiledValue(std::uint16_t flags,
 	compiled.lengths[0] = cssLengthSpecForStatic(translateX);
 	compiled.lengths[1] = cssLengthSpecForStatic(translateY);
 	compiled.lengths[2] = cssLengthSpecForStatic(translateZ);
-	compiled.values[8] = scaleX;
-	compiled.values[9] = scaleY;
-	compiled.values[10] = scaleZ;
+	compiled.values[3] = scaleX;
+	compiled.values[4] = scaleY;
+	compiled.values[5] = scaleZ;
 	list.push_back(compiled);
 	return static_cast<std::uint16_t>(list.size() - 1);
 }
@@ -2754,7 +2830,9 @@ CssRule makeStaticCompiledCssRule(StaticStyleSelectorKind selectorKind,
 	             propertyKind,
 	             declaration,
 	             compiledValue,
+#if GEA_CSS_ANIMATIONS
 	             kNoCompiledCssAnimationSpec,
+#endif
 	             selectorAtom,
 	             kInvalidCssAtom,
 	             selectorTagId,
@@ -3156,7 +3234,7 @@ CssKeyframeRule makeCssKeyframeRule(CssText name, int offsetPermille, CssText pr
 	const std::uint16_t valueText = compiledCssValueCanSkipKeyframeText(compiledValue)
 	    ? kNoCssRuleText
 	    : storeCssRuleText(std::move(value));
-	CssKeyframeRule rule{nameAtom, offsetPermille, rulePropertyKind(declaration),
+	CssKeyframeRule rule{offsetPermille, nameAtom, rulePropertyKind(declaration),
 	                     declaration, compiledValue, valueText};
 	return rule;
 }
@@ -3167,8 +3245,8 @@ CssKeyframeRule makeStaticCompiledKeyframeRule(const char *name,
                                                CssDeclarationId declaration,
                                                std::uint16_t compiledValue)
 {
-	return CssKeyframeRule{internCssAtom(name ? name : ""),
-	                       offsetPermille,
+	return CssKeyframeRule{offsetPermille,
+	                       internCssAtom(name ? name : ""),
 	                       propertyKind,
 	                       declaration,
 	                       compiledValue,
@@ -3264,8 +3342,8 @@ CssKeyframeRule makeStaticTransformKeyframeRule(const char *name,
                                                 int scaleY,
                                                 int scaleZ)
 {
-	return CssKeyframeRule{internCssAtom(name ? name : ""),
-	                       offsetPermille,
+	return CssKeyframeRule{offsetPermille,
+	                       internCssAtom(name ? name : ""),
 	                       rulePropertyKind(CssDeclarationId::Transform),
 	                       CssDeclarationId::Transform,
 	                       storeStaticTransformCompiledValue(flags,
@@ -3444,7 +3522,7 @@ const NodeCustomProperty *lookupCustomPropertyEntry(int nodeId, CssAtomId name)
 
 const std::string *lookupCustomProperty(int nodeId, CssAtomId name)
 {
-	if (const NodeCustomProperty *entry = lookupCustomPropertyEntry(nodeId, name)) return &entry->value;
+	if (const NodeCustomProperty *entry = lookupCustomPropertyEntry(nodeId, name)) return entry->value.get();
 	return nullptr;
 }
 
@@ -4147,10 +4225,12 @@ void setCustomPropertyValue(NodeCustomPropertyStore &store, CssAtomId name, cons
 		               color.alpha);
 		return;
 	}
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	if (const CssLengthSpec *length = cachedCompiledCssLengthSpec(value)) {
 		store.setLength(name, value, length->value, static_cast<std::uint8_t>(length->unit));
 		return;
 	}
+#endif
 	store.set(name, value);
 }
 
@@ -4174,6 +4254,7 @@ void setCustomPropertyRuleValue(NodeCustomPropertyStore &store,
 				               static_cast<std::uint8_t>(compiled.values[2]));
 				return;
 			}
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 			if (compiled.kind == CssCompiledKind::Length) {
 				CssLengthSpec storedLength;
 				if (tryPreResolveStaticCustomLengthSpec(compiled.lengths[0], nodeId, storedLength)) {
@@ -4189,6 +4270,7 @@ void setCustomPropertyRuleValue(NodeCustomPropertyStore &store,
 				                static_cast<std::uint8_t>(compiled.lengths[0].unit));
 				return;
 			}
+#endif
 		}
 	}
 	setCustomPropertyValue(store, name, value);
@@ -5539,7 +5621,7 @@ bool lengthDependsOnInput(const CssLengthSpec &length, int nodeId, CssLengthUnit
 			if (entry->hasLength()) {
 				spec.value = entry->lengthValue;
 				spec.unit = static_cast<CssLengthUnit>(entry->lengthUnit);
-			} else if (!parseCompiledLengthSpec(entry->value, spec)) return false;
+			} else if (!parseCompiledLengthSpec(*entry->value, spec)) return false;
 			return lengthDependsOnInput(spec, nodeId, input, depth + 1);
 		}
 		return expression.hasFallback && lengthDependsOnInput(expression.a, nodeId, input, depth + 1);
@@ -5658,7 +5740,7 @@ ResolvedCssLength resolveCompiledLengthExpressionForNode(const CssLengthExpressi
 				spec.unit = static_cast<CssLengthUnit>(entry->lengthUnit);
 				return resolveCompiledLengthForNodeDetailed(spec, nodeId, axis, depth + 1);
 			}
-			return resolveCustomPropertyLengthForNode(entry->value, nodeId, axis, depth + 1);
+			return resolveCustomPropertyLengthForNode(*entry->value, nodeId, axis, depth + 1);
 		}
 		if (expression.hasFallback)
 			return resolveCompiledLengthForNodeDetailed(expression.a, nodeId, axis, depth + 1);
@@ -6802,6 +6884,7 @@ bool compileKeywordValue(CssDeclarationId declaration, const std::string &value,
 	case CssDeclarationId::AlignContent:
 		compiled.values[0] = flexAlignValue(value);
 		return compiled.values[0] >= 0;
+#if GEA_CSS_GRID
 	case CssDeclarationId::GridRowStart:
 	case CssDeclarationId::GridColumnStart:
 	case CssDeclarationId::GridRowEnd:
@@ -6812,6 +6895,7 @@ bool compileKeywordValue(CssDeclarationId declaration, const std::string &value,
 		compiled.values[0] = line;
 		return true;
 	}
+#endif
 	case CssDeclarationId::JustifySelf:
 		compiled.values[0] = justifySelfValue(value);
 		return compiled.values[0] >= -1;
@@ -6836,12 +6920,14 @@ bool compileKeywordValue(CssDeclarationId declaration, const std::string &value,
 	case CssDeclarationId::TextOverflow:
 		compiled.values[0] = textOverflowValue(value);
 		return true;
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::TransformStyle: {
 		const auto lower = toLowerAscii(trimCssValue(value));
 		if (lower != "flat" && lower != "preserve-3d") return false;
 		compiled.values[0] = lower == "preserve-3d";
 		return true;
 	}
+#endif
 	case CssDeclarationId::Visibility:
 		compiled.values[0] = visibilityValue(value);
 		return compiled.values[0] >= 0;
@@ -6876,7 +6962,7 @@ bool compileTransformLength(const std::string &value, CssLengthSpec &out)
 bool compileTransformValue(const std::string &value, CssCompiledValue &compiled)
 {
 	TransformRotationProduct rotations;
-	compiled.values[8] = compiled.values[9] = compiled.values[10] = 1000;
+	compiled.values[3] = compiled.values[4] = compiled.values[5] = 1000;
 	std::size_t i = 0;
 	bool sawTransform = false;
 	while (i < value.size()) {
@@ -6937,26 +7023,26 @@ bool compileTransformValue(const std::string &value, CssCompiledValue &compiled)
 			if (hasDynamicCssValue(arg)) return false;
 			const int sx = parseScalePermille(args.empty() ? arg : args[0]);
 			const int sy = parseScalePermille(args.size() > 1 ? args[1] : (args.empty() ? arg : args[0]));
-			compiled.values[8] = multiplyScalePermille(compiled.values[8], sx);
-			compiled.values[9] = multiplyScalePermille(compiled.values[9], sy);
+			compiled.values[3] = multiplyScalePermille(compiled.values[3], sx);
+			compiled.values[4] = multiplyScalePermille(compiled.values[4], sy);
 			compiled.flags |= (1u << 8) | (1u << 9);
 		} else if (name == "scale3d") {
 			if (hasDynamicCssValue(arg) || args.size() != 3) return false;
-			compiled.values[8] = multiplyScalePermille(compiled.values[8], parseScalePermille(args[0]));
-			compiled.values[9] = multiplyScalePermille(compiled.values[9], parseScalePermille(args[1]));
-			compiled.values[10] = multiplyScalePermille(compiled.values[10], parseScalePermille(args[2]));
+			compiled.values[3] = multiplyScalePermille(compiled.values[3], parseScalePermille(args[0]));
+			compiled.values[4] = multiplyScalePermille(compiled.values[4], parseScalePermille(args[1]));
+			compiled.values[5] = multiplyScalePermille(compiled.values[5], parseScalePermille(args[2]));
 			compiled.flags |= (1u << 8) | (1u << 9) | (1u << 13);
 		} else if (name == "scalex") {
 			if (hasDynamicCssValue(arg)) return false;
-			compiled.values[8] = multiplyScalePermille(compiled.values[8], parseScalePermille(arg));
+			compiled.values[3] = multiplyScalePermille(compiled.values[3], parseScalePermille(arg));
 			compiled.flags |= 1u << 8;
 		} else if (name == "scaley") {
 			if (hasDynamicCssValue(arg)) return false;
-			compiled.values[9] = multiplyScalePermille(compiled.values[9], parseScalePermille(arg));
+			compiled.values[4] = multiplyScalePermille(compiled.values[4], parseScalePermille(arg));
 			compiled.flags |= 1u << 9;
 		} else if (name == "scalez") {
 			if (hasDynamicCssValue(arg)) return false;
-			compiled.values[10] = multiplyScalePermille(compiled.values[10], parseScalePermille(arg));
+			compiled.values[5] = multiplyScalePermille(compiled.values[5], parseScalePermille(arg));
 			compiled.flags |= 1u << 13;
 		} else {
 			return false;
@@ -7098,9 +7184,9 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &rawVa
 		int align, justify;
 		if (!parseAlignmentShorthand(declaration, value, align, justify)) return kNoCompiledCssValue;
 		compiled.kind = CssCompiledKind::DirectPropertyGroup;
-		compiled.values[0] = 2;
-		compiled.values[1] = static_cast<int>(alignProperty); compiled.values[2] = align;
-		compiled.values[3] = static_cast<int>(justifyProperty); compiled.values[4] = justify;
+		compiled.aux = 2;
+		compiled.values[0] = static_cast<int>(alignProperty); compiled.values[1] = align;
+		compiled.values[2] = static_cast<int>(justifyProperty); compiled.values[3] = justify;
 		return storeCompiledCssValue(compiled);
 	}
 
@@ -7286,7 +7372,12 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &rawVa
 	case CssDeclarationId::BorderBottomWidth:
 	case CssDeclarationId::BorderLeftWidth:
 	case CssDeclarationId::FontSize:
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::Perspective:
+#endif
+		// All preceding length declarations share this body. Only Perspective
+		// itself is conditional; otherwise font-size/padding/min-size fall
+		// through into the unrelated LineHeight compiler when transforms are off.
 		if (isBorderWidthDeclaration(declaration) && isNegativeLengthLiteral(value)) return kNoCompiledCssValue;
 		if (!compiledCssValueFeatureEnabled(kCssCompiledFeatureLength)) return kNoCompiledCssValue;
 		if (!parseCompiledLengthSpec(value, compiled.lengths[0])) return kNoCompiledCssValue;
@@ -7298,6 +7389,7 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &rawVa
 		if (!compileLineHeightValue(value, compiled)) return kNoCompiledCssValue;
 		compiled.kind = CssCompiledKind::LineHeight;
 		return storeCompiledCssValue(compiled);
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::TransformOrigin:
 	case CssDeclarationId::PerspectiveOrigin: {
 		if (hasVar) return kNoCompiledCssValue;
@@ -7331,18 +7423,19 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &rawVa
 		std::string function;
 		if (!individualTranslateFunction(value, function)) return kNoCompiledCssValue;
 		compiled.kind = CssCompiledKind::Transform;
-		compiled.values[8] = compiled.values[9] = 1000;
+		compiled.values[3] = compiled.values[4] = 1000;
 		if (function != "none" && !compileTransformValue(function, compiled)) return kNoCompiledCssValue;
 		return storeCompiledCssValue(compiled);
 	}
 	case CssDeclarationId::Transform: {
 		if (!compiledCssValueFeatureEnabled(kCssCompiledFeatureTransform)) return kNoCompiledCssValue;
 		compiled.kind = CssCompiledKind::Transform;
-		compiled.values[8] = 1000;
-		compiled.values[9] = 1000;
+		compiled.values[3] = 1000;
+		compiled.values[4] = 1000;
 		if (!compileTransformValue(value, compiled)) return kNoCompiledCssValue;
 		return storeCompiledCssValue(compiled);
 	}
+#endif
 	case CssDeclarationId::Filter:
 		if (hasVar && toLowerAscii(value).find("blur(") == std::string::npos) return kNoCompiledCssValue;
 		if (!compiledCssValueFeatureEnabled(kCssCompiledFeatureEffects)) return kNoCompiledCssValue;
@@ -7360,6 +7453,7 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &rawVa
 		if (!compileBoxShadowValue(value, compiled)) return kNoCompiledCssValue;
 		compiled.kind = CssCompiledKind::BoxShadow;
 		return storeCompiledCssValue(compiled);
+#if GEA_CSS_GRID
 	case CssDeclarationId::GridTemplateColumns:
 	case CssDeclarationId::GridTemplateRows:
 		if (hasVar) return kNoCompiledCssValue;
@@ -7367,6 +7461,7 @@ std::uint16_t compileCssValue(CssDeclarationId declaration, const CssText &rawVa
 		if (!compileGridTemplateValue(value, compiled)) return kNoCompiledCssValue;
 		compiled.kind = CssCompiledKind::GridTemplate;
 		return storeCompiledCssValue(compiled);
+#endif
 	default:
 		return kNoCompiledCssValue;
 	}
@@ -7391,6 +7486,7 @@ void markDisplayListDirtyForStyleApply()
 
 void applyCompiledGridTemplateValue(NodeHandle node, const CssCompiledGridTemplate &grid, bool columns)
 {
+#if GEA_CSS_GRID
 	if (!node) return;
 	const int nodeId = node.id();
 	Node &target = treeState().nodes[nodeId];
@@ -7414,8 +7510,11 @@ void applyCompiledGridTemplateValue(NodeHandle node, const CssCompiledGridTempla
 	count = static_cast<std::int8_t>(trackCount);
 	target.render.dirty = 1;
 	target.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	target.render.non_scroll_dirty = 1;
+#endif
 	markDisplayListDirtyForStyleApply();
+#endif
 }
 
 int g_resolvedFontNode = -1;
@@ -7452,60 +7551,124 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 		style.flex_direction_explicit = 1;
 		style.flex_direction = value;
 		return true;
+#if GEA_CSS_FLEX_WRAP
 	case Property::FlexWrap: style.flex_wrap = value; return true;
+#endif
+#if GEA_CSS_FLEX_LINE_COUNT
 	case Property::FlexLineCount: rstyleMut(style).flex_line_count = value; return true;
+#endif
+#if GEA_CSS_BACKGROUND_LAYERS
 	case Property::BackgroundClip: rstyleMut(style).bg_clip = value; return true;
 	case Property::BackgroundSizeList: rstyleMut(style).bg_size_list = value; return true;
 	case Property::BackgroundPositionList: rstyleMut(style).bg_position_list = value; return true;
 	case Property::BackgroundRepeatList: rstyleMut(style).bg_repeat_list = value; return true;
 	case Property::BackgroundAttachmentList: rstyleMut(style).bg_attachment_list = value; return true;
 	case Property::BackgroundOriginList: rstyleMut(style).bg_origin_list = value; return true;
+#endif
 
+#if GEA_CSS_CONTAINMENT
 	case Property::Containment: rstyleMut(style).containment = value; return true;
+#endif
 	case Property::JustifyContent: style.justify_content = value; return true;
 	case Property::AlignItems: style.align_items = value; return true;
+#if GEA_CSS_JUSTIFY_ITEMS
 	case Property::JustifyItems: style.justify_items = value; return true;
+#endif
+#if GEA_CSS_ALIGN_CONTENT
 	case Property::AlignContent: style.align_content = value; return true;
+#endif
+#if GEA_CSS_ALIGN_SELF
 	case Property::AlignSelf: style.align_self = value; return true;
+#endif
+#if GEA_CSS_JUSTIFY_SELF
 	case Property::JustifySelf: rstyleMut(style).justify_self = value; return true;
+#endif
+#if GEA_CSS_GRID
 	case Property::GridRowStart: rstyleMut(style).grid_line[0] = value; return true;
 	case Property::GridColumnStart: rstyleMut(style).grid_line[1] = value; return true;
 	case Property::GridRowEnd: rstyleMut(style).grid_line[2] = value; return true;
 	case Property::GridColumnEnd: rstyleMut(style).grid_line[3] = value; return true;
+#endif
 	case Property::BoxSizing: style.box_sizing = value; return true;
+#if GEA_CSS_FLOATS
 	case Property::Float: style.float_side = value; return true;
+#endif
+#if GEA_CSS_ASPECT_RATIO
 	case Property::AspectRatio: rstyleMut(style).aspect_ratio = value; return true;
+#endif
+#if GEA_CSS_MARGIN_TRIM
 	case Property::MarginTrim: rstyleMut(style).margin_trim = value; return true;
+#endif
+#if GEA_CSS_FLOATS
 	case Property::Clear: style.clear_side = value; return true;
+#endif
+#if GEA_CSS_WRITING_MODE
 	case Property::WritingMode: style.writing_mode = value; return true;
 	case Property::Direction: style.direction = value; return true;
+#endif
+#if GEA_CSS_AXIS_GAP
 	case Property::RowGap: style.row_gap = value; return true;
+#endif
+#if GEA_CSS_AXIS_GAP
 	case Property::ColumnGap: style.column_gap = value; return true;
+#endif
+#if GEA_CSS_PERCENT_GAP
 	case Property::RowGapPercent: style.row_gap_percent = value; return true;
 	case Property::ColumnGapPercent: style.column_gap_percent = value; return true;
+#endif
 	case Property::MarginTopAuto: style.margin_auto = (style.margin_auto & ~1) | (value ? 1 : 0); return true;
 	case Property::MarginRightAuto: style.margin_auto = (style.margin_auto & ~2) | (value ? 2 : 0); return true;
 	case Property::MarginBottomAuto: style.margin_auto = (style.margin_auto & ~4) | (value ? 4 : 0); return true;
 	case Property::MarginLeftAuto: style.margin_auto = (style.margin_auto & ~8) | (value ? 8 : 0); return true;
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginTopExpression: rstyleMut(style).margin_expression[0] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginRightExpression: rstyleMut(style).margin_expression[1] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginBottomExpression: rstyleMut(style).margin_expression[2] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::MarginLeftExpression: rstyleMut(style).margin_expression[3] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingTopExpression: rstyleMut(style).padding_expression[0] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingRightExpression: rstyleMut(style).padding_expression[1] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingBottomExpression: rstyleMut(style).padding_expression[2] = value; return true;
+#endif
+#if GEA_CSS_BOX_EXPRESSIONS
 	case Property::PaddingLeftExpression: rstyleMut(style).padding_expression[3] = value; return true;
+#endif
 	case Property::WidthExpression: style.width_expression = value; style.width = style.width_percent = kUnset; return true;
+#if GEA_CSS_HEIGHT_EXPRESSIONS
 	case Property::HeightExpression: style.height_expression = value; style.height = style.height_percent = kUnset; return true;
+#endif
+#if GEA_CSS_ORDER
 	case Property::Order: style.order = value; return true;
-	case Property::Gap: style.gap = value; style.row_gap = style.column_gap = style.row_gap_percent = style.column_gap_percent = kUnset; return true;
+#endif
+	case Property::Gap:
+		style.gap = value;
+#if GEA_CSS_AXIS_GAP
+	style.row_gap = style.column_gap = kUnset;
+#endif
+#if GEA_CSS_PERCENT_GAP
+		style.row_gap_percent = style.column_gap_percent = kUnset;
+#endif
+		return true;
 	case Property::Width:
 		style.width_expression = -1;
 		style.width = value;
 		style.width_percent = kUnset;
 		return true;
 	case Property::Height:
+#if GEA_CSS_HEIGHT_EXPRESSIONS
 		style.height_expression = -1;
+#endif
 		style.height = value;
 		style.height_percent = kUnset;
 		return true;
@@ -7515,66 +7678,165 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 		style.width = kUnset;
 		return true;
 	case Property::HeightPercent:
+#if GEA_CSS_HEIGHT_EXPRESSIONS
 		style.height_expression = -1;
+#endif
 		style.height_percent = value;
 		style.height = kUnset;
 		return true;
+#if GEA_CSS_MIN_WIDTH
 	case Property::MinWidth: style.min_width = value; return true;
+#endif
 	case Property::MinHeight: style.min_height = value; return true;
 	case Property::MaxWidth: style.max_width = value; return true;
+#if GEA_CSS_MAX_HEIGHT
 	case Property::MaxHeight: style.max_height = value; return true;
+#endif
 	case Property::Flex: style.flex = value; return true;
 	case Property::FlexShrink: style.flex_shrink = value; return true;
 	case Property::FlexBasis:
+#if GEA_CSS_FLEX_BASIS_EXPRESSIONS
 		if (rstyle(style).flex_basis_expression >= 0) rstyleMut(style).flex_basis_expression = -1;
-		style.flex_basis = value; return true;
+#endif
+#if GEA_CSS_FLEX_BASIS
+		style.flex_basis = value;
+#endif
+		return true;
+#if GEA_CSS_FLEX_BASIS_EXPRESSIONS
 	case Property::FlexBasisExpression:
-		rstyleMut(style).flex_basis_expression = value; style.flex_basis = kUnset; return true;
-	case Property::PaddingTop: if (rstyle(style).padding_expression[0] >= 0) rstyleMut(style).padding_expression[0] = -1; style.padding[0] = value; return true;
-	case Property::PaddingRight: if (rstyle(style).padding_expression[1] >= 0) rstyleMut(style).padding_expression[1] = -1; style.padding[1] = value; return true;
-	case Property::PaddingBottom: if (rstyle(style).padding_expression[2] >= 0) rstyleMut(style).padding_expression[2] = -1; style.padding[2] = value; return true;
-	case Property::PaddingLeft: if (rstyle(style).padding_expression[3] >= 0) rstyleMut(style).padding_expression[3] = -1; style.padding[3] = value; return true;
-	case Property::MarginTop: if (rstyle(style).margin_expression[0] >= 0) rstyleMut(style).margin_expression[0] = -1; style.margin_auto &= ~1; style.margin[0] = value; return true;
-	case Property::MarginRight: if (rstyle(style).margin_expression[1] >= 0) rstyleMut(style).margin_expression[1] = -1; style.margin_auto &= ~2; style.margin[1] = value; return true;
-	case Property::MarginBottom: if (rstyle(style).margin_expression[2] >= 0) rstyleMut(style).margin_expression[2] = -1; style.margin_auto &= ~4; style.margin[2] = value; return true;
-	case Property::MarginLeft: if (rstyle(style).margin_expression[3] >= 0) rstyleMut(style).margin_expression[3] = -1; style.margin_auto &= ~8; style.margin[3] = value; return true;
+		rstyleMut(style).flex_basis_expression = value;
+#if GEA_CSS_FLEX_BASIS
+		style.flex_basis = kUnset;
+#endif
+		return true;
+#endif
+	case Property::PaddingTop:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).padding_expression[0] >= 0) rstyleMut(style).padding_expression[0] = -1;
+#endif
+		style.padding[0] = value; return true;
+	case Property::PaddingRight:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).padding_expression[1] >= 0) rstyleMut(style).padding_expression[1] = -1;
+#endif
+		style.padding[1] = value; return true;
+	case Property::PaddingBottom:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).padding_expression[2] >= 0) rstyleMut(style).padding_expression[2] = -1;
+#endif
+		style.padding[2] = value; return true;
+	case Property::PaddingLeft:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).padding_expression[3] >= 0) rstyleMut(style).padding_expression[3] = -1;
+#endif
+		style.padding[3] = value; return true;
+	case Property::MarginTop:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).margin_expression[0] >= 0) rstyleMut(style).margin_expression[0] = -1;
+#endif
+		style.margin_auto &= ~1; style.margin[0] = value; return true;
+	case Property::MarginRight:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).margin_expression[1] >= 0) rstyleMut(style).margin_expression[1] = -1;
+#endif
+		style.margin_auto &= ~2; style.margin[1] = value; return true;
+	case Property::MarginBottom:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).margin_expression[2] >= 0) rstyleMut(style).margin_expression[2] = -1;
+#endif
+		style.margin_auto &= ~4; style.margin[2] = value; return true;
+	case Property::MarginLeft:
+#if GEA_CSS_BOX_EXPRESSIONS
+		if (rstyle(style).margin_expression[3] >= 0) rstyleMut(style).margin_expression[3] = -1;
+#endif
+		style.margin_auto &= ~8; style.margin[3] = value; return true;
 	case Property::Position: if (value == kPositionFixed) treeState().fixedPositionUsed = true; style.position = value; return true;
 	case Property::Top:
-		style.pos_offsets[0] = value;
-		style.pos_offset_percent[0] = kUnset;
+#if GEA_CSS_POSITION_TOP
+		GEA_CSS_POSITION_PX_0(style) = value;
+#if GEA_CSS_POSITION_TOP_PERCENT
+		GEA_CSS_POSITION_PERCENT_0(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::Right:
-		style.pos_offsets[1] = value;
-		style.pos_offset_percent[1] = kUnset;
+#if GEA_CSS_POSITION_RIGHT
+		GEA_CSS_POSITION_PX_1(style) = value;
+#if GEA_CSS_POSITION_RIGHT_PERCENT
+		GEA_CSS_POSITION_PERCENT_1(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::Bottom:
-		style.pos_offsets[2] = value;
-		style.pos_offset_percent[2] = kUnset;
+#if GEA_CSS_POSITION_BOTTOM
+		GEA_CSS_POSITION_PX_2(style) = value;
+#if GEA_CSS_POSITION_BOTTOM_PERCENT
+		GEA_CSS_POSITION_PERCENT_2(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::Left:
-		style.pos_offsets[3] = value;
-		style.pos_offset_percent[3] = kUnset;
+#if GEA_CSS_POSITION_LEFT
+		GEA_CSS_POSITION_PX_3(style) = value;
+#if GEA_CSS_POSITION_LEFT_PERCENT
+		GEA_CSS_POSITION_PERCENT_3(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::TopPercent:
-		style.pos_offset_percent[0] = value;
-		style.pos_offsets[0] = kUnset;
+#if GEA_CSS_POSITION_TOP_PERCENT
+		GEA_CSS_POSITION_PERCENT_0(style) = value;
+#if GEA_CSS_POSITION_TOP
+		GEA_CSS_POSITION_PX_0(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::RightPercent:
-		style.pos_offset_percent[1] = value;
-		style.pos_offsets[1] = kUnset;
+#if GEA_CSS_POSITION_RIGHT_PERCENT
+		GEA_CSS_POSITION_PERCENT_1(style) = value;
+#if GEA_CSS_POSITION_RIGHT
+		GEA_CSS_POSITION_PX_1(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::BottomPercent:
-		style.pos_offset_percent[2] = value;
-		style.pos_offsets[2] = kUnset;
+#if GEA_CSS_POSITION_BOTTOM_PERCENT
+		GEA_CSS_POSITION_PERCENT_2(style) = value;
+#if GEA_CSS_POSITION_BOTTOM
+		GEA_CSS_POSITION_PX_2(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
 	case Property::LeftPercent:
-		style.pos_offset_percent[3] = value;
-		style.pos_offsets[3] = kUnset;
+#if GEA_CSS_POSITION_LEFT_PERCENT
+		GEA_CSS_POSITION_PERCENT_3(style) = value;
+#if GEA_CSS_POSITION_LEFT
+		GEA_CSS_POSITION_PX_3(style) = kUnset;
+#endif
 		return true;
+#else
+		return false;
+#endif
+#if GEA_CSS_Z_INDEX
 	case Property::ZIndex:
 		style.z_index_auto = value == kZIndexAuto;
 		style.z_index = style.z_index_auto ? 0 : std::clamp(value, -32768, 32767);
 		return true;
+#endif
 	case Property::BackgroundColor: {
 		style.bg_color = StyleValues::pixelFromStyleValue(value);
 		style.bg_alpha = 255;
@@ -7591,33 +7853,52 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 	case Property::HasActiveBackground: style.has_active_bg = value; return true;
 	case Property::Color:
 		style.text_color = StyleValues::pixelFromStyleValue(value);
+#if GEA_CSS_TEXT_ALPHA
 		style.text_alpha = 255;
+#endif
 		return true;
+#if GEA_CSS_OPACITY
 	case Property::Opacity:
 		style.opacity = static_cast<std::uint8_t>(value < 0 ? 0 : value > 255 ? 255 : value);
 		return true;
-	case Property::ColorAlpha: style.text_alpha = static_cast<std::uint8_t>(std::clamp(value, 0, 255)); return true;
-	case Property::BorderAlpha: style.border_alpha = static_cast<std::uint8_t>(std::clamp(value, 0, 255)); return true;
+#endif
+	case Property::ColorAlpha:
+#if GEA_CSS_TEXT_ALPHA
+		style.text_alpha = static_cast<std::uint8_t>(std::clamp(value, 0, 255));
+#endif
+		return true;
+	case Property::BorderAlpha:
+#if GEA_CSS_BORDER_ALPHA
+		style.border_alpha = static_cast<std::uint8_t>(std::clamp(value, 0, 255));
+#endif
+		return true;
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderTopAlpha:
 	case Property::BorderRightAlpha:
 	case Property::BorderBottomAlpha:
 	case Property::BorderLeftAlpha:
 		rstyleMut(style).border_side_alpha[static_cast<int>(property) - static_cast<int>(Property::BorderTopAlpha)] = static_cast<std::uint8_t>(std::clamp(value, 0, 255));
 		return true;
+#endif
 	case Property::BorderColorCurrent: setBorderColorBinding(style, -1, value != 0); return true;
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderTopColorCurrent:
 	case Property::BorderRightColorCurrent:
 	case Property::BorderBottomColorCurrent:
 	case Property::BorderLeftColorCurrent:
 		setBorderColorBinding(style, static_cast<int>(property) - static_cast<int>(Property::BorderTopColorCurrent), value != 0);
 		return true;
+#endif
 	case Property::BorderWidth:
 		setComputedBorderWidth(style, -1, value, target.parent >= 0 ? &treeState().nodes[target.parent].style : nullptr); return true;
 	case Property::BorderColor:
 		setBorderColorBinding(style, -1, false);
 		style.border_color = StyleValues::pixelFromStyleValue(value);
+#if GEA_CSS_BORDER_ALPHA
 		style.border_alpha = 255;
+#endif
 		return true;
+#if GEA_CSS_BORDER_RELIEF
 	case Property::BorderTopRelief:
 	case Property::BorderRightRelief:
 	case Property::BorderBottomRelief:
@@ -7630,6 +7911,8 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 		if (value == 0 && !hasBorderRelief(style)) return true;
 		for (int side = 0; side < 4; ++side) rstyleMut(style).border_relief[side] = static_cast<uint8_t>(value);
 		return true;
+#endif
+#if GEA_CSS_SIDE_BORDERS
 	case Property::BorderTopWidth: setComputedBorderWidth(style, 0, value, target.parent >= 0 ? &treeState().nodes[target.parent].style : nullptr); return true;
 	case Property::BorderRightWidth: setComputedBorderWidth(style, 1, value, target.parent >= 0 ? &treeState().nodes[target.parent].style : nullptr); return true;
 	case Property::BorderBottomWidth: setComputedBorderWidth(style, 2, value, target.parent >= 0 ? &treeState().nodes[target.parent].style : nullptr); return true;
@@ -7654,62 +7937,92 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 		rstyleMut(style).border_side_color[3] = StyleValues::pixelFromStyleValue(value);
 		rstyleMut(style).border_side_alpha[3] = 255;
 		return true;
+#endif
 	case Property::BorderRadiusTopLeft:
-		style.border_radius[0] = value;
-		style.border_radius_percent[0] = kUnset;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(0)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(0)] = kUnset;
+#endif
 		return true;
 	case Property::BorderRadiusTopRight:
-		style.border_radius[1] = value;
-		style.border_radius_percent[1] = kUnset;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(1)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(1)] = kUnset;
+#endif
 		return true;
 	case Property::BorderRadiusBottomRight:
-		style.border_radius[2] = value;
-		style.border_radius_percent[2] = kUnset;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(2)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(2)] = kUnset;
+#endif
 		return true;
 	case Property::BorderRadiusBottomLeft:
-		style.border_radius[3] = value;
-		style.border_radius_percent[3] = kUnset;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(3)] = value;
+#if GEA_CSS_PERCENT_RADIUS
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(3)] = kUnset;
+#endif
 		return true;
+#if GEA_CSS_PERCENT_RADIUS
 	case Property::BorderRadiusTopLeftPercent:
-		style.border_radius_percent[0] = value;
-		style.border_radius[0] = 0;
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(0)] = value;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(0)] = 0;
 		return true;
 	case Property::BorderRadiusTopRightPercent:
-		style.border_radius_percent[1] = value;
-		style.border_radius[1] = 0;
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(1)] = value;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(1)] = 0;
 		return true;
 	case Property::BorderRadiusBottomRightPercent:
-		style.border_radius_percent[2] = value;
-		style.border_radius[2] = 0;
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(2)] = value;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(2)] = 0;
 		return true;
 	case Property::BorderRadiusBottomLeftPercent:
-		style.border_radius_percent[3] = value;
-		style.border_radius[3] = 0;
+		style.border_radius_percent[GEA_CSS_RADIUS_INDEX(3)] = value;
+		style.border_radius[GEA_CSS_RADIUS_INDEX(3)] = 0;
 		return true;
+#endif
 	case Property::FontId: style.font_id = value; return true;
 	case Property::FontSize: style.font_size = value; return true;
 	case Property::FontWeight: style.font_weight = value; return true;
 	case Property::LineHeight:
 		if (style.line_height_multiplier >= 0) style.line_height_multiplier = -1;
+#if GEA_CSS_LINE_HEIGHT_EXPRESSIONS
 		if (rstyle(style).line_height_expression >= 0) rstyleMut(style).line_height_expression = -1;
+#endif
 		style.line_height = value; return true;
+#if GEA_CSS_LINE_HEIGHT_EXPRESSIONS
 	case Property::LineHeightExpression:
 		if (style.line_height_multiplier >= 0) style.line_height_multiplier = -1;
 		rstyleMut(style).line_height_expression = value;
 		style.line_height = resolveLineHeightExpression(static_cast<int>(&target - treeState().nodes), value); return true;
+#endif
 	case Property::LineHeightMultiplier:
 		style.line_height_multiplier = value;
+#if GEA_CSS_LINE_HEIGHT_EXPRESSIONS
 		if (rstyle(style).line_height_expression >= 0) rstyleMut(style).line_height_expression = -1;
+#endif
 		style.line_height = resolveLineHeightMultiplier(static_cast<int>(&target - treeState().nodes), value); return true;
 	case Property::TextAlign: style.text_align = value; return true;
+#if GEA_CSS_TEXT_DECORATION
 	case Property::TextDecoration: style.text_decoration = value; return true;
+#endif
+#if GEA_CSS_TEXT_TRANSFORM
 	case Property::TextTransform: style.text_transform = value; return true;
+#endif
 	case Property::WhiteSpace: style.white_space = static_cast<std::int8_t>(value); return true;
 	case Property::TextOverflow: style.text_overflow = static_cast<std::int8_t>(value); return true;
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformStyle: rstyleMut(style).transform_preserve_3d = value != 0; return true;
+#endif
+#if GEA_CSS_VISIBILITY
 	case Property::Visibility: style.visibility = static_cast<std::int8_t>(value); return true;
+#endif
+#if GEA_CSS_TRANSFORMS
 	case Property::Backface: style.backface_hidden = static_cast<std::int8_t>(value); return true;
+#endif
+#if GEA_CSS_POINTER_EVENTS
 	case Property::PointerEvents: style.pointer_events = static_cast<std::int8_t>(value); return true;
+#endif
+#if GEA_CSS_OVERFLOW_AXES
 	case Property::Overflow: {
 		const auto next = static_cast<std::int8_t>(value);
 		style.overflow = next;
@@ -7729,11 +8042,24 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 		style.overflow = aggregateOverflow(style.overflow_x, next);
 		return true;
 	}
+#else
+	case Property::Overflow:
+	case Property::OverflowX:
+	case Property::OverflowY:
+		style.overflow = static_cast<std::int8_t>(value); return true;
+#endif
+#if GEA_CSS_MASK
 	case Property::MaskRightFadeWidth:
 		style.mask_right_fade_width = static_cast<std::int16_t>(value < 0 ? 0 : value > 32767 ? 32767 : value);
 		return true;
+#endif
+#if GEA_UI_IMAGE_NODES
 	case Property::ImageId: target.image_id = value; return true;
+#endif
+#if GEA_CSS_IMAGE_FIT
 	case Property::ImageFit: style.image_fit = value; return true;
+#endif
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformTranslateOuterAxes: rstyleMut(style).transform_translate_outer_axes = value; return true;
 	case Property::RotateAngle: rstyleMut(style).rotate_angle = value; return true;
 	case Property::RotateAxisX: rstyleMut(style).rotate_axis_x = value; return true;
@@ -7751,7 +8077,11 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 	case Property::TransformPresent: rstyleMut(style).transform_present = value != 0; return true;
 	case Property::RotatePresent: rstyleMut(style).rotate_present = value != 0; return true;
 	case Property::ScalePresent: rstyleMut(style).scale_present = value != 0; return true;
+#endif
+#if GEA_CSS_FILTERS
 	case Property::FilterPresent: rstyleMut(style).filter_present = value != 0; return true;
+#endif
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformRotate: rstyleMut(style).transform_rotate = value; return true;
 	case Property::TransformRotateX: rstyleMut(style).transform_rotate_x = value; return true;
 	case Property::TransformRotateY: rstyleMut(style).transform_rotate_y = value; return true;
@@ -7768,20 +8098,37 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 	case Property::Perspective: rstyleMut(style).perspective = value; return true;
 	case Property::PerspectiveOriginX: rstyleMut(style).perspective_origin_x = value; return true;
 	case Property::PerspectiveOriginY: rstyleMut(style).perspective_origin_y = value; return true;
+#endif
+#if GEA_CSS_FILTERS
 	case Property::FilterBlur: rstyleMut(style).filter_blur_radius = value; return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowInset:
 		rstyleMut(style).box_shadow_inset = value != 0 ? 1 : 0;
 		return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowOffsetX: rstyleMut(style).box_shadow_offset_x = value; return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowOffsetY: rstyleMut(style).box_shadow_offset_y = value; return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowBlur: rstyleMut(style).box_shadow_blur_radius = value; return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowSpread: rstyleMut(style).box_shadow_spread = value; return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowColor:
 		rstyleMut(style).box_shadow_color = StyleValues::pixelFromStyleValue(value);
 		return true;
+#endif
+#if GEA_CSS_BOX_SHADOW
 	case Property::BoxShadowAlpha:
 		rstyleMut(style).box_shadow_alpha = static_cast<std::uint8_t>(value < 0 ? 0 : value > 255 ? 255 : value);
 		return true;
+#endif
 	default:
 		return false;
 	}
@@ -7978,9 +8325,11 @@ void setMarginBox(NodeHandle node, const BoxLengths &box, StyleApplicationSource
 void setAllBorderRadius(NodeHandle node, int value, StyleApplicationSource source)
 {
 	setStyleValue(node, Property::BorderRadiusTopLeft, value, source);
+#if GEA_CSS_CORNER_RADIUS
 	setStyleValue(node, Property::BorderRadiusTopRight, value, source);
 	setStyleValue(node, Property::BorderRadiusBottomRight, value, source);
 	setStyleValue(node, Property::BorderRadiusBottomLeft, value, source);
+#endif
 }
 
 Property borderRadiusLengthProperty(int corner)
@@ -8022,13 +8371,15 @@ void applyBorderRadiusValue(NodeHandle node, const std::string &value, StyleAppl
 	const auto parts = splitWords(axes.empty() ? value : axes[0]);
 	if (parts.empty()) return;
 	const std::string &tl = parts[0];
+	setBorderRadiusCornerValue(node, 0, tl, source);
+#if GEA_CSS_CORNER_RADIUS
 	const std::string &tr = parts.size() > 1 ? parts[1] : tl;
 	const std::string &br = parts.size() > 2 ? parts[2] : tl;
 	const std::string &bl = parts.size() > 3 ? parts[3] : tr;
-	setBorderRadiusCornerValue(node, 0, tl, source);
 	setBorderRadiusCornerValue(node, 1, tr, source);
 	setBorderRadiusCornerValue(node, 2, br, source);
 	setBorderRadiusCornerValue(node, 3, bl, source);
+#endif
 }
 
 void setIndividualRotation(NodeHandle node, const IndividualRotation &r, bool present, StyleApplicationSource source)
@@ -8084,6 +8435,7 @@ void setTransformComponents(NodeHandle node, const TransformComponents &t, Style
 
 bool applyTransformComponentsFast(NodeHandle node, const TransformComponents &t, StyleApplicationSource source)
 {
+#if GEA_CSS_TRANSFORMS
 	setStyleValue(node, Property::TransformTranslateOuterAxes, t.translateOuterAxes, source);
 	setStyleValue(node, Property::TransformPresent, t.hasRotateX || t.hasRotateY || t.hasRotateZ || t.hasTranslateX || t.hasTranslateY || t.hasTranslateZ || t.hasScaleX || t.hasScaleY || t.hasScaleZ, source);
 	{
@@ -8135,16 +8487,27 @@ bool applyTransformComponentsFast(NodeHandle node, const TransformComponents &t,
 	if (!nodeParticipatesInMountedTree(state, nodeId)) return true;
 	target.render.dirty = 1;
 	if (state.fixedPositionUsed) target.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	target.render.non_scroll_dirty = 1;
+#endif
+#if GEA_CSS_TRANSFORMS
 	target.render.transform_dirty = 1;
+#endif
+
+#if GEA_CSS_TRANSFORMS
 	state.transformScanSerial = ~0ull;
 	state.transformScanValid = false;
+#endif
 	Tree::instance().markNodeDisplayCommandsDirty(nodeId);
 	return true;
+#else
+	return false;
+#endif
 }
 
 bool applyTransformSlotsFast(NodeHandle node, const std::int16_t *slots, StyleApplicationSource source)
 {
+#if GEA_CSS_TRANSFORMS
 	{
 		static const bool gTraceCube = std::getenv("GEA_DEBUG_CUBE") != nullptr;
 		if (gTraceCube)
@@ -8186,12 +8549,22 @@ bool applyTransformSlotsFast(NodeHandle node, const std::int16_t *slots, StyleAp
 	if (!nodeParticipatesInMountedTree(state, nodeId)) return true;
 	target.render.dirty = 1;
 	if (state.fixedPositionUsed) target.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	target.render.non_scroll_dirty = 1;
+#endif
+#if GEA_CSS_TRANSFORMS
 	target.render.transform_dirty = 1;
+#endif
+
+#if GEA_CSS_TRANSFORMS
 	state.transformScanSerial = ~0ull;
 	state.transformScanValid = false;
+#endif
 	Tree::instance().markNodeDisplayCommandsDirty(nodeId);
 	return true;
+#else
+	return false;
+#endif
 }
 
 Property borderSideWidthProperty(int side);
@@ -8231,7 +8604,9 @@ void applyBorderShorthand(NodeHandle node, const std::string &value, StyleApplic
 			const ParsedCssColor color = parseCssColor(part);
 			setStyleValue(node, Property::BorderColor, color.valid ? cssColorStyleValue(color) : parseColorStyleValue(value), source);
 			if (color.valid) {
+#if GEA_CSS_BORDER_ALPHA
 				setStyleValue(node, Property::BorderAlpha, color.a, source);
+#endif
 				markNodeDisplayCommandsDirtyForStyleApply(node.id());
 			}
 			return;
@@ -8360,8 +8735,10 @@ void applyBackgroundSizeValue(NodeHandle node, const std::string &value)
 	if (parts.empty()) return;
 	const int stepX = parseLengthForNode(parts[0], node.id(), LengthAxis::Horizontal);
 	const int stepY = parseLengthForNode(parts.size() > 1 ? parts[1] : parts[0], node.id(), LengthAxis::Vertical);
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	if (stepX > 0) rstyleMut(target.style).bg_grid_step_x = static_cast<uint16_t>(std::min(stepX, 65535));
 	if (stepY > 0) rstyleMut(target.style).bg_grid_step_y = static_cast<uint16_t>(std::min(stepY, 65535));
+#endif
 	markNodeDisplayCommandsDirtyForStyleApply(node.id());
 }
 
@@ -8370,7 +8747,9 @@ void applyTextColorValue(NodeHandle node, const std::string &value, StyleApplica
 	if (!node) return;
 	const ParsedCssColor color = parseCssColor(firstColorToken(value));
 	setStyleValue(node, Property::Color, color.valid ? cssColorStyleValue(color) : parseColorStyleValue(value), source);
+#if GEA_CSS_TEXT_ALPHA
 	setStyleValue(node, Property::ColorAlpha, color.valid ? color.a : 255, source);
+#endif
 	markNodeDisplayCommandsDirtyForStyleApply(node.id());
 }
 
@@ -8383,13 +8762,16 @@ void applyBorderColorValue(NodeHandle node, const std::string &value, StyleAppli
 	}
 	const ParsedCssColor color = parseCssColor(firstColorToken(value));
 	setStyleValue(node, Property::BorderColor, color.valid ? cssColorStyleValue(color) : parseColorStyleValue(value), source);
+#if GEA_CSS_BORDER_ALPHA
 	setStyleValue(node, Property::BorderAlpha, color.valid ? color.a : 255, source);
+#endif
 	markNodeDisplayCommandsDirtyForStyleApply(node.id());
 }
 
 int16_t *animatedTransformSlot(RareStyle &rs, Property property)
 {
 	switch (property) {
+#if GEA_CSS_TRANSFORMS
 	case Property::RotateAngle: return &rs.rotate_angle;
 	case Property::ScaleX: return &rs.scale_x;
 	case Property::ScaleY: return &rs.scale_y;
@@ -8410,6 +8792,7 @@ int16_t *animatedTransformSlot(RareStyle &rs, Property property)
 	case Property::TransformScaleX: return &rs.transform_scale_x;
 	case Property::TransformScaleY: return &rs.transform_scale_y;
 	case Property::TransformScaleZ: return &rs.transform_scale_z;
+#endif
 	default: return nullptr;
 	}
 }
@@ -8429,10 +8812,17 @@ bool applyAnimatedTransformStyleValueFast(int nodeId, Property property, int val
 	if (!nodeParticipatesInMountedTree(state, nodeId)) return true;
 	target.render.dirty = 1;
 	if (state.fixedPositionUsed) target.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 	target.render.non_scroll_dirty = 1;
+#endif
+#if GEA_CSS_TRANSFORMS
 	target.render.transform_dirty = 1;
+#endif
+
+#if GEA_CSS_TRANSFORMS
 	state.transformScanSerial = ~0ull;
 	state.transformScanValid = false;
+#endif
 	Tree::instance().markNodeDisplayCommandsDirty(nodeId);
 	return true;
 }
@@ -8479,6 +8869,7 @@ int resolveLayoutFlexBasis(int nodeId, int percentageBasis, bool horizontal)
 
 bool resolveLayoutBoxLengths(int nodeId, int percentageBasis)
 {
+#if GEA_CSS_BOX_EXPRESSIONS
 	auto &node = treeState().nodes[nodeId];
 #if !GEA_EMBEDDED_RARE_STYLE_INLINE
 	if (node.style.rare_style < 0) return false;
@@ -8493,12 +8884,22 @@ bool resolveLayoutBoxLengths(int nodeId, int percentageBasis)
 			if (expression < 0) continue;
 			const int raw = resolveLayoutSizeExpression(nodeId, expression, true);
 			const int value = std::max(padding ? 0 : -32768, std::min(32767, raw));
-			auto &target = padding ? node.style.padding[side] : node.style.margin[side];
-			if (target != value) { target = static_cast<int16_t>(value); changed = true; }
+			// Padding can have a proven unsigned byte range while margin remains
+			// signed. Keep writes typed; the existing side choice already branches.
+			if (padding) {
+				if (node.style.padding[side] != value) { node.style.padding[side] = value; changed = true; }
+			} else if (node.style.margin[side] != value) {
+				node.style.margin[side] = static_cast<int16_t>(value); changed = true;
+			}
 		}
 	}
 	g_boxPercentageBasis = previous;
 	return changed;
+#else
+	(void)nodeId;
+	(void)percentageBasis;
+	return false;
+#endif
 }
 
 
@@ -8563,7 +8964,9 @@ void applyInheritedStyleDefaults(int node)
 	const auto &parentStyle = state.nodes[parent].style;
 	auto &style = state.nodes[node].style;
 	style.text_color = parentStyle.text_color;
+#if GEA_CSS_TEXT_ALPHA
 	style.text_alpha = parentStyle.text_alpha;
+#endif
 	style.font_id = parentStyle.font_id;
 	style.font_size = parentStyle.font_size;
 	style.font_weight = parentStyle.font_weight;
@@ -8571,9 +8974,13 @@ void applyInheritedStyleDefaults(int node)
 	if (parentStyle.line_height_multiplier >= 0)
 		style.line_height_multiplier = parentStyle.line_height_multiplier;
 	style.text_align = parentStyle.text_align;
+#if GEA_CSS_TEXT_TRANSFORM
 	style.text_transform = parentStyle.text_transform;
+#endif
 	style.white_space = parentStyle.white_space;
+#if GEA_CSS_VISIBILITY
 	style.visibility = parentStyle.visibility;
+#endif
 }
 
 bool applyNumberDeclarationWithSource(NodeHandle node,
@@ -8705,6 +9112,7 @@ bool applyNumberDeclarationWithSource(NodeHandle node,
 		setStyleValue(node, Property::LineHeightMultiplier, bits, source);
 		return true;
 	}
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::Transform:
 		setStyleValue(node, Property::TransformPresent, 1, source);
 		setStyleValue(node, Property::TransformRotate, numericRotateTenths(value), source);
@@ -8718,6 +9126,7 @@ bool applyNumberDeclarationWithSource(NodeHandle node,
 		const int scale[3] = {factor, factor, 1000};
 		setIndividualScale(node, scale, true, source); return true;
 	}
+#endif
 	default:
 		return false;
 	}
@@ -8757,6 +9166,42 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	}
 
 	switch (declaration) {
+#if !GEA_CSS_GRID
+	case CssDeclarationId::GridRowStart:
+	case CssDeclarationId::GridColumnStart:
+	case CssDeclarationId::GridRowEnd:
+	case CssDeclarationId::GridColumnEnd:
+	case CssDeclarationId::GridRow:
+	case CssDeclarationId::GridColumn:
+	case CssDeclarationId::GridArea:
+	case CssDeclarationId::Grid:
+	case CssDeclarationId::GridTemplate:
+	case CssDeclarationId::GridTemplateColumns:
+	case CssDeclarationId::GridTemplateRows:
+		return false;
+#endif
+#if !GEA_CSS_TRANSFORMS
+	case CssDeclarationId::TransformStyle:
+	case CssDeclarationId::Translate:
+	case CssDeclarationId::Transform:
+	case CssDeclarationId::Rotate:
+	case CssDeclarationId::Scale:
+	case CssDeclarationId::TransformOrigin:
+	case CssDeclarationId::Perspective:
+	case CssDeclarationId::PerspectiveOrigin:
+		return false;
+#endif
+#if !GEA_CSS_FLOATS
+	case CssDeclarationId::Float:
+	case CssDeclarationId::Clear:
+		return false;
+#endif
+#if !GEA_CSS_WRITING_MODE
+	case CssDeclarationId::Direction:
+	case CssDeclarationId::WritingMode:
+		return false;
+#endif
+
 	case CssDeclarationId::BackgroundClip: {
 		const int parent = Tree::instance().node(nodeId).parent;
 		const int clip = toLowerAscii(trimCssValue(value)) == "inherit"
@@ -8768,7 +9213,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::Contain: {
 		const int parent = Tree::instance().node(nodeId).parent;
 		const int flags = toLowerAscii(trimCssValue(value)) == "inherit"
-		    ? (parent >= 0 ? rstyle(Tree::instance().node(parent).style).containment : 0)
+		    ? (parent >= 0 ? (GEA_CSS_CONTAINMENT ? rstyle(Tree::instance().node(parent).style).containment : 0) : 0)
 		    : containmentValue(value);
 		if (flags >= 0) setStyleValue(node, Property::Containment, flags, source);
 		return true;
@@ -8782,7 +9227,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		}
 		if (ratio == "inherit") {
 			const int parent = Tree::instance().node(nodeId).parent;
-			setStyleValue(node, Property::AspectRatio, parent >= 0 ? rstyle(Tree::instance().node(parent).style).aspect_ratio : 0, source);
+			setStyleValue(node, Property::AspectRatio, parent >= 0 ? (GEA_CSS_ASPECT_RATIO ? rstyle(Tree::instance().node(parent).style).aspect_ratio : 0) : 0, source);
 			return true;
 		}
 		const auto words = splitFunctionAwareWords(ratio);
@@ -8823,25 +9268,30 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		if (value == "content-box") setStyleValue(node, Property::BoxSizing, 0, source);
 		if (value == "border-box") setStyleValue(node, Property::BoxSizing, 1, source);
 		return true;
+#if GEA_CSS_FLOATS
 	case CssDeclarationId::Float:
 		if (value == "none") setStyleValue(node, Property::Float, 0, source);
 		if (value == "left") setStyleValue(node, Property::Float, 1, source);
 		if (value == "right") setStyleValue(node, Property::Float, 2, source);
 		return true;
+#endif
 	case CssDeclarationId::MarginTrim: {
 		const int parent = Tree::instance().node(nodeId).parent;
 		const int flags = toLowerAscii(trimCssValue(value)) == "inherit"
-		    ? (parent >= 0 ? rstyle(Tree::instance().node(parent).style).margin_trim : 0)
+		    ? (parent >= 0 ? (GEA_CSS_MARGIN_TRIM ? rstyle(Tree::instance().node(parent).style).margin_trim : 0) : 0)
 		    : marginTrimValue(value);
 		if (flags >= 0) setStyleValue(node, Property::MarginTrim, flags, source);
 		return true;
 	}
+#if GEA_CSS_FLOATS
 	case CssDeclarationId::Clear:
 		if (value == "none") setStyleValue(node, Property::Clear, 0, source);
 		if (value == "left") setStyleValue(node, Property::Clear, 1, source);
 		if (value == "right") setStyleValue(node, Property::Clear, 2, source);
 		if (value == "both") setStyleValue(node, Property::Clear, 3, source);
 		return true;
+#endif
+#if GEA_CSS_WRITING_MODE
 	case CssDeclarationId::Direction:
 		if (value == "ltr" || value == "initial") setStyleValue(node, Property::Direction, 0, source);
 		if (value == "rtl") setStyleValue(node, Property::Direction, 1, source);
@@ -8855,6 +9305,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		if (value == "sideways-lr") setStyleValue(node, Property::WritingMode, 4, source);
 		if (value == "inherit") setStyleValue(node, Property::WritingMode, -1, source);
 		return true;
+#endif
 	case CssDeclarationId::FlexFlow: {
 		int direction = 1;
 		bool hasDirection = false;
@@ -8922,7 +9373,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		if (value == "initial" || value == "unset") setStyleValue(node, Property::FlexLineCount, 1, source);
 		else if (value == "inherit") {
 			const int parent = Tree::instance().node(nodeId).parent;
-			setStyleValue(node, Property::FlexLineCount, parent >= 0 ? rstyle(Tree::instance().node(parent).style).flex_line_count : 1, source);
+			setStyleValue(node, Property::FlexLineCount, parent >= 0 ? (GEA_CSS_FLEX_LINE_COUNT ? rstyle(Tree::instance().node(parent).style).flex_line_count : 1) : 1, source);
 		} else if (parseOrder(value, count) && count >= 1) setStyleValue(node, Property::FlexLineCount, count, source);
 		return true;
 	}
@@ -8963,13 +9414,14 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 			} else {
 				const auto &inherited = Tree::instance().node(parent).style;
 				align = declaration == CssDeclarationId::PlaceItems ? inherited.align_items : declaration == CssDeclarationId::PlaceContent ? inherited.align_content : inherited.align_self;
-				justify = declaration == CssDeclarationId::PlaceItems ? inherited.justify_items : declaration == CssDeclarationId::PlaceContent ? inherited.justify_content : rstyle(inherited).justify_self;
+				justify = declaration == CssDeclarationId::PlaceItems ? inherited.justify_items : declaration == CssDeclarationId::PlaceContent ? inherited.justify_content : (GEA_CSS_JUSTIFY_SELF ? rstyle(inherited).justify_self : -1);
 			}
 		} else if (!parseAlignmentShorthand(declaration, value, align, justify)) return true;
 		setStyleValue(node, alignProperty, align, source);
 		setStyleValue(node, justifyProperty, justify, source);
 		return true;
 	}
+#if GEA_CSS_GRID
 	case CssDeclarationId::GridRowStart:
 	case CssDeclarationId::GridColumnStart:
 	case CssDeclarationId::GridRowEnd:
@@ -9010,6 +9462,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::GridTemplateRows:
 		applyGridTemplateValue(node, value, false);
 		return true;
+#endif
 	case CssDeclarationId::Ignored:
 	case CssDeclarationId::Content:
 	case CssDeclarationId::Animation:
@@ -9239,12 +9692,14 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::TextOverflow:
 		setStyleValue(node, Property::TextOverflow, textOverflowValue(value), source);
 		return true;
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::TransformStyle: {
 		const auto lower = toLowerAscii(trimCssValue(value));
 		if (lower == "flat" || lower == "preserve-3d" || lower == "initial" || lower == "unset")
 			setStyleValue(node, Property::TransformStyle, lower == "preserve-3d", source);
 		return true;
 	}
+#endif
 	case CssDeclarationId::Visibility: {
 		const int visibility = visibilityValue(value);
 		if (visibility >= 0) setStyleValue(node, Property::Visibility, visibility, source);
@@ -9275,6 +9730,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::MaskImage:
 		setStyleValue(node, Property::MaskRightFadeWidth, parseRightFadeMaskWidth(value, nodeId), source);
 		return true;
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::Translate: {
 		std::string function;
 		if (individualTranslateFunction(value, function)) setIndividualTranslation(node, parseTransformComponents(function, nodeId), source);
@@ -9295,6 +9751,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 			setIndividualScale(node, scale, toLowerAscii(trimCssValue(value)) != "none", source);
 		return true;
 	}
+#endif
 	case CssDeclarationId::Filter:
 		setStyleValue(node, Property::FilterPresent, toLowerAscii(value).find("blur(") != std::string::npos, source);
 		setStyleValue(node, Property::FilterBlur, parseFilterBlurRadius(value, nodeId), source);
@@ -9302,6 +9759,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::BoxShadow:
 		applyBoxShadowValue(node, value, source);
 		return true;
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::TransformOrigin: {
 		const auto parts = splitWords(value);
 		setStyleValue(node, Property::TransformOriginX, parseOriginPart(parts.empty() ? "" : parts[0], 500), source);
@@ -9317,6 +9775,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		setStyleValue(node, Property::PerspectiveOriginY, parseOriginPart(parts.size() < 2 ? "" : parts[1], 500), source);
 		return true;
 	}
+#endif
 	case CssDeclarationId::Unknown:
 	case CssDeclarationId::Custom:
 		return false;
@@ -9421,9 +9880,9 @@ TransformComponents transformFromCompiled(const CssCompiledValue &compiled, int 
 	t.rotateX = compiled.values[0];
 	t.rotateY = compiled.values[1];
 	t.rotateZ = compiled.values[2];
-	t.scaleX = compiled.values[8];
-	t.scaleY = compiled.values[9];
-	t.scaleZ = compiled.values[10];
+	t.scaleX = compiled.values[3];
+	t.scaleY = compiled.values[4];
+	t.scaleZ = compiled.values[5];
 	t.hasRotateX = (compiled.flags & (1u << 0)) != 0;
 	t.hasRotateY = (compiled.flags & (1u << 1)) != 0;
 	t.hasRotateZ = (compiled.flags & (1u << 2)) != 0;
@@ -9459,7 +9918,9 @@ bool applyCompiledColorValue(NodeHandle node,
 		    target.style.text_alpha == static_cast<std::uint8_t>(alpha))
 			return true;
 		setStyleValueKnownTarget(node, target, Property::Color, styleColor, source);
+#if GEA_CSS_TEXT_ALPHA
 		setStyleValueKnownTarget(node, target, Property::ColorAlpha, alpha, source);
+#endif
 		markNodeDisplayCommandsDirtyForStyleApply(nodeId);
 		return true;
 		case CssDeclarationId::ActiveBackgroundColor:
@@ -9480,11 +9941,13 @@ bool applyCompiledColorValue(NodeHandle node,
 		markNodeDisplayCommandsDirtyForStyleApply(nodeId);
 		return true;
 	case CssDeclarationId::BorderColor:
-		if (source == StyleApplicationSource::ClassRule && rstyle(target.style).border_color_flags == 16u && target.style.border_color == static_cast<style_color_t>(nativeColor) &&
+		if (source == StyleApplicationSource::ClassRule && target.style.border_color_flags == 16u && target.style.border_color == static_cast<style_color_t>(nativeColor) &&
 		    target.style.border_alpha == static_cast<std::uint8_t>(alpha))
 			return true;
 		setStyleValueKnownTarget(node, target, Property::BorderColor, styleColor, source);
+#if GEA_CSS_BORDER_ALPHA
 		setStyleValue(node, Property::BorderAlpha, alpha, source);
+#endif
 		markNodeDisplayCommandsDirtyForStyleApply(nodeId);
 		return true;
 	case CssDeclarationId::BorderTopColor:
@@ -9495,7 +9958,7 @@ bool applyCompiledColorValue(NodeHandle node,
 			    declaration == CssDeclarationId::BorderRightColor ? 1 :
 			    declaration == CssDeclarationId::BorderBottomColor ? 2 : 3;
 			const RareStyle &current = rstyle(target.style);
-			if (source == StyleApplicationSource::ClassRule && (current.border_color_flags & (1u << side)) && !borderColorIsCurrent(target.style, side) && current.border_side_color[side] == static_cast<style_color_t>(nativeColor) &&
+			if (source == StyleApplicationSource::ClassRule && (target.style.border_color_flags & (1u << side)) && !borderColorIsCurrent(target.style, side) && current.border_side_color[side] == static_cast<style_color_t>(nativeColor) &&
 			    current.border_side_alpha[side] == static_cast<std::uint8_t>(alpha))
 				return true;
 			setStyleValueKnownTarget(node, target, borderSideColorProperty(side), styleColor, source);
@@ -9535,7 +9998,7 @@ bool resolveCompiledColorRef(int nodeId,
 			out.alpha = entry->colorAlpha;
 			return true;
 		}
-		const CachedCssColor color = cachedCssColorForValue(entry->value);
+		const CachedCssColor color = cachedCssColorForValue(*entry->value);
 		if (!color.valid) return false;
 		out.styleColor = color.styleColor;
 		out.nativeColor = static_cast<style_color_t>(color.nativeColor);
@@ -9624,6 +10087,7 @@ bool resolveCompiledRadialGradientColors(const CssCompiledRadialGradient &input,
 
 void applyCompiledLinearGradient(RareStyle &rs, const CssCompiledLinearGradient &gradient)
 {
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	rs.bg_gradient_from_color = gradient.fromNativeColor;
 	rs.bg_gradient_mid_color = gradient.midNativeColor;
 	rs.bg_gradient_to_color = gradient.toNativeColor;
@@ -9634,10 +10098,12 @@ void applyCompiledLinearGradient(RareStyle &rs, const CssCompiledLinearGradient 
 	rs.bg_gradient_to_stop = gradient.toStopPermille;
 	rs.bg_gradient_has_mid = gradient.hasMid;
 	rs.bg_gradient_angle = gradient.angleTenths;
+#endif
 }
 
 void applyCompiledOverlayGradient(RareStyle &rs, const CssCompiledLinearGradient &gradient)
 {
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	rs.bg_overlay_gradient = 1;
 	rs.bg_overlay_gradient_from_color = gradient.fromNativeColor;
 	rs.bg_overlay_gradient_mid_color = gradient.midNativeColor;
@@ -9649,10 +10115,12 @@ void applyCompiledOverlayGradient(RareStyle &rs, const CssCompiledLinearGradient
 	rs.bg_overlay_gradient_to_stop = gradient.toStopPermille;
 	rs.bg_overlay_gradient_has_mid = gradient.hasMid;
 	rs.bg_overlay_gradient_angle = gradient.angleTenths;
+#endif
 }
 
 void applyCompiledRadialGradient(RareStyle &rs, const CssCompiledRadialGradient &gradient)
 {
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	rs.bg_radial_gradient = 1;
 	rs.bg_radial_gradient_from_color = gradient.fromNativeColor;
 	rs.bg_radial_gradient_to_color = gradient.toNativeColor;
@@ -9663,6 +10131,7 @@ void applyCompiledRadialGradient(RareStyle &rs, const CssCompiledRadialGradient 
 	rs.bg_radial_gradient_cy = gradient.cyPermille;
 	rs.bg_radial_gradient_rx = gradient.rxPermille;
 	rs.bg_radial_gradient_ry = gradient.ryPermille;
+#endif
 }
 
 bool compiledLinearGradientMatches(const RareStyle &rs, const CssCompiledLinearGradient &gradient)
@@ -9763,11 +10232,18 @@ bool applyBackgroundImageToStyle(ComputedStyle &style, int handle, int nodeId)
 	    (!axes || (current.bg_grid_color == background->gridColor && current.bg_grid_alpha == background->gridAlpha &&
 	               current.bg_grid_line_x == lineX && current.bg_grid_line_y == lineY))) return false;
 	RareStyle &rs = rstyleMut(style);
+#if GEA_CSS_BACKGROUND_LAYERS
 	rs.bg_image_layer_count = background ? background->layerCount : 1;
+#endif
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	rs.bg_gradient_layer = background ? background->gradientLayer : 0;
 	rs.bg_overlay_gradient_layer = background ? background->overlayLayer : 0;
 	rs.bg_radial_gradient_layer = background ? background->radialLayer : 0;
+#endif
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
 	style.bg_fill = background && background->hasGradient ? 1 : 0;
+#endif
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	rs.bg_gradient_has_mid = 0;
 	rs.bg_overlay_gradient = 0;
 	rs.bg_radial_gradient = 0;
@@ -9775,16 +10251,19 @@ bool applyBackgroundImageToStyle(ComputedStyle &style, int handle, int nodeId)
 	rs.bg_grid_color = 0;
 	rs.bg_grid_alpha = 255;
 	rs.bg_grid_line_x = rs.bg_grid_line_y = 0;
+#endif
 	if (background) {
 		if (background->hasGradient) applyCompiledLinearGradient(rs, gradient);
 		if (background->hasOverlayGradient) applyCompiledOverlayGradient(rs, overlay);
 		if (background->hasRadialGradient) applyCompiledRadialGradient(rs, radial);
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 		rs.bg_grid_axes = background->gridAxes;
 		rs.bg_grid_color = background->gridColor;
 		rs.bg_grid_alpha = background->gridAlpha;
 		rs.bg_grid_axes = axes;
 		rs.bg_grid_line_x = lineX;
 		rs.bg_grid_line_y = lineY;
+#endif
 	}
 	return true;
 }
@@ -9881,7 +10360,9 @@ bool applyRuntimeLengthValue(NodeHandle node,
 	case CssDeclarationId::FontSize:
 		setStyleValue(node, Property::FontSize, resolveFontSizeLength(length, nodeId), source);
 		return true;
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::Perspective: setStyleValue(node, Property::Perspective, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+#endif
 	case CssDeclarationId::MaskImage:
 		setStyleValue(node,
 		              Property::MaskRightFadeWidth,
@@ -9991,8 +10472,10 @@ bool applyRuntimeBackgroundSizeValue(NodeHandle node,
 	const int stepX = resolveCompiledLengthForNode(stepXLength, nodeId, LengthAxis::Horizontal);
 	const int stepY = resolveCompiledLengthForNode(stepYLength, nodeId, LengthAxis::Vertical);
 	RareStyle &rs = rstyleMut(target.style);
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 	if (stepX > 0) rs.bg_grid_step_x = static_cast<std::uint16_t>(std::min(stepX, 65535));
 	if (stepY > 0) rs.bg_grid_step_y = static_cast<std::uint16_t>(std::min(stepY, 65535));
+#endif
 	markNodeDisplayCommandsDirtyForStyleApply(nodeId);
 	return true;
 }
@@ -10022,7 +10505,9 @@ bool applyRuntimeBorderShorthandValue(NodeHandle node,
 		setStyleValue(node, static_cast<Property>(static_cast<int>(Property::BorderTopRelief) + side), relief, source);
 	if (alpha >= 0) {
 		setStyleValue(node, Property::BorderColor, color, source);
+#if GEA_CSS_BORDER_ALPHA
 		setStyleValue(node, Property::BorderAlpha, alpha, source);
+#endif
 		markNodeDisplayCommandsDirtyForStyleApply(nodeId);
 	} else setStyleValue(node, Property::BorderColorCurrent, 1, source);
 	return true;
@@ -10085,7 +10570,7 @@ bool applyCompiledBorderRadiusValue(NodeHandle node, const CssCompiledValue &com
 {
 	if (!node || compiled.kind != CssCompiledKind::BorderRadius) return false;
 	if (compiled.declaration == CssDeclarationId::BorderRadius) {
-		for (int corner = 0; corner < 4; ++corner)
+		for (int corner = 0; corner < GEA_CSS_RADIUS_COUNT; ++corner)
 			setCompiledBorderRadiusCornerValue(node, corner, compiled.lengths[corner], source);
 		return true;
 	}
@@ -10215,6 +10700,9 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 	if (!node) return true;
 	const int nodeId = node.id();
 	switch (compiled.kind) {
+#if !GEA_CSS_GRID
+	case CssCompiledKind::GridTemplate: return false;
+#endif
 	case CssCompiledKind::Noop:
 		return true;
 		case CssCompiledKind::DirectProperty: {
@@ -10224,13 +10712,13 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 			return true;
 		}
 		case CssCompiledKind::DirectPropertyGroup: {
-			int count = compiled.values[0];
+			int count = compiled.aux;
 			if (count < 0) count = 0;
 			if (count > 4) count = 4;
 			for (int i = 0; i < count; ++i) {
-				const int propertyIndex = compiled.values[1 + i * 2];
+				const int propertyIndex = compiled.values[i * 2];
 				if (propertyIndex < 0 || propertyIndex >= static_cast<int>(Property::Count)) return false;
-				setStyleValue(node, static_cast<Property>(propertyIndex), compiled.values[2 + i * 2], source);
+				setStyleValue(node, static_cast<Property>(propertyIndex), compiled.values[1 + i * 2], source);
 			}
 			return true;
 		}
@@ -10245,10 +10733,12 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		case CssDeclarationId::JustifyItems: setStyleValue(node, Property::JustifyItems, compiled.values[0], source); return true;
 		case CssDeclarationId::AlignContent: setStyleValue(node, Property::AlignContent, compiled.values[0], source); return true;
 		case CssDeclarationId::JustifySelf: setStyleValue(node, Property::JustifySelf, compiled.values[0], source); return true;
+#if GEA_CSS_GRID
 		case CssDeclarationId::GridRowStart: setStyleValue(node, Property::GridRowStart, compiled.values[0], source); return true;
 		case CssDeclarationId::GridColumnStart: setStyleValue(node, Property::GridColumnStart, compiled.values[0], source); return true;
 		case CssDeclarationId::GridRowEnd: setStyleValue(node, Property::GridRowEnd, compiled.values[0], source); return true;
 		case CssDeclarationId::GridColumnEnd: setStyleValue(node, Property::GridColumnEnd, compiled.values[0], source); return true;
+#endif
 		case CssDeclarationId::AlignSelf: setStyleValue(node, Property::AlignSelf, compiled.values[0], source); return true;
 		case CssDeclarationId::Position: setStyleValue(node, Property::Position, compiled.values[0], source); return true;
 		case CssDeclarationId::TextAlign: setStyleValue(node, Property::TextAlign, compiled.values[0], source); return true;
@@ -10256,7 +10746,9 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		case CssDeclarationId::TextTransform: setStyleValue(node, Property::TextTransform, compiled.values[0], source); return true;
 		case CssDeclarationId::WhiteSpace: setStyleValue(node, Property::WhiteSpace, compiled.values[0], source); return true;
 		case CssDeclarationId::TextOverflow: setStyleValue(node, Property::TextOverflow, compiled.values[0], source); return true;
+#if GEA_CSS_TRANSFORMS
 		case CssDeclarationId::TransformStyle: setStyleValue(node, Property::TransformStyle, compiled.values[0], source); return true;
+#endif
 		case CssDeclarationId::Visibility: setStyleValue(node, Property::Visibility, compiled.values[0], source); return true;
 		case CssDeclarationId::BackfaceVisibility: setStyleValue(node, Property::Backface, compiled.values[0], source); return true;
 		case CssDeclarationId::PointerEvents: setStyleValue(node, Property::PointerEvents, compiled.values[0], source); return true;
@@ -10317,7 +10809,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 				color.alpha = entry->colorAlpha;
 				color.valid = true;
 			} else {
-				color = cachedCssColorForValue(entry->value);
+				color = cachedCssColorForValue(*entry->value);
 			}
 			if (color.valid)
 				return applyCompiledColorValue(node,
@@ -10379,6 +10871,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		return applyCompiledFilterBlurValue(node, compiled, source);
 	case CssCompiledKind::BoxShadow:
 		return applyCompiledBoxShadowValue(node, compiled, source);
+#if GEA_CSS_GRID
 	case CssCompiledKind::GridTemplate: {
 		const CssCompiledGridTemplate *grid =
 		    compiledCssGridTemplateForHandle(static_cast<std::uint16_t>(compiled.values[0]));
@@ -10393,6 +10886,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		}
 		return false;
 	}
+#endif
 	case CssCompiledKind::LineHeight:
 		return applyCompiledLineHeightValue(node, compiled, source);
 	case CssCompiledKind::None:
@@ -10477,6 +10971,7 @@ void applyPropertyWithSource(NodeHandle node,
 	if (!node) return;
 	const int nodeId = node.id();
 	if (declaration == CssDeclarationId::Unknown) return;
+#if GEA_CSS_GRID
 	if (source == StyleApplicationSource::Inline &&
 	    (declaration == CssDeclarationId::GridTemplateColumns || declaration == CssDeclarationId::GridTemplateRows ||
 	     declaration == CssDeclarationId::Grid || declaration == CssDeclarationId::GridTemplate)) {
@@ -10491,6 +10986,7 @@ void applyPropertyWithSource(NodeHandle node,
 			if (mask & (1 << axis)) rare.inlineGridTemplates[axis] = internCssAtom(rawValue);
 		rare.inlineGridShorthandMask = (rare.inlineGridShorthandMask & ~mask) | (shorthand ? mask : 0);
 	}
+#endif
 	if (declaration == CssDeclarationId::FlexBasis && rawValue.find("var(") != std::string::npos) {
 		if (const CssLengthSpec *length = cachedCompiledCssLengthSpec(rawValue)) {
 			setFlexBasisValue(node, true, *length, source);
@@ -10514,6 +11010,22 @@ void applyPropertyWithSource(NodeHandle node,
 	const int64_t _vt = recNow();
 #endif
 	const bool directValue = rawValue.find("var(") == std::string::npos && isTrimmedCssValue(rawValue);
+	// A whole-value var() compiles like the same declaration in a rule, so it
+	// reads a static custom color's native value; that entry has no text to
+	// substitute. Anything the compiled form cannot apply falls back below.
+	if (!directValue && isTrimmedCssValue(rawValue) && rawValue.rfind("var(", 0) == 0 && rawValue.back() == ')' &&
+	    (declaration == CssDeclarationId::Color || declaration == CssDeclarationId::BackgroundColor ||
+	     declaration == CssDeclarationId::Background || declaration == CssDeclarationId::ActiveBackgroundColor ||
+	     declaration == CssDeclarationId::BorderColor || declaration == CssDeclarationId::BorderTopColor ||
+	     declaration == CssDeclarationId::BorderRightColor || declaration == CssDeclarationId::BorderBottomColor ||
+	     declaration == CssDeclarationId::BorderLeftColor)) {
+		CssCompiledValue colorVar;
+		colorVar.declaration = declaration;
+		if (compileColorVarValue(rawValue, colorVar)) {
+			colorVar.kind = CssCompiledKind::ColorVar;
+			if (applyCompiledCssValueWithSource(node, colorVar, source)) return;
+		}
+	}
 	const CssCompiledValue *compiledValue = directValue
 	    ? inlineCompiledStyleValueFor(declaration, rawValue)
 	    : nullptr;
@@ -10525,7 +11037,7 @@ void applyPropertyWithSource(NodeHandle node,
 	const int64_t _bt = recNow();
 	struct BodyTimer { int64_t s; ~BodyTimer() { g_profBodyUs += recNow() - s; } } _bodyTimer{_bt};
 #endif
-	if (compiledValue && applyCompiledCssValueWithSource(node, *compiledValue, source)) return;
+	if (directValue && compiledValue && applyCompiledCssValueWithSource(node, *compiledValue, source)) return;
 	const std::string &value = directValue ? rawValue : resolvedValue;
 	(void)applyKnownResolvedPropertyWithSource(node, declaration, value, source);
 }
@@ -10623,6 +11135,7 @@ bool removeInlineStyleProperty(NodeHandle node, const std::string &property)
 		return true;
 	}
 	const int id = node.id();
+#if GEA_CSS_GRID
 	if (property == "grid" || property == "grid-template") {
 		NodeRareData *rare = rareDataFor(id);
 		if (!rare || (rare->inlineGridTemplates[0] == kInvalidCssAtom && rare->inlineGridTemplates[1] == kInvalidCssAtom)) return false;
@@ -10631,6 +11144,8 @@ bool removeInlineStyleProperty(NodeHandle node, const std::string &property)
 		recomputeSubtreeClassStyles(id);
 		return true;
 	}
+#endif
+#if GEA_CSS_GRID
 	if (property == "grid-template-columns" || property == "grid-template-rows") {
 		NodeRareData *rare = rareDataFor(id);
 		const int axis = property == "grid-template-rows" ? 1 : 0;
@@ -10640,6 +11155,7 @@ bool removeInlineStyleProperty(NodeHandle node, const std::string &property)
 		recomputeSubtreeClassStyles(id);
 		return true;
 	}
+#endif
 	if (property == "font") return removeInlineStyleProperties(id, {Property::FontId, Property::FontSize, Property::FontWeight, Property::LineHeight, Property::LineHeightExpression, Property::LineHeightMultiplier});
 	if (property == "display") return removeInlineStyleProperties(id, {Property::Display});
 	if (property == "contain") return removeInlineStyleProperties(id, {Property::Containment});
@@ -10822,6 +11338,7 @@ void replayInlineStyles(int node)
 			const NodeStyleOverride &entry = rd->inlineStyles.at(i);
 			Tree::instance().setStyleFromClass(node, entry.property, entry.value);
 		}
+#if GEA_CSS_GRID
 	if (const NodeRareData *rd = rareDataFor(node)) {
 		// Copy the atoms before replay: resolving authored values can touch
 		// pooled style storage. Resolve variables and font-relative tracks anew.
@@ -10839,6 +11356,7 @@ void replayInlineStyles(int node)
 			                        value, StyleApplicationSource::ClassRule);
 		}
 	}
+#endif
 }
 
 void applyDefaultStyleOverrides(int node)
@@ -10852,6 +11370,7 @@ void applyDefaultStyleOverrides(int node)
 		}
 }
 
+#if GEA_CSS_PSEUDO_ELEMENTS
 int16_t g_pseudoBeforeTagId = -1;
 int16_t g_pseudoAfterTagId = -1;
 
@@ -10877,6 +11396,10 @@ bool isGeneratedPseudoNode(const Node &node)
 	const int16_t tag = node.tag_id;
 	return tag == pseudoBeforeTagId() || tag == pseudoAfterTagId();
 }
+
+#else
+constexpr bool isGeneratedPseudoNode(const Node &) { return false; }
+#endif
 
 std::string normalizeSelectorText(const std::string &selector)
 {
@@ -11001,7 +11524,7 @@ bool equalsLiteral(const char *text, std::size_t length, const char *literal)
 struct ParsedSimpleSelector {
 	int16_t tagId = -1;
 	CssAtomId idAtom = kInvalidCssAtom;
-	SmallSelectorList<CssAtomId, 4> classIds;
+	[[no_unique_address]] SmallSelectorList<CssAtomId, 4> classIds;
 	bool hasTag = false;
 	bool wantsRoot = false;
 	bool wantsFirstChild = false;
@@ -11070,20 +11593,22 @@ ParsedSimpleSelector parseSimpleSelector(const char *rawSimple, std::size_t rawL
 }
 
 struct SelectorPart {
-	ParsedSimpleSelector simple;
+	[[no_unique_address]] ParsedSimpleSelector simple;
 	bool directParent = false;
 };
 
 struct SelectorPlan {
-	SmallSelectorList<SelectorPart, 4> parts;
-	SmallSelectorList<CssAtomId, 4> ancestorClasses;
-	SmallSelectorList<int16_t, 4> ancestorTags;
+	// The lists have nontrivial ownership and trailing padding. Let adjacent
+	// scalar fields occupy that padding without changing any access path.
+	[[no_unique_address]] SmallSelectorList<SelectorPart, 4> parts;
+	bool rightmostRoot = false;
+	bool valid = true;
+	[[no_unique_address]] SmallSelectorList<CssAtomId, 4> ancestorClasses;
 	CssAtomId rightmostId = kInvalidCssAtom;
+	[[no_unique_address]] SmallSelectorList<int16_t, 4> ancestorTags;
 	CssAtomId rightmostClass = kInvalidCssAtom;
 	int16_t rightmostTag = -1;
 	int specificity = 0;
-	bool rightmostRoot = false;
-	bool valid = true;
 };
 
 template <typename T>
@@ -11828,6 +12353,7 @@ bool ruleMediaMatchesUncached(const CssRule &rule)
 	return mediaConditionMatches(cssRuleTextForHandle(rule.mediaText));
 }
 
+#if GEA_CSS_PSEUDO_ELEMENTS
 int findPseudoChild(int parent, CssRule::PseudoElement pseudo)
 {
 	const int16_t tag = pseudoTagId(pseudo);
@@ -11873,6 +12399,8 @@ int ensurePseudoChild(int parent, CssRule::PseudoElement pseudo)
 		tree.setParent(child, parent);
 	return child;
 }
+
+#endif
 
 static constexpr std::size_t kRuleCandidateCacheClassCapacity = 6;
 
@@ -12059,7 +12587,9 @@ struct RuleIndex {
 	DenseRuleBuckets selByTag;
 	std::vector<int> selRoot;
 	std::vector<int> selAlways;
+#if GEA_CSS_ANIMATIONS
 	std::vector<int> animationRules;  // rules with property == "animation" (any selector type)
+#endif
 	RuleCandidateCacheStore candidateCache;
 	// Classes/tags that appear in a NON-rightmost simple selector of any complex rule
 	// (i.e. as an ancestor matcher, like `.theme-night` in `.theme-night .icon`).
@@ -12151,7 +12681,9 @@ void rebuildRuleIndexIfNeeded()
 	g_ruleIndex.selByTag.clear();
 	g_ruleIndex.selRoot.clear();
 	g_ruleIndex.selAlways.clear();
+#if GEA_CSS_ANIMATIONS
 	g_ruleIndex.animationRules.clear();
+#endif
 	g_ruleIndex.candidateCache.clear();
 	ruleCandidateCacheLastHit() = static_cast<std::size_t>(-1);
 	clearActiveRulePlanCache();
@@ -12223,7 +12755,9 @@ void rebuildRuleIndexIfNeeded()
 		    list[i].pseudoElement == CssRule::PseudoElement::After ||
 		    list[i].pseudoElement == CssRule::PseudoElement::FirstLine)
 			g_ruleIndex.hasPseudoElementRules = true;
+#if GEA_CSS_ANIMATIONS
 		if (list[i].propertyKind == CssRuleProperty::Animation) g_ruleIndex.animationRules.push_back(i);
+#endif
 	}
 	g_ruleIndex.byClass.finalize();
 	g_ruleIndex.byTag.finalize();
@@ -12291,13 +12825,19 @@ CssAtomId nodeIdAttributeAtom(int node)
 enum ActiveRuleBucket : std::uint8_t {
 	kActiveMainCustom,
 	kActiveMainRule,
+#if GEA_CSS_PSEUDO_ELEMENTS
 	kActiveBeforeCustom,
 	kActiveBeforeRule,
 	kActiveAfterCustom,
 	kActiveAfterRule,
+#endif
+#if GEA_CSS_FIRST_LINE
 	kActiveFirstLineCustom,
 	kActiveFirstLineRule,
+#endif
+#if GEA_CSS_ANIMATIONS
 	kActiveAnimation,
+#endif
 	kActiveRuleBucketCount
 };
 
@@ -12439,7 +12979,11 @@ struct CachedStyleApplyOp {
 	std::uint8_t borderRelief = 0;
 	std::uint8_t properties[kCachedStyleApplyOpPropertyCapacity]{};
 	std::int32_t values[kCachedStyleApplyOpPropertyCapacity]{};
+#if GEA_CSS_TRANSFORMS
 	std::int16_t transform[kCachedTransformValueCount]{};
+#else
+	static constexpr std::int16_t transform[kCachedTransformValueCount]{};
+#endif
 };
 
 class CachedStyleApplyOpStore {
@@ -12823,7 +13367,9 @@ bool addCachedLengthDeclaration(CachedStyleApplyOp &op, CssDeclarationId declara
 	case CssDeclarationId::BorderBottomWidth: return addCachedStyleApplyProperty(op, Property::BorderBottomWidth, value);
 	case CssDeclarationId::BorderLeftWidth: return addCachedStyleApplyProperty(op, Property::BorderLeftWidth, value);
 	case CssDeclarationId::FontSize: return addCachedStyleApplyProperty(op, Property::FontSize, value);
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::Perspective: return addCachedStyleApplyProperty(op, Property::Perspective, value);
+#endif
 	case CssDeclarationId::MaskImage:
 		return addCachedStyleApplyProperty(op, Property::MaskRightFadeWidth, std::max(0, value));
 	default:
@@ -12884,7 +13430,7 @@ bool addCachedBorderRadiusDeclaration(CachedStyleApplyOp &op,
                                       const CssCompiledValue &compiled)
 {
 	if (declaration == CssDeclarationId::BorderRadius) {
-		for (int corner = 0; corner < 4; ++corner)
+		for (int corner = 0; corner < GEA_CSS_RADIUS_COUNT; ++corner)
 			if (!addCachedBorderRadiusCorner(op, corner, compiled.lengths[corner])) return false;
 		return true;
 	}
@@ -12946,10 +13492,12 @@ bool addCachedKeywordDeclaration(CachedStyleApplyOp &op, CssDeclarationId declar
 	case CssDeclarationId::JustifyItems: return addCachedStyleApplyProperty(op, Property::JustifyItems, value);
 	case CssDeclarationId::AlignContent: return addCachedStyleApplyProperty(op, Property::AlignContent, value);
 	case CssDeclarationId::JustifySelf: return addCachedStyleApplyProperty(op, Property::JustifySelf, value);
+#if GEA_CSS_GRID
 	case CssDeclarationId::GridRowStart: return addCachedStyleApplyProperty(op, Property::GridRowStart, value);
 	case CssDeclarationId::GridColumnStart: return addCachedStyleApplyProperty(op, Property::GridColumnStart, value);
 	case CssDeclarationId::GridRowEnd: return addCachedStyleApplyProperty(op, Property::GridRowEnd, value);
 	case CssDeclarationId::GridColumnEnd: return addCachedStyleApplyProperty(op, Property::GridColumnEnd, value);
+#endif
 	case CssDeclarationId::AlignSelf: return addCachedStyleApplyProperty(op, Property::AlignSelf, value);
 	case CssDeclarationId::Position: return addCachedStyleApplyProperty(op, Property::Position, value);
 	case CssDeclarationId::TextAlign: return addCachedStyleApplyProperty(op, Property::TextAlign, value);
@@ -12957,7 +13505,9 @@ bool addCachedKeywordDeclaration(CachedStyleApplyOp &op, CssDeclarationId declar
 	case CssDeclarationId::TextTransform: return addCachedStyleApplyProperty(op, Property::TextTransform, value);
 	case CssDeclarationId::WhiteSpace: return addCachedStyleApplyProperty(op, Property::WhiteSpace, value);
 	case CssDeclarationId::TextOverflow: return addCachedStyleApplyProperty(op, Property::TextOverflow, value);
+#if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::TransformStyle: return addCachedStyleApplyProperty(op, Property::TransformStyle, value);
+#endif
 	case CssDeclarationId::Visibility: return addCachedStyleApplyProperty(op, Property::Visibility, value);
 	case CssDeclarationId::BackfaceVisibility: return addCachedStyleApplyProperty(op, Property::Backface, value);
 	case CssDeclarationId::PointerEvents: return addCachedStyleApplyProperty(op, Property::PointerEvents, value);
@@ -12988,14 +13538,15 @@ bool cachedTransformTranslateValue(const CssLengthSpec &length,
 
 bool buildCachedTransformApplyOp(const CssCompiledValue &compiled, CachedStyleApplyOp &op)
 {
+#if GEA_CSS_TRANSFORMS
 	if (compiled.kind != CssCompiledKind::Transform) return false;
 	TransformComponents transform;
 	transform.rotateX = compiled.values[0];
 	transform.rotateY = compiled.values[1];
 	transform.rotateZ = compiled.values[2];
-	transform.scaleX = compiled.values[8];
-	transform.scaleY = compiled.values[9];
-	transform.scaleZ = compiled.values[10];
+	transform.scaleX = compiled.values[3];
+	transform.scaleY = compiled.values[4];
+	transform.scaleZ = compiled.values[5];
 	if ((compiled.flags & (1u << 3)) != 0 &&
 	    !cachedTransformTranslateValue(compiled.lengths[0], true, transform.translateX, transform.translateXPercent))
 		return false;
@@ -13023,6 +13574,9 @@ bool buildCachedTransformApplyOp(const CssCompiledValue &compiled, CachedStyleAp
 	op.transform[9] = cachedInt16Value(transform.scaleY);
 	op.transform[10] = cachedInt16Value(transform.scaleZ);
 	return true;
+#else
+	(void)compiled; (void)op; return false;
+#endif
 }
 
 bool buildCachedCompiledTransformApplyOp(const CssCompiledValue &compiled, CachedStyleApplyOp &op)
@@ -13191,14 +13745,14 @@ bool buildCachedStyleApplyOp(const CssCompiledValue *compiled, CachedStyleApplyO
 		return addCachedStyleApplyProperty(op, static_cast<Property>(propertyIndex), compiled->values[1]);
 	}
 	case CssCompiledKind::DirectPropertyGroup: {
-		int count = compiled->values[0];
+		int count = compiled->aux;
 		if (count < 0 || count > static_cast<int>(kCachedStyleApplyOpPropertyCapacity)) return false;
 		for (int i = 0; i < count; ++i) {
-			const int propertyIndex = compiled->values[1 + i * 2];
+			const int propertyIndex = compiled->values[i * 2];
 			if (propertyIndex < 0 || propertyIndex >= static_cast<int>(Property::Count)) return false;
 			if (!addCachedStyleApplyProperty(op,
 			                                 static_cast<Property>(propertyIndex),
-			                                 compiled->values[2 + i * 2])) return false;
+			                                 compiled->values[1 + i * 2])) return false;
 		}
 		return op.propertyCount != 0;
 	}
@@ -13271,8 +13825,10 @@ bool buildCachedStyleApplyOp(const CssCompiledValue *compiled, CachedStyleApplyO
 	case CssCompiledKind::BackgroundSize:
 		if (buildCachedBackgroundSizeApplyOp(*compiled, op)) return true;
 		return buildRuntimeBackgroundSizeApplyOp(*compiled, op);
+#if GEA_CSS_GRID
 	case CssCompiledKind::GridTemplate:
 		return buildCachedGridTemplateApplyOp(*compiled, op);
+#endif
 	case CssCompiledKind::LineHeight:
 		if (compiled->aux == 0 && addCachedStyleApplyProperty(op, Property::LineHeight, 0)) return true;
 		op = CachedStyleApplyOp{};
@@ -13375,8 +13931,10 @@ bool cachedStyleApplyOpsEqual(const CachedStyleApplyOp &a, const CachedStyleAppl
 		return true;
 	if (a.kind == CachedStyleApplyOpKind::Transform) {
 		if (a.values[0] != b.values[0] || a.values[1] != b.values[1]) return false;
+#if GEA_CSS_TRANSFORMS
 		for (std::uint8_t i = 0; i < kCachedTransformValueCount; ++i)
 			if (a.transform[i] != b.transform[i]) return false;
+#endif
 		return true;
 	}
 	if (a.kind == CachedStyleApplyOpKind::CompiledTransform)
@@ -13630,9 +14188,11 @@ void addPropertyWrite(PropertyWriteMask &mask, Property property)
 		if (property == borderSideColorProperty(side) || property == current) { mask.add(current); mask.add(borderSideColorProperty(side)); mask.add(static_cast<Property>(static_cast<int>(Property::BorderTopAlpha) + side)); return; }
 	}
 	switch (property) {
+#if GEA_CSS_BORDER_RELIEF
 	case Property::BorderRelief:
 		for (int side = 0; side < 4; ++side) mask.add(static_cast<Property>(static_cast<int>(Property::BorderTopRelief) + side));
 		return;
+#endif
 	case Property::BorderWidth:
 		mask.add(property);
 		for (int side = 0; side < 4; ++side) mask.add(borderSideWidthProperty(side));
@@ -13810,6 +14370,9 @@ bool addColorDeclarationWrites(CssDeclarationId declaration, PropertyWriteMask &
 bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask &mask)
 {
 	switch (compiled.kind) {
+#if !GEA_CSS_GRID
+	case CssCompiledKind::GridTemplate: return false;
+#endif
 	case CssCompiledKind::Noop:
 		return true;
 	case CssCompiledKind::DirectProperty: {
@@ -13819,11 +14382,11 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 		return true;
 	}
 	case CssCompiledKind::DirectPropertyGroup: {
-		int count = compiled.values[0];
+		int count = compiled.aux;
 		if (count < 0) count = 0;
 		if (count > 4) count = 4;
 		for (int i = 0; i < count; ++i) {
-			const int propertyIndex = compiled.values[1 + i * 2];
+			const int propertyIndex = compiled.values[i * 2];
 			if (propertyIndex < 0 || propertyIndex >= static_cast<int>(Property::Count)) return false;
 			addPropertyWrite(mask, static_cast<Property>(propertyIndex));
 		}
@@ -13840,10 +14403,12 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 		case CssDeclarationId::JustifyItems: addPropertyWrite(mask, Property::JustifyItems); return true;
 		case CssDeclarationId::AlignContent: addPropertyWrite(mask, Property::AlignContent); return true;
 		case CssDeclarationId::JustifySelf: addPropertyWrite(mask, Property::JustifySelf); return true;
+#if GEA_CSS_GRID
 		case CssDeclarationId::GridRowStart: addPropertyWrite(mask, Property::GridRowStart); return true;
 		case CssDeclarationId::GridColumnStart: addPropertyWrite(mask, Property::GridColumnStart); return true;
 		case CssDeclarationId::GridRowEnd: addPropertyWrite(mask, Property::GridRowEnd); return true;
 		case CssDeclarationId::GridColumnEnd: addPropertyWrite(mask, Property::GridColumnEnd); return true;
+#endif
 		case CssDeclarationId::AlignSelf: addPropertyWrite(mask, Property::AlignSelf); return true;
 		case CssDeclarationId::Position: addPropertyWrite(mask, Property::Position); return true;
 		case CssDeclarationId::TextAlign: addPropertyWrite(mask, Property::TextAlign); return true;
@@ -13851,7 +14416,9 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 		case CssDeclarationId::TextTransform: addPropertyWrite(mask, Property::TextTransform); return true;
 		case CssDeclarationId::WhiteSpace: addPropertyWrite(mask, Property::WhiteSpace); return true;
 		case CssDeclarationId::TextOverflow: addPropertyWrite(mask, Property::TextOverflow); return true;
+#if GEA_CSS_TRANSFORMS
 		case CssDeclarationId::TransformStyle: addPropertyWrite(mask, Property::TransformStyle); return true;
+#endif
 		case CssDeclarationId::Visibility: addPropertyWrite(mask, Property::Visibility); return true;
 		case CssDeclarationId::BackfaceVisibility: addPropertyWrite(mask, Property::Backface); return true;
 		case CssDeclarationId::PointerEvents: addPropertyWrite(mask, Property::PointerEvents); return true;
@@ -13915,7 +14482,9 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 		case CssDeclarationId::BorderBottomWidth: addPropertyWrite(mask, Property::BorderBottomWidth); return true;
 		case CssDeclarationId::BorderLeftWidth: addPropertyWrite(mask, Property::BorderLeftWidth); return true;
 		case CssDeclarationId::FontSize: addPropertyWrite(mask, Property::FontSize); return true;
+#if GEA_CSS_TRANSFORMS
 		case CssDeclarationId::Perspective: addPropertyWrite(mask, Property::Perspective); return true;
+#endif
 		case CssDeclarationId::MaskImage: addPropertyWrite(mask, Property::MaskRightFadeWidth); return true;
 		default: return false;
 		}
@@ -14025,7 +14594,7 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 	}
 	case CssCompiledKind::BorderRadius:
 		if (compiled.declaration == CssDeclarationId::BorderRadius) {
-			for (int corner = 0; corner < 4; ++corner)
+			for (int corner = 0; corner < GEA_CSS_RADIUS_COUNT; ++corner)
 				addPropertyWrite(mask, borderRadiusLengthProperty(corner));
 			return true;
 		}
@@ -14053,6 +14622,7 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 	case CssCompiledKind::BoxShadow:
 		addBoxShadowPropertyWrites(mask);
 		return true;
+#if GEA_CSS_GRID
 	case CssCompiledKind::GridTemplate:
 		if (compiled.declaration == CssDeclarationId::GridTemplateColumns) {
 			mask.addIndex(kVirtualGridTemplateColumnsWrite);
@@ -14063,6 +14633,7 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 			return true;
 		}
 		return false;
+#endif
 	case CssCompiledKind::LineHeight:
 		addPropertyWrite(mask, Property::LineHeight);
 		return true;
@@ -14115,9 +14686,13 @@ void collapseShadowedActiveRuleBucket(ActiveRulePlan::Bucket &bucket)
 void collapseShadowedActiveRules(ActiveRulePlan &plan)
 {
 	collapseShadowedActiveRuleBucket(plan.buckets[kActiveMainRule]);
+#if GEA_CSS_PSEUDO_ELEMENTS
 	collapseShadowedActiveRuleBucket(plan.buckets[kActiveBeforeRule]);
 	collapseShadowedActiveRuleBucket(plan.buckets[kActiveAfterRule]);
+#endif
+#if GEA_CSS_FIRST_LINE
 	collapseShadowedActiveRuleBucket(plan.buckets[kActiveFirstLineRule]);
+#endif
 }
 
 int activeRuleBucketFor(const CssRule &rule)
@@ -14128,11 +14703,23 @@ int activeRuleBucketFor(const CssRule &rule)
 	case CssRule::PseudoElement::None:
 		return custom ? kActiveMainCustom : kActiveMainRule;
 	case CssRule::PseudoElement::Before:
+#if GEA_CSS_PSEUDO_ELEMENTS
 		return custom ? kActiveBeforeCustom : kActiveBeforeRule;
+#else
+		return -1;
+#endif
 	case CssRule::PseudoElement::After:
+#if GEA_CSS_PSEUDO_ELEMENTS
 		return custom ? kActiveAfterCustom : kActiveAfterRule;
+#else
+		return -1;
+#endif
 	case CssRule::PseudoElement::FirstLine:
+#if GEA_CSS_FIRST_LINE
 		return custom ? kActiveFirstLineCustom : kActiveFirstLineRule;
+#else
+		return -1;
+#endif
 	case CssRule::PseudoElement::Unsupported:
 		return -1;
 	}
@@ -14287,9 +14874,11 @@ void addCachedActiveCandidateRule(ActiveRulePlan &plan,
 	}
 	const int bucket = activeRuleBucketFor(rule);
 	if (bucket >= 0) plan.push(bucket, ruleIndex);
+#if GEA_CSS_ANIMATIONS
 	if (rule.propertyKind == CssRuleProperty::Animation &&
 	    rule.pseudoElement == CssRule::PseudoElement::None)
 		plan.push(kActiveAnimation, ruleIndex);
+#endif
 }
 
 void addActiveCandidateRule(ActiveRulePlan &plan,
@@ -14312,9 +14901,11 @@ void addActiveCandidateRule(ActiveRulePlan &plan,
 	if (rule.selectorType == CssRule::SelectorType::Selector && !selectorMatchesNode(rule, selectorNode)) return;
 	const int bucket = activeRuleBucketFor(rule);
 	if (bucket >= 0) plan.push(bucket, ruleIndex);
+#if GEA_CSS_ANIMATIONS
 	if (rule.propertyKind == CssRuleProperty::Animation &&
 	    rule.pseudoElement == CssRule::PseudoElement::None)
 		plan.push(kActiveAnimation, ruleIndex);
+#endif
 }
 
 void addActiveCandidateRuleBucket(ActiveRulePlan &plan,
@@ -14467,8 +15058,10 @@ bool applyCachedStyleApplyOpWithSource(NodeHandle node,
 		Node &target = state.nodes[nodeId];
 		if (rstyle(target.style).bg_grid_axes == 0) return true;
 		RareStyle &rs = rstyleMut(target.style);
+#if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS || GEA_EMBEDDED_RENDERER_RADIAL_GRADIENTS
 		if (op.values[0] > 0) rs.bg_grid_step_x = static_cast<std::uint16_t>(op.values[0]);
 		if (op.values[1] > 0) rs.bg_grid_step_y = static_cast<std::uint16_t>(op.values[1]);
+#endif
 		markNodeDisplayCommandsDirtyForStyleApply(nodeId);
 		return true;
 	}
@@ -14705,6 +15298,7 @@ void applyActiveRuleSpansToNode(int node, const ActiveRulePlan &plan, int custom
 
 void applyFirstLineBackground(int node, const ActiveRulePlan &plan)
 {
+#if GEA_CSS_FIRST_LINE
 	NodeRareData *rare = rareDataFor(node);
 	const FirstLineBackground previous = rare ? rare->firstLineBackground : FirstLineBackground{};
 	if (rare) rare->firstLineBackground = FirstLineBackground{};
@@ -14736,7 +15330,7 @@ void applyFirstLineBackground(int node, const ActiveRulePlan &plan)
 					color.alpha = entry->colorAlpha;
 					color.valid = true;
 				} else {
-					color = cachedCssColorForValue(entry->value);
+					color = cachedCssColorForValue(*entry->value);
 				}
 				if (color.valid) {
 					rare->firstLineBackground.color = color.nativeColor;
@@ -14776,17 +15370,15 @@ void applyFirstLineBackground(int node, const ActiveRulePlan &plan)
 		rare->firstLineBackground.lineContextNode = previous.lineContextNode;
 		rare->firstLineBackground.lineValid = previous.lineValid;
 	}
+#else
+	(void)node;
+	(void)plan;
+#endif
 }
 
-void syncPseudoElementsForNode(int node, const ActiveRulePlan *existingPlan = nullptr)
+#if GEA_CSS_PSEUDO_ELEMENTS
+void syncPseudoElementsForNode(int node, const ActiveRulePlan &plan)
 {
-	ActiveRulePlan ownedPlan;
-	const ActiveRulePlan *plan = existingPlan;
-	if (!plan) {
-		buildActiveRulePlanForNode(node, ownedPlan);
-		plan = &ownedPlan;
-	}
-
 	const struct {
 		CssRule::PseudoElement pseudo;
 		int customBucket;
@@ -14796,7 +15388,7 @@ void syncPseudoElementsForNode(int node, const ActiveRulePlan *existingPlan = nu
 	    {CssRule::PseudoElement::After, kActiveAfterCustom, kActiveAfterRule},
 	};
 	for (const auto &entry : pseudoBuckets) {
-		const bool hasMatchingRule = plan->has(entry.customBucket) || plan->has(entry.ruleBucket);
+		const bool hasMatchingRule = plan.has(entry.customBucket) || plan.has(entry.ruleBucket);
 		if (!hasMatchingRule) {
 			const int stalePseudoNode = findPseudoChild(node, entry.pseudo);
 			if (stalePseudoNode >= 0) Tree::instance().removeNode(stalePseudoNode);
@@ -14812,10 +15404,12 @@ void syncPseudoElementsForNode(int node, const ActiveRulePlan *existingPlan = nu
 			releaseRareStyle(staleRareStyle);
 		applyInheritedStyleDefaults(pseudoNode);
 		applyDefaultStyleOverrides(pseudoNode);
-		applyActiveRuleSpansToNode(pseudoNode, *plan, entry.customBucket, entry.ruleBucket);
+		applyActiveRuleSpansToNode(pseudoNode, plan, entry.customBucket, entry.ruleBucket);
 		replayInlineStyles(pseudoNode);
 	}
 }
+
+#endif
 
 void recomputeNodeClassStyles(int node)
 {
@@ -14823,8 +15417,10 @@ void recomputeNodeClassStyles(int node)
 	if (node < 0 || node >= state.nodeCount) return;
 
 	const ComputedStyle beforeStyle = state.nodes[node].style;
+#if GEA_CSS_FIRST_LINE
 	const FirstLineBackground beforeFirstLine = rareDataFor(node)
 	    ? rareDataFor(node)->firstLineBackground : FirstLineBackground{};
+#endif
 	int16_t staleRareStyle = beforeStyle.rare_style;
 	const int beforeImageId = state.nodes[node].image_id;
 	state.styleInvalidationSuppressionDepth++;
@@ -14859,25 +15455,35 @@ void recomputeNodeClassStyles(int node)
 	_t = recNow();
 #endif
 	replayInlineStyles(node);
+#if GEA_CSS_FIRST_LINE
 	applyFirstLineBackground(node, activePlan);
 	const FirstLineBackground afterFirstLine = rareDataFor(node)
 	    ? rareDataFor(node)->firstLineBackground : FirstLineBackground{};
 	const bool firstLineChanged = beforeFirstLine.hasColor != afterFirstLine.hasColor ||
 	                              beforeFirstLine.color != afterFirstLine.color ||
 	                              beforeFirstLine.alpha != afterFirstLine.alpha;
+#else
+	constexpr bool firstLineChanged = false;
+#endif
 	// Inline overrides store expression handles, not a newly evaluated pixel
 	// value. Seed used edges before diffing so custom/font changes schedule
 	// layout even when the expression handle itself is unchanged.
+#if GEA_CSS_BOX_EXPRESSIONS
 	resolveLayoutBoxLengths(node, percentBasisForNode(node, LengthAxis::Horizontal));
+#endif
+#if GEA_CSS_ANIMATIONS
 	primeCssAnimationsForNode(node, &activePlan);
+#endif
 	// A runtime `src` attribute's image id is NOT class-derived, so the reset
 	// above must not lose it: restore it unless a class rule supplied its own
 	// image. (Re-resolving from the attribute instead would re-read and
 	// re-decode the file — e.g. a full-page EPUB cover from the SD card — on
 	// every recompute of the node or any ancestor.)
+#if GEA_UI_IMAGE_NODES
 	if (state.nodes[node].type == NodeType::Image && state.nodes[node].image_id < 0 &&
 	    beforeImageId >= 0 && Tree::instance().hasAttribute(node, "src"))
 		state.nodes[node].image_id = beforeImageId;
+#endif
 	state.styleInvalidationSuppressionDepth--;
 	markClassRecomputeStyleDiff(node, beforeStyle, beforeImageId, firstLineChanged);
 	if (staleRareStyle >= 0 && state.nodes[node].style.rare_style != staleRareStyle)
@@ -14886,9 +15492,11 @@ void recomputeNodeClassStyles(int node)
 	g_profMiscUs += recNow() - _t;
 	_t = recNow();
 #endif
+#if GEA_CSS_PSEUDO_ELEMENTS
 	if (!isGeneratedPseudoNode(state.nodes[node]) &&
 	    (g_ruleIndex.hasPseudoElementRules || nodeHasGeneratedPseudoChild(node)))
-		syncPseudoElementsForNode(node, &activePlan);
+		syncPseudoElementsForNode(node, activePlan);
+#endif
 #if GEA_RECPROF
 	g_profPseudoUs += recNow() - _t;
 #endif
@@ -14940,27 +15548,62 @@ void recomputeDescendantClassStyles(int node)
 // applyInheritedStyleDefaults) or via explicit border-width inheritance.
 struct ParentStyleSnapshot {
 	style_color_t text_color;
+#if GEA_CSS_TEXT_ALPHA
 	std::uint8_t text_alpha;
+#else
+	static constexpr std::uint8_t text_alpha = 255;
+#endif
 	std::int16_t font_id;
-	std::int16_t font_size;
+	decltype(ComputedStyle::font_size) font_size;
 	std::int16_t font_weight;
-	std::int16_t line_height;
+	decltype(ComputedStyle::line_height) line_height;
 	std::int32_t line_height_multiplier;
 	std::uint8_t text_align;
+#if GEA_CSS_TEXT_TRANSFORM
 	std::uint8_t text_transform;
+#else
+	static constexpr std::uint8_t text_transform = 0;
+#endif
 	std::uint8_t white_space;
+#if GEA_CSS_VISIBILITY
 	std::uint8_t visibility;
+#else
+	static constexpr std::uint8_t visibility = 0;
+#endif
+#if GEA_CSS_SIDE_BORDERS
 	std::array<int, 4> border_widths;
+#else
+	std::array<decltype(ComputedStyle::border_width), 1> border_widths;
+#endif
 };
 
 ParentStyleSnapshot snapshotParentStyle(const ComputedStyle &s)
 {
-	return ParentStyleSnapshot{s.text_color, s.text_alpha, static_cast<std::int16_t>(s.font_id),
-	                       static_cast<std::int16_t>(s.font_size), static_cast<std::int16_t>(s.font_weight),
-	                       static_cast<std::int16_t>(s.line_height), s.line_height_multiplier,
-	                       static_cast<std::uint8_t>(s.text_align), static_cast<std::uint8_t>(s.text_transform),
-	                       static_cast<std::uint8_t>(s.white_space), static_cast<std::uint8_t>(s.visibility),
-	                       {computedBorderWidth(s, 0), computedBorderWidth(s, 1), computedBorderWidth(s, 2), computedBorderWidth(s, 3)}};
+	ParentStyleSnapshot out;
+	out.text_color = s.text_color;
+#if GEA_CSS_TEXT_ALPHA
+	out.text_alpha = s.text_alpha;
+#endif
+	out.font_id = s.font_id;
+	out.font_size = s.font_size;
+	out.font_weight = s.font_weight;
+	out.line_height = s.line_height;
+	out.line_height_multiplier = s.line_height_multiplier;
+	out.text_align = s.text_align;
+#if GEA_CSS_TEXT_TRANSFORM
+	out.text_transform = s.text_transform;
+#endif
+	out.white_space = s.white_space;
+#if GEA_CSS_VISIBILITY
+	out.visibility = s.visibility;
+#endif
+#if GEA_CSS_SIDE_BORDERS
+	out.border_widths = {computedBorderWidth(s, 0), computedBorderWidth(s, 1),
+	                    computedBorderWidth(s, 2), computedBorderWidth(s, 3)};
+#else
+	out.border_widths = {s.border_width};
+#endif
+	return out;
 }
 
 bool parentStylesDiffer(const ParentStyleSnapshot &a, const ParentStyleSnapshot &b)
@@ -14997,7 +15640,10 @@ bool classChangeAffectsDescendants(int node)
 }
 
 struct NodeClassSnapshot {
-	static constexpr std::size_t kInlineCount = 8;
+	// Use the existing whole-source class bound. Unproven/native builds keep
+	// the historical eight-token scratch; overflow still works in every build.
+	static constexpr std::size_t kInlineCount =
+	    GEA_UI_CLASS_INLINE_TOKENS < 4 ? GEA_UI_CLASS_INLINE_TOKENS : 8;
 
 	CssAtomId inlineTokens[kInlineCount]{};
 	CssAtomId *spillTokens = nullptr;
@@ -15046,11 +15692,15 @@ bool classTokensTouchAncestorSelectors(const NodeClassSnapshot &oldTokens, const
 struct CustomPropertyFingerprint {
 	CssAtomId nameId = kInvalidCssAtom;
 	CssAtomId valueAtom = kInvalidCssAtom;
-	std::int32_t colorStyle = 0;
-	std::int32_t colorNative = 0;
+	NodeCustomProperty::ColorValue colorStyle = 0;
+	NodeCustomProperty::ColorValue colorNative = 0;
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	float lengthValue = 0.0f;
+#endif
 	std::uint8_t colorAlpha = 255;
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	std::uint8_t lengthUnit = 0;
+#endif
 	std::uint8_t flags = 0;
 	bool valueEmpty = true;
 	bool exact = true;
@@ -15060,13 +15710,15 @@ CustomPropertyFingerprint customPropertyFingerprint(const NodeCustomProperty &pr
 {
 	CustomPropertyFingerprint out;
 	out.nameId = property.nameId;
-	out.valueEmpty = property.value.empty();
+	out.valueEmpty = property.value->empty();
 	out.valueAtom = property.valueAtom;
 	out.colorStyle = property.colorStyle;
 	out.colorNative = property.colorNative;
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	out.lengthValue = property.lengthValue;
-	out.colorAlpha = property.colorAlpha;
 	out.lengthUnit = property.lengthUnit;
+#endif
+	out.colorAlpha = property.colorAlpha;
 	out.flags = property.flags;
 	out.exact = out.valueEmpty || out.valueAtom != kInvalidCssAtom;
 	return out;
@@ -15082,14 +15734,16 @@ bool customPropertyFingerprintEqualsValue(const CustomPropertyFingerprint &befor
 	     before.colorNative != after.colorNative ||
 	     before.colorAlpha != after.colorAlpha))
 		return false;
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	if ((before.flags & 2u) != 0 &&
 	    (before.lengthUnit != after.lengthUnit ||
 	     std::fabs(static_cast<double>(before.lengthValue) -
 	               static_cast<double>(after.lengthValue)) >= 0.0001))
 		return false;
+#endif
 	if (!before.exact) return false;  // conservative: recompute descendants rather than risk a stale var().
-	if (before.valueEmpty) return after.value.empty();
-	if (after.value.empty()) return false;
+	if (before.valueEmpty) return after.value->empty();
+	if (after.value->empty()) return false;
 	return after.valueAtom == before.valueAtom && after.valueAtom != kInvalidCssAtom;
 }
 
@@ -15320,6 +15974,7 @@ void noteKeyframeRuleRegistrationChanged()
 	invalidateKeyframeRuleIndex();
 }
 
+#if GEA_CSS_ANIMATIONS
 std::vector<std::string> splitCssTokens(const std::string &value)
 {
 	std::vector<std::string> out;
@@ -15625,6 +16280,7 @@ CssAnimationSpec animationSpecForNodeFromActivePlan(const ActiveRulePlan &plan)
 double currentStyleValue(const Node &node, Property property)
 {
 	switch (property) {
+#if GEA_CSS_TRANSFORMS
 	case Property::TransformRotate: return static_cast<double>(rstyle(node.style).transform_rotate) / 10.0;
 	case Property::TransformRotateX: return static_cast<double>(rstyle(node.style).transform_rotate_x) / 10.0;
 	case Property::TransformRotateY: return static_cast<double>(rstyle(node.style).transform_rotate_y) / 10.0;
@@ -15652,7 +16308,8 @@ double currentStyleValue(const Node &node, Property property)
 	case Property::TransformScaleX: return rstyle(node.style).transform_scale_x;
 	case Property::TransformScaleY: return rstyle(node.style).transform_scale_y;
 	case Property::TransformScaleZ: return rstyle(node.style).transform_scale_z;
-	case Property::FilterBlur: return rstyle(node.style).filter_blur_radius;
+#endif
+	case Property::FilterBlur: return (GEA_CSS_FILTERS ? rstyle(node.style).filter_blur_radius : 0);
 	case Property::Opacity: return node.style.opacity;
 	case Property::Width: return node.style.width;
 	case Property::Height: return node.style.height;
@@ -15660,14 +16317,14 @@ double currentStyleValue(const Node &node, Property property)
 	case Property::HeightPercent: return node.style.height_percent == kUnset ? 0 : node.style.height_percent;
 	case Property::LineHeight: return node.style.line_height;
 	case Property::FontWeight: return node.style.font_weight;
-	case Property::Top: return node.style.pos_offsets[0] == kUnset ? 0 : node.style.pos_offsets[0];
-	case Property::Right: return node.style.pos_offsets[1] == kUnset ? 0 : node.style.pos_offsets[1];
-	case Property::Bottom: return node.style.pos_offsets[2] == kUnset ? 0 : node.style.pos_offsets[2];
-	case Property::Left: return node.style.pos_offsets[3] == kUnset ? 0 : node.style.pos_offsets[3];
-	case Property::TopPercent: return node.style.pos_offset_percent[0] == kUnset ? 0 : node.style.pos_offset_percent[0];
-	case Property::RightPercent: return node.style.pos_offset_percent[1] == kUnset ? 0 : node.style.pos_offset_percent[1];
-	case Property::BottomPercent: return node.style.pos_offset_percent[2] == kUnset ? 0 : node.style.pos_offset_percent[2];
-	case Property::LeftPercent: return node.style.pos_offset_percent[3] == kUnset ? 0 : node.style.pos_offset_percent[3];
+	case Property::Top: return GEA_CSS_POSITION_PX_0(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PX_0(node.style);
+	case Property::Right: return GEA_CSS_POSITION_PX_1(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PX_1(node.style);
+	case Property::Bottom: return GEA_CSS_POSITION_PX_2(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PX_2(node.style);
+	case Property::Left: return GEA_CSS_POSITION_PX_3(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PX_3(node.style);
+	case Property::TopPercent: return GEA_CSS_POSITION_PERCENT_0(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PERCENT_0(node.style);
+	case Property::RightPercent: return GEA_CSS_POSITION_PERCENT_1(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PERCENT_1(node.style);
+	case Property::BottomPercent: return GEA_CSS_POSITION_PERCENT_2(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PERCENT_2(node.style);
+	case Property::LeftPercent: return GEA_CSS_POSITION_PERCENT_3(node.style) == kUnset ? 0 : GEA_CSS_POSITION_PERCENT_3(node.style);
 	case Property::BackgroundColor: return node.style.bg_color;
 	case Property::Color: return node.style.text_color;
 	default: return 0;
@@ -15804,6 +16461,7 @@ bool addCompiledPropertyKeyframe(CssAnimationTrackList &tracks, int nodeId, int 
 	case CssCompiledKind::DirectProperty: {
 		const Property property = static_cast<Property>(compiled.values[0]);
 		switch (property) {
+#if GEA_CSS_TRANSFORMS
 		case Property::RotateAngle:
 			addTrackKeyframe(tracks, property, offset, compiled.values[1] / 10.0); return true;
 		case Property::RotatePresent:
@@ -15814,6 +16472,7 @@ bool addCompiledPropertyKeyframe(CssAnimationTrackList &tracks, int nodeId, int 
 		case Property::ScaleX:
 		case Property::ScaleY:
 		case Property::ScaleZ:
+#endif
 		case Property::Opacity:
 		case Property::Width:
 		case Property::Height:
@@ -16131,6 +16790,8 @@ void startAnimationForNode(int nodeId, const CssAnimationSpec &spec, std::uint32
 	}
 }
 
+#endif
+
 }  // namespace
 
 bool StyleValues::hasTextBackgroundClip(const ComputedStyle &style)
@@ -16175,7 +16836,7 @@ BackgroundPlacement StyleValues::backgroundPlacement(const ComputedStyle &style,
 		}
 		if (out.origin != 0) {
 			int inset[4];
-			for (int i = 0; i < 4; ++i) inset[i] = std::max<int>(node.style.border_width, rstyle(node.style).border_side_width[i]) +
+			for (int i = 0; i < 4; ++i) inset[i] = computedBorderWidth(node.style, i) +
 			    (out.origin == 2 ? std::max<int>(0, node.style.padding[i]) : 0);
 			x += inset[3]; y += inset[0]; width -= inset[1]+inset[3]; height -= inset[0]+inset[2];
 		}
@@ -16377,22 +17038,30 @@ void Style::cssScale(double value) const
 void StyleSheet::clear()
 {
 	rules().clear();
+#if GEA_CSS_ANIMATIONS
 	keyframeRules().clear();
+#endif
 	g_ruleRegistrationBatchDepth = 0;
 	g_ruleRegistrationRulesChanged = false;
 	g_ruleRegistrationKeyframesChanged = false;
+#if GEA_CSS_ANIMATIONS
 	clearKeyframeRuleIndex();
+#endif
 	clearCssRuleTexts();
 	compiledCssValues().clear();
 	clearInlineCompiledStyleCache();
+#if GEA_CSS_ANIMATIONS
 	compiledCssAnimationSpecs().clear();
+#endif
 	clearCompiledCssBackgrounds();
 	clearCompiledCssGridTemplates();
 	clearCompiledCssLengthExpressions();
 	clearCompiledCssLengthCache();
 	clearCompiledCssColorCache();
 	clearMediaConditionPlans();
+#if GEA_CSS_ANIMATIONS
 	gea::css::AnimationEngine::instance().clear();
+#endif
 	invalidateRuleIndex();
 	clearSelectorPartsCache();
 	g_nodeRefOverflow.clear();
@@ -16855,6 +17524,7 @@ void StyleSheet::registerStaticAnimationRule(StaticStyleSelectorKind selectorKin
                                              StaticStyleAnimationEasing easing,
                                              const char *media)
 {
+#if GEA_CSS_ANIMATIONS
 	rules().push_back(makeStaticAnimationCssRule(selectorKind,
 	                                           selector,
 	                                           name,
@@ -16866,6 +17536,7 @@ void StyleSheet::registerStaticAnimationRule(StaticStyleSelectorKind selectorKin
 	                                           easing,
 	                                           media));
 	noteStyleRuleRegistrationChanged();
+#endif
 }
 
 void StyleSheet::registerStaticCustomLengthRule(StaticStyleSelectorKind selectorKind,
@@ -17013,6 +17684,7 @@ void StyleSheet::recomputeSubtree(int nodeId) const
 
 void StyleSheet::startCssAnimations(std::uint32_t nowMs) const
 {
+#if GEA_CSS_ANIMATIONS
 	rebuildRuleIndexIfNeeded();
 	if (g_ruleIndex.animationRules.empty()) return;
 	auto &state = treeState();
@@ -17021,6 +17693,9 @@ void StyleSheet::startCssAnimations(std::uint32_t nowMs) const
 		const CssAnimationSpec spec = animationSpecForNode(node);
 		startAnimationForNode(node, spec, nowMs);
 	}
+#else
+	(void)nowMs;
+#endif
 }
 
 void Tree::setClassName(int node, const std::string &className)
@@ -17080,7 +17755,7 @@ const char *tagFromId(int16_t id)
 // When GEA_EMBEDDED_RARE_STYLE_INLINE is enabled, the rare fields are embedded in
 // ComputedStyle, so these become trivial (rstyleMut returns the embedded struct;
 // release/reset are no-ops) and the pool + free list are compiled out.
-#if !GEA_EMBEDDED_RARE_STYLE_INLINE
+#if GEA_CSS_RARE_STYLE && !GEA_EMBEDDED_RARE_STYLE_INLINE
 namespace {
 std::vector<int16_t> &rareStyleFreeList()
 {
@@ -17092,11 +17767,14 @@ std::vector<int16_t> &rareStyleFreeList()
 
 RareStyle &rstyleMut(ComputedStyle &style)
 {
+#if GEA_CSS_RARE_STYLE
 	// rstyleMut is also used by native setup/tests that write transform fields
 	// directly, bypassing Tree::setStyle's transform-cache invalidation.
+#if GEA_CSS_TRANSFORMS
 	auto &state = treeState();
 	state.transformScanSerial = ~0ull;
 	state.transformScanValid = false;
+#endif
 #if GEA_EMBEDDED_RARE_STYLE_INLINE
 	return style.rare;
 #else
@@ -17114,10 +17792,16 @@ RareStyle &rstyleMut(ComputedStyle &style)
 	style.rare_style = handle;
 	return pool[static_cast<std::size_t>(handle)];
 #endif
+#else
+	(void)style;
+	static RareStyle empty;
+	return empty;
+#endif
 }
 
 void releaseRareStyle(int16_t &handle)
 {
+#if GEA_CSS_RARE_STYLE
 #if GEA_EMBEDDED_RARE_STYLE_INLINE
 	(void)handle;  // embedded rare is freed with the node; nothing to release
 #else
@@ -17126,15 +17810,22 @@ void releaseRareStyle(int16_t &handle)
 	rareStyleFreeList().push_back(handle);
 	handle = -1;
 #endif
+#else
+	(void)handle;
+#endif
 }
 
 void resetRareStylePool()
 {
+#if GEA_CSS_RARE_STYLE
 #if GEA_EMBEDDED_RARE_STYLE_INLINE
 	// rare fields are embedded per-node; there is no shared pool to reset.
 #else
 	rareStylePool().clear();
 	rareStyleFreeList().clear();
+#endif
+#else
+
 #endif
 }
 

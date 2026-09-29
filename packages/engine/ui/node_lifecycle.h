@@ -8,6 +8,7 @@ namespace gea::embedded::ui {
 class NodeLifecycle {
 public:
 	static void init(Node *node, NodeType type);
+	static void resetStyle(ComputedStyle &style);
 };
 
 }  // namespace gea::embedded::ui

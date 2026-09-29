@@ -31,9 +31,9 @@ gea_require_apple_root() {
 }
 
 gea_native_sources() {
-  local engine_root="$ROOT/packages/engine"
+  local engine_root="${GEA_NATIVE_TEST_ENGINE_ROOT:-$ROOT/packages/engine}"
   local host_root="$ROOT/packages/host"
-  local elements_root="$ROOT/packages/elements"
+  local elements_root="${GEA_NATIVE_TEST_ELEMENTS_ROOT:-$ROOT/packages/elements}"
   GEA_NATIVE_SRCS=(
     "$engine_root/canvas.cpp"
     "$engine_root/bitmap_font.cpp"
@@ -131,7 +131,10 @@ gea_build_native_test() {
   local test_main="$3"
   shift 3
   local pixel_panel_endian="${GEA_EMBEDDED_NATIVE_PIXEL_PANEL_ENDIAN:-1}"
-  local engine_vendor="$ROOT/packages/engine/vendor"
+  # Explicit reference-engine input for allocation/behavior comparisons.
+  # Normal tests keep the repository engine; no installed package is modified.
+  local engine_root="${GEA_NATIVE_TEST_ENGINE_ROOT:-$ROOT/packages/engine}"
+  local engine_vendor="$engine_root/vendor"
 
   gea_native_sources
   local native_sources=()
@@ -256,8 +259,8 @@ gea_build_native_test() {
     -I "$ROOT/packages/core/test" \
     -I "$ROOT/packages/host" \
     -I "$ROOT/packages/host/include" \
-    -I "$ROOT/packages/engine" \
-    -I "$ROOT/packages/engine/ui" \
+    -I "$engine_root" \
+    -I "$engine_root/ui" \
     -I "$ROOT/packages/elements" \
     -I "$ROOT/packages/elements/ui" \
     -I "$engine_vendor/AnimatedGIF" \

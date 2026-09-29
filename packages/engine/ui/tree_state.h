@@ -16,7 +16,7 @@
 namespace gea::embedded::ui {
 
 struct NodeClassList {
-	static constexpr std::uint8_t kInlineTokenCount = 4;
+	static constexpr std::uint8_t kInlineTokenCount = GEA_UI_CLASS_INLINE_TOKENS;
 	static constexpr std::uint16_t kNoOverflow = 0xFFFFu;
 
 	CssAtomId inlineTokens[kInlineTokenCount]{};
@@ -51,13 +51,8 @@ struct NodeStyleOverride {
 };
 
 struct NodeStyleOverrideStore {
-	static constexpr std::uint8_t kInlineCount = 4;
-	NodeStyleOverride inlineValues[kInlineCount]{};
-	NodeStyleOverride *spillValues = nullptr;
-	std::size_t spillCount = 0;
-	std::size_t spillCapacity = 0;
-	std::uint8_t inlineCount = 0;
-	bool spilled = false;
+	struct Block;
+	Block *block = nullptr;
 
 	NodeStyleOverrideStore() = default;
 	NodeStyleOverrideStore(const NodeStyleOverrideStore &other);
@@ -69,7 +64,7 @@ struct NodeStyleOverrideStore {
 	void clear();
 	void set(Property property, int value);
 	bool remove(Property property);
-	std::size_t size() const { return spilled ? spillCount : inlineCount; }
+	std::size_t size() const;
 	bool empty() const { return size() == 0; }
 	const NodeStyleOverride &at(std::size_t index) const;
 };
@@ -105,17 +100,30 @@ struct InlineStaticPosition {
 
 struct NodeCustomProperty {
 	CssAtomId nameId = kInvalidCssAtom;
-	std::string value;
 	CssAtomId valueAtom = kInvalidCssAtom;
-	std::int32_t colorStyle = 0;
-	std::int32_t colorNative = 0;
+	// Most values already live in the atom table: alias its stable immutable
+	// string without a control block. A full atom table uses owned storage.
+	std::shared_ptr<const std::string> value{std::shared_ptr<const std::string>{}, &cssAtomString(kInvalidCssAtom)};
+	// Both caches hold packed target colors: RGB565/gray fit 16 bits;
+	// full-color targets retain all 32 bits and their signed carrier.
+	using ColorValue = std::conditional_t<GEA_PIXEL_FORMAT_IS_8888, std::int32_t, std::uint16_t>;
+	ColorValue colorStyle = 0;
+	ColorValue colorNative = 0;
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	float lengthValue = 0.0f;
+#else
+	static constexpr float lengthValue = 0.0f;
+#endif
 	std::uint8_t colorAlpha = 255;
+#if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
 	std::uint8_t lengthUnit = 0;
+#else
+	static constexpr std::uint8_t lengthUnit = 0;
+#endif
 	std::uint8_t flags = 0;
 
 	bool hasColor() const { return (flags & 1u) != 0; }
-	bool hasLength() const { return (flags & 2u) != 0; }
+	bool hasLength() const { return GEA_CSS_CUSTOM_PROPERTY_LENGTHS && (flags & 2u) != 0; }
 };
 
 struct NodeCustomPropertyStore {
@@ -162,20 +170,38 @@ struct GridTrackLayout {
 };
 
 struct NodeRareData {
+	// Reuse the listener record's tail padding for inline-position metadata.
+	// Both members remain ordinary embedded fields with fixed-offset access.
+	[[no_unique_address]] NodeEventListeners listeners;
+	InlineStaticPosition inlineStaticPosition;
 	NodeAttributeStore attributes;
-	NodeEventListeners listeners;
 	NodeCustomPropertyStore customProperties;
 	// Authored inline values survive rebuilding the computed custom-property map.
 	NodeCustomPropertyStore inlineCustomProperties;
 	NodeStyleOverrideStore defaultStyles;
 	NodeStyleOverrideStore inlineStyles;
+#if GEA_CSS_GRID
 	CssAtomId inlineGridTemplates[2] = {kInvalidCssAtom, kInvalidCssAtom};
 	uint8_t inlineGridShorthandMask = 0;
 	std::unique_ptr<GridTrackLayout> gridLayout;
-	VirtualListNodeState virtualList;
+#endif
+#if GEA_CSS_SCROLLING
+	std::unique_ptr<VirtualListNodeState> virtualList;
+	VirtualListNodeState &ensureVirtualList()
+	{
+		if (!virtualList) virtualList = std::make_unique<VirtualListNodeState>();
+		return *virtualList;
+	}
+#else
+	static constexpr const VirtualListNodeState *virtualList = nullptr;
+#endif
+#if GEA_CSS_FIRST_LINE
 	FirstLineBackground firstLineBackground;
 	FirstLineFragment firstLineFragment;
-	InlineStaticPosition inlineStaticPosition;
+#else
+	inline static constexpr FirstLineBackground firstLineBackground{};
+	inline static constexpr FirstLineFragment firstLineFragment{};
+#endif
 
 	void clear()
 	{
@@ -185,12 +211,18 @@ struct NodeRareData {
 		inlineCustomProperties.clear();
 		defaultStyles.clear();
 		inlineStyles.clear();
+#if GEA_CSS_GRID
 		inlineGridTemplates[0] = inlineGridTemplates[1] = kInvalidCssAtom;
 		inlineGridShorthandMask = 0;
 		gridLayout.reset();
-		virtualList = VirtualListNodeState{};
+#endif
+#if GEA_CSS_SCROLLING
+		virtualList.reset();
+#endif
+#if GEA_CSS_FIRST_LINE
 	firstLineBackground = FirstLineBackground{};
 	firstLineFragment = FirstLineFragment{};
+#endif
 	inlineStaticPosition = InlineStaticPosition{};
 	}
 };
@@ -221,9 +253,14 @@ struct TreeState {
 	// re-sync when the tree hasn't changed since the last frame, instead of
 	// diffing the whole view tree at 60Hz while idle.
 	uint64_t refreshSerial = 0;
+#if GEA_CSS_SCROLLING
 	uint64_t scrollDirtyNodes[kScrollDirtyWordCount]{};
 	bool scrollDirtyAny = false;
 	int pendingScrollIntoViewNode = -1;
+#else
+	static constexpr bool scrollDirtyAny = false;
+	static constexpr int pendingScrollIntoViewNode = -1;
+#endif
 	bool inputTickRequired = false;
 	bool displayListDirty = true;
 	// When a rebuild is pending (displayListDirty), this says whether it may have
@@ -262,6 +299,7 @@ struct TreeState {
 	// ViewGeometry::anyTransformPresent(). When false, the per-node ancestor-chain
 	// transform walks short-circuit to O(1) — non-3D trees (the common case) pay
 	// nothing for the 3D machinery. Defaults coax a recompute before first use.
+#if GEA_CSS_TRANSFORMS
 	uint64_t transformScanSerial = ~0ull;
 	bool transformPresent = true;
 	// Durable validity for a cached `transformPresent == false`. refreshSerial bumps
@@ -273,15 +311,26 @@ struct TreeState {
 	// old mode-gate regression was that re-scan, not the gate itself). A cached `true`
 	// is NOT held here — it still re-scans per refreshSerial so a removal is seen.
 	bool transformScanValid = false;
+#else
+	static constexpr uint64_t transformScanSerial = ~0ull;
+	static constexpr bool transformPresent = false;
+	static constexpr bool transformScanValid = true;
+#endif
 
 	// Focus + caret state for `<input>` elements. -1 means no input is
 	// focused. caretLastFlipMs/caretVisible drive the blink animation —
 	// consulted by InputRenderer::record on the pixel target. The macOS
 	// renderer ignores these (NSResponder owns its own caret).
+#if GEA_UI_INPUT_NODES
 	int activeInputId = -1;
-	int hoveredNodeId = -1;
 	int caretLastFlipMs = 0;
 	bool caretVisible = true;
+#else
+	static constexpr int activeInputId = -1;
+	static constexpr int caretLastFlipMs = 0;
+	static constexpr bool caretVisible = false;
+#endif
+	int hoveredNodeId = -1;
 };
 
 TreeState &treeState();

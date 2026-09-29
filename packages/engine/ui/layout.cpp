@@ -375,7 +375,7 @@ bool flexRowDirection(const ComputedStyle &style);
 double preferredRatio(const Node &node)
 {
 	float ratio = 0;
-	const int bits = rstyle(node.style).aspect_ratio;
+	const int bits = (GEA_CSS_ASPECT_RATIO ? rstyle(node.style).aspect_ratio : 0);
 	std::memcpy(&ratio, &bits, sizeof(ratio));
 	if (!std::isfinite(ratio)) return 0;
 	if (ratio < 0 && node.type == NodeType::Image && node.image_id >= 0) return 0;
@@ -543,7 +543,7 @@ public:
 			const int child = children_[i];
 			int childAvailWidth = isRow_ ? mainAvail_ : padWidth_;
 			int childAvailHeight = isRow_ ? padHeight_ : mainAvail_;
-			const int count = rstyle(node_.style).flex_line_count;
+			const int count = (GEA_CSS_FLEX_LINE_COUNT ? rstyle(node_.style).flex_line_count : 1);
 			const Node &item = Tree::instance().nodes()[child];
 			if (node_.style.display == kDisplayFlex && node_.style.flex_wrap && count > 1) {
 				// The specified count limits available cross space even for normal
@@ -661,6 +661,7 @@ public:
 		Node *nodes = Tree::instance().nodes();
 		const int parentId = static_cast<int>(&node_ - nodes);
 		int firstLineStyleOwner = -1;
+#if GEA_CSS_FIRST_LINE
 		for (int ancestor = parentId; ancestor >= 0; ancestor = nodes[ancestor].parent) {
 			const NodeRareData *rare = rareDataFor(ancestor);
 			if (rare && rare->firstLineBackground.hasColor) {
@@ -689,7 +690,9 @@ public:
 				if (!firstInFlow) break;
 			}
 		}
+#endif
 		const bool captureFirstLine = firstLineStyleOwner >= 0;
+#if GEA_CSS_FIRST_LINE
 		// Runs that leave this formatting context must not keep an old fragment
 		// rectangle. A nested inline flow may write its own first-line fragment
 		// later in the same layout pass.
@@ -699,6 +702,7 @@ public:
 			const int run = transparentInlineRun(nodes[child]);
 			if (run >= 0) if (NodeRareData *rare = rareDataFor(run)) rare->firstLineFragment.valid = false;
 		}
+#endif
 		std::vector<std::pair<int, int>> staticBoundaries;
 		int flowIndex = 0;
 		for (int child = node_.first_child; child >= 0; child = nodes[child].next_sibling) {
@@ -911,6 +915,7 @@ public:
 
 			placeLineItems(nodes, i, j, contentLeft, contentW, lineTop, lineCross, baseline, penStart,
 			               !lineIsContinuation);
+#if GEA_CSS_FIRST_LINE
 			if (i == 0 && captureFirstLine) {
 				int firstFormattedLineHeight = actualLineCross;
 				if (!firstLineCandidates.empty()) firstFormattedLineHeight = 0;
@@ -950,6 +955,7 @@ public:
 					fragment.valid = fragment.width > 0 && fragment.height > 0;
 				}
 			}
+#endif
 
 			if (baseline + lineDescent > flowBottom) flowBottom = baseline + lineDescent;
 			if (lineTop + lineCross > flowBottom) flowBottom = lineTop + lineCross;
@@ -1073,7 +1079,7 @@ public:
 		if (hasExplicitWidth(wrapper) || hasExplicitHeight(wrapper)) return -1;
 		if (wrapper.style.min_width > 0 || wrapper.style.min_height > 0) return -1;
 		if (wrapper.style.max_width != kUnset || wrapper.style.max_height != kUnset) return -1;
-		if (wrapper.style.overflow_x || wrapper.style.overflow_y) return -1;
+		if (overflowX(wrapper.style) || overflowY(wrapper.style)) return -1;
 		if (wrapper.style.align_self >= 0 || wrapper.style.flex > 0 ||
 		    hasFlexBasis(wrapper))
 			return -1;
@@ -1300,9 +1306,14 @@ public:
 
 	int crossAlignmentOffset(int index, int count, int free) const
 	{
+#if GEA_CSS_FLEX_WRAP
+        const bool wrapReversed = (node_.style.flex_wrap & 3) == 2;
+#else
+        constexpr bool wrapReversed = false;
+#endif
 		// A wrapping container is multi-line even when only one line is occupied.
 		// Distributed alignments fall back to start/center for overflowing lines.
-		switch (usedAlignment(node_.style.align_content, free, (node_.style.flex_wrap & 3) == 2)) {
+		switch (usedAlignment(node_.style.align_content, free, wrapReversed)) {
 		case 1: return free / 2;
 		case 2: return free;
 		case 3:
@@ -1363,7 +1374,7 @@ private:
 				sizes.push_back(size);
 			}
 			const int available = std::min(total, flexWrapLimit());
-			balancedEnds = balancedFlexLineEnds(sizes, available, mainGap_, rstyle(node_.style).flex_line_count);
+			balancedEnds = balancedFlexLineEnds(sizes, available, mainGap_, (GEA_CSS_FLEX_LINE_COUNT ? rstyle(node_.style).flex_line_count : 1));
 		}
 		int lineCount = 0, start = 0, written = 0, main = 0, cross = 0, strut = 0;
 		auto finish = [&] {
@@ -1410,7 +1421,7 @@ private:
 		// An unconstrained automatic block main size is content-based; the
 		// viewport height must not manufacture additional columns.
 		const int available = std::min(total, flexWrapLimit());
-		const auto ends = balancedFlexLineEnds(sizes, available, mainGap_, rstyle(node_.style).flex_line_count);
+		const auto ends = balancedFlexLineEnds(sizes, available, mainGap_, (GEA_CSS_FLEX_LINE_COUNT ? rstyle(node_.style).flex_line_count : 1));
 		int start = 0, count = 0;
 		for (const int end : ends) {
 			int main = 0, cross = 0;
@@ -1678,13 +1689,18 @@ private:
 
 	void positionLineChildren(const FlexLine &line, Node *nodes, int mainOffset, int crossOffset, int autoSpace = 0, int autoCount = 0, int distributedFree = 0)
 	{
+#if GEA_CSS_FLEX_WRAP
+        const bool wrapReversed = (node_.style.flex_wrap & 3) == 2;
+#else
+        constexpr bool wrapReversed = false;
+#endif
 		const bool flex = node_.style.display == kDisplayFlex;
 		const bool logicalRow = flexRowDirection(node_.style);
 		const int mode = writingMode(node_);
 		const bool blockReversed = mode == 2 || mode == 3;
 		const bool inlineReversed = rightToLeft(node_) != (mode == 4);
 		const bool reverseMain = flex && ((node_.style.flex_direction_explicit && node_.style.flex_direction >= 2) != (logicalRow ? inlineReversed : blockReversed));
-		const bool reverseCross = flex && (((node_.style.flex_wrap & 3) == 2) != (logicalRow ? blockReversed : inlineReversed));
+		const bool reverseCross = flex && ((wrapReversed) != (logicalRow ? blockReversed : inlineReversed));
 		const int mainBefore = isRow_ ? (reverseMain ? 1 : 3) : (reverseMain ? 2 : 0);
 		const int mainAfter = (mainBefore + 2) % 4;
 		const int crossBefore = isRow_ ? (reverseCross ? 2 : 0) : (reverseCross ? 1 : 3);
@@ -1776,12 +1792,17 @@ private:
 
 	void positionCrossAxisChild(int child, Node &childNode, int lineCrossSize, int crossMarginBefore, int crossMarginAfter, int crossTotal, int *crossPosition, int lineMaxBaseline, int lineLastBaseline)
 	{
+#if GEA_CSS_FLEX_WRAP
+        const bool wrapReversed = (node_.style.flex_wrap & 3) == 2;
+#else
+        constexpr bool wrapReversed = false;
+#endif
 		const int alignment = crossAlignFor(childNode);
 		int align = physicalSelfAlignment(node_, childNode, alignment, lineCrossSize - crossTotal, !isRow_);
 		if (align >= 0) {
-			const bool reversed = gridAxisReversed(node_, !isRow_) != ((node_.style.flex_wrap & 3) == 2);
+			const bool reversed = gridAxisReversed(node_, !isRow_) != (wrapReversed);
 			if (reversed) align = align == 2 ? 6 : 2;
-		} else align = usedAlignment(alignment, lineCrossSize - crossTotal, (node_.style.flex_wrap & 3) == 2);
+		} else align = usedAlignment(alignment, lineCrossSize - crossTotal, wrapReversed);
 		switch (align) {
 			case 0:
 			if (isRow_) {
@@ -1949,7 +1970,9 @@ public:
 	void run()
 	{
 		invalidateInlineChildMetadata();
+#if GEA_CSS_FIRST_LINE
 		if (NodeRareData *rare = rareDataFor(id_)) rare->firstLineBackground.lineValid = false;
+#endif
 		if (isDisplayNone(node_.style)) return;
 		prepareOwnSize();
 
@@ -2041,7 +2064,9 @@ public:
 	{
 		if (node_.type == NodeType::Text || node_.type == NodeType::Image) return;
 		invalidateInlineChildMetadata();
+#if GEA_CSS_FIRST_LINE
 		if (NodeRareData *rare = rareDataFor(id_)) rare->firstLineBackground.lineValid = false;
+#endif
 
 		const int padWidth = paddedWidth();
 		const int padHeight = paddedHeight();
@@ -2109,7 +2134,9 @@ private:
 			NodeRareData *rare = rareDataFor(child);
 			if (!rare) continue;
 			rare->inlineStaticPosition.valid = false;
+#if GEA_CSS_FIRST_LINE
 			rare->firstLineFragment.valid = false;
+#endif
 		}
 	}
 
@@ -2126,7 +2153,9 @@ private:
 				if (splitInlineWrapper(nodes_, c)) {
 					splitInlineChildren_ = true;
 					child.layout.x = child.layout.y = child.layout.width = child.layout.height = 0;
+#if GEA_CSS_SCROLLING
 					child.layout.scroll_content_width = child.layout.scroll_content_height = 0;
+#endif
 					child.layout.memo_pass = child.layout.memo2_pass = 0;
 					self(self, c);
 				} else if (count < capacity) children[count++] = c;
@@ -2180,6 +2209,9 @@ private:
 	{
 		if (node_.style.display != kDisplayBlock || hasExplicitHeight(node_) || !establishesBlockContext(node_)) return;
 		int bottom = node_.layout.height - boxInset(node_.style, 2);
+		// With floats absent, no descendant can extend this bound. Keep the
+		// final height clamp without walking the same subtree at every ancestor.
+#if GEA_CSS_FLOATS
 		// CSS 2.2 10.6.7 includes floats through ordinary wrappers, but never
 		// crosses another formatting context. Child layout is still relative;
 		// offsets below the first level have already been applied by its parent.
@@ -2190,14 +2222,15 @@ private:
 				int top = y + child.layout.y;
 				if (parent != id_ && child.style.position == 2) {
 					LayoutNodePass owner(engine_, parent, 0, 0);
-					if (hasPositionOffset(child, 0)) top -= owner.resolvedRelativePositionOffset(child, 0);
-					else if (hasPositionOffset(child, 2)) top += owner.resolvedRelativePositionOffset(child, 2);
+					if (hasPositionOffset<0>(child)) top -= owner.resolvedRelativePositionOffset<0>(child);
+					else if (hasPositionOffset<2>(child)) top += owner.resolvedRelativePositionOffset<2>(child);
 				}
 				if (child.style.float_side) bottom = std::max(bottom, top + child.layout.height + child.style.margin[2]);
 				else if (!establishesBlockContext(child)) self(self, id, top);
 			}
 		};
 		visit(visit, id_, 0);
+#endif
 		node_.layout.height = clampBorderSize(engine_, node_, bottom + boxInset(node_.style, 2), false);
 	}
 
@@ -2267,7 +2300,7 @@ private:
 	bool trimmedBlockEdge(int owner, int id, bool bottom) const
 	{
 		const Node &container = nodes_[owner];
-		const int trim = rstyle(container.style).margin_trim;
+		const int trim = (GEA_CSS_MARGIN_TRIM ? rstyle(container.style).margin_trim : 0);
 		if (!(trim & 3) || container.style.display != kDisplayBlock || container.style.flex_direction_explicit || !blockBox(nodes_[id])) return false;
 		for (bool end : {false, true}) {
 			if (!(trim & (end ? 2 : 1)) || (end != bottom && !collapsesThrough(id))) continue;
@@ -2403,6 +2436,7 @@ private:
 	bool layoutFloatChildren(int *children, int count, int contentWidth, int contentHeight, bool autosize)
 	{
 		if (node_.style.display != kDisplayBlock) return false;
+#if GEA_CSS_FLOATS
 		auto containsFloat = [&](auto &&self, int parent) -> bool {
 			for (int c = nodes_[parent].first_child; c >= 0; c = nodes_[c].next_sibling) {
 				const Node &child = nodes_[c];
@@ -2411,12 +2445,17 @@ private:
 			}
 			return false;
 		};
+#endif
 		bool blocks = false, inlines = false;
 		for (int i = 0; i < count; ++i) {
 			if (blockBox(nodes_[children[i]])) blocks = true;
 			else if (!nodes_[children[i]].style.float_side) inlines = true;
 		}
-		if (!splitInlineChildren_ && !(blocks && inlines) && !containsFloat(containsFloat, id_)) return false;
+		if (!splitInlineChildren_ && !(blocks && inlines)
+#if GEA_CSS_FLOATS
+		    && !containsFloat(containsFloat, id_)
+#endif
+		) return false;
 		FloatContext context;
 		const bool measureWidth = autosize && !hasExplicitWidth(node_) &&
 		    (node_.parent >= 0 || node_.style.float_side || intrinsicWidthConstraint(node_)) &&
@@ -2459,8 +2498,10 @@ private:
 							line.measureChildren();
 							return line.layoutInlineFlow(false, true);
 						};
+#if GEA_CSS_FIRST_LINE
 						NodeRareData *ownerRare = rareDataFor(id_);
 						const bool ownerLineWasValid = ownerRare && ownerRare->firstLineBackground.lineValid;
+#endif
 						auto extent = layoutRun(contentWidth);
 					// If even the first unbreakable unit cannot fit beside a float,
 					// move this line down to the next float boundary and retry.
@@ -2490,6 +2531,7 @@ private:
 						flowY = nextBottom;
 					}
 					if (right - left != contentWidth) extent = layoutRun(std::max(0, right - left));
+#if GEA_CSS_FIRST_LINE
 					if (!ownerLineWasValid && ownerRare && ownerRare->firstLineBackground.lineValid)
 						ownerRare->firstLineBackground.lineY = clampInt16(ownerRare->firstLineBackground.lineY + flowY);
 					for (int j = i; j < end; ++j) {
@@ -2506,6 +2548,7 @@ private:
 							}
 						}
 					}
+#endif
 					for (int j = i; j < end; ++j) {
 						nodes_[children[j]].layout.x += left;
 						nodes_[children[j]].layout.y += flowY;
@@ -2813,6 +2856,7 @@ private:
 
 	void layoutGridChildren(int *children, int childCount, int padWidth, int padHeight, bool allowAutosizeParent)
 	{
+#if GEA_CSS_GRID
 		if (!childCount && !rstyle(node_.style).grid_column_count && !rstyle(node_.style).grid_row_count) {
 			if (auto *rare = rareDataFor(id_)) rare->gridLayout.reset();
 			if (allowAutosizeParent) autosizeEmptyNode();
@@ -3007,7 +3051,7 @@ private:
 			gridPhysicalRange(node_, true, columnX[p.column.start], tracks.columnEnd[p.column.end - 1], vertical ? cellY : cellX, vertical ? cellHeight : cellWidth);
 			gridPhysicalRange(node_, false, rowY[p.row.start], tracks.rowEnd[p.row.end - 1], vertical ? cellX : cellY, vertical ? cellWidth : cellHeight);
 			engine_.layoutNode(child, cellWidth, cellHeight);
-			const int inlineAlign = rstyle(childNode.style).justify_self >= 0 ? rstyle(childNode.style).justify_self : node_.style.justify_items;
+			const int inlineAlign = (GEA_CSS_JUSTIFY_SELF ? rstyle(childNode.style).justify_self : -1) >= 0 ? (GEA_CSS_JUSTIFY_SELF ? rstyle(childNode.style).justify_self : -1) : node_.style.justify_items;
 			const int blockAlign = childNode.style.align_self >= 0 ? childNode.style.align_self : node_.style.align_items;
 			const int alignX = vertical ? blockAlign : inlineAlign;
 			const int alignY = vertical ? inlineAlign : blockAlign;
@@ -3034,7 +3078,14 @@ private:
 			childNode.layout.x = x;
 			childNode.layout.y = y;
 		}
-	}
+	#else
+	(void)children;
+	(void)childCount;
+	(void)padWidth;
+	(void)padHeight;
+	(void)allowAutosizeParent;
+#endif
+}
 
 	void prepareOwnSize()
 	{
@@ -3079,6 +3130,7 @@ private:
 		if (!hasExplicitHeight(node_)) node_.layout.height = boxInset(node_.style, 0) + boxInset(node_.style, 2);
 		node_.layout.width = clampLayoutSize(node_, node_.layout.width, true);
 		node_.layout.height = clampLayoutSize(node_, node_.layout.height, false);
+#if GEA_CSS_SCROLLING
 		// A <virtual-list>'s scroll geometry is owned by
 		// applyVirtualListContentHeight() (invoked right after this in the
 		// empty-node branch). Its recycled slot pool is entirely
@@ -3092,10 +3144,12 @@ private:
 			node_.layout.scroll_x = 0;
 			node_.layout.scroll_y = 0;
 		}
+#endif
 	}
 
 	void updateScrollContentSize()
 	{
+#if GEA_CSS_SCROLLING
 		// A <virtual-list>'s scroll geometry is owned by
 		// applyVirtualListContentHeight() (scroll_content_height = itemCount *
 		// rowHeight). Its real children are the recycled, position:absolute slot
@@ -3138,7 +3192,10 @@ private:
 			if (node_.layout.scroll_y < 0) node_.layout.scroll_y = 0;
 			if (node_.layout.scroll_y > maxScroll) node_.layout.scroll_y = maxScroll;
 		}
-	}
+	#else
+
+#endif
+}
 
 	// A <virtual-list> only materializes a small pool of real child slot nodes
 	// but scrolls over a virtual content height of itemCount * rowHeight. The
@@ -3146,6 +3203,7 @@ private:
 	// controls it purely through the template's stylesheet.
 	void applyVirtualListContentHeight()
 	{
+#if GEA_CSS_SCROLLING
 		if (node_.type != NodeType::VirtualList) return;
 		int rowHeight = 0;
 		for (int child = node_.first_child; child >= 0; child = nodes_[child].next_sibling) {
@@ -3162,7 +3220,10 @@ private:
 		if (maxScroll < 0) maxScroll = 0;
 		if (node_.layout.scroll_y < 0) node_.layout.scroll_y = 0;
 		if (node_.layout.scroll_y > maxScroll) node_.layout.scroll_y = maxScroll;
-	}
+	#else
+
+#endif
+}
 
 	void captureBlockStaticPositions()
 	{
@@ -3218,9 +3279,9 @@ private:
 	{
 		bool resized = false;
 		if (!hasExplicitWidth(childNode) && !isIntrinsicSizeExpression(childNode.style.width_expression) &&
-		    hasPositionOffset(childNode, 3) &&
-		    hasPositionOffset(childNode, 1)) {
-			int width = childAvailWidth - resolvedPositionOffsetWithBasis(childNode, 3, childAvailWidth) - resolvedPositionOffsetWithBasis(childNode, 1, childAvailWidth) -
+		    hasPositionOffset<3>(childNode) &&
+		    hasPositionOffset<1>(childNode)) {
+			int width = childAvailWidth - resolvedPositionOffsetWithBasis<3>(childNode, childAvailWidth) - resolvedPositionOffsetWithBasis<1>(childNode, childAvailWidth) -
 			            childNode.style.margin[1] - childNode.style.margin[3];
 			if (width < 0) width = 0;
 			width = clampLayoutSize(childNode, width, true);
@@ -3231,9 +3292,9 @@ private:
 		}
 
 		if (!hasExplicitHeight(childNode) && !isIntrinsicSizeExpression(childNode.style.height_expression) &&
-		    hasPositionOffset(childNode, 0) &&
-		    hasPositionOffset(childNode, 2)) {
-			int height = childAvailHeight - resolvedPositionOffsetWithBasis(childNode, 0, childAvailHeight) - resolvedPositionOffsetWithBasis(childNode, 2, childAvailHeight) -
+		    hasPositionOffset<0>(childNode) &&
+		    hasPositionOffset<2>(childNode)) {
+			int height = childAvailHeight - resolvedPositionOffsetWithBasis<0>(childNode, childAvailHeight) - resolvedPositionOffsetWithBasis<2>(childNode, childAvailHeight) -
 			             childNode.style.margin[0] - childNode.style.margin[2];
 			if (height < 0) height = 0;
 			height = clampLayoutSize(childNode, height, false);
@@ -3250,11 +3311,11 @@ private:
 	{
 		int x, y, width, height;
 		LayoutEngine::absoluteContainingArea(node_, childNode, x, y, width, height);
-		if (hasPositionOffset(childNode, 3)) childNode.layout.x = x + resolvedPositionOffsetWithBasis(childNode, 3, width) + childNode.style.margin[3];
-		else if (hasPositionOffset(childNode, 1)) childNode.layout.x = x + width - childNode.layout.width - resolvedPositionOffsetWithBasis(childNode, 1, width) - childNode.style.margin[1];
+		if (hasPositionOffset<3>(childNode)) childNode.layout.x = x + resolvedPositionOffsetWithBasis<3>(childNode, width) + childNode.style.margin[3];
+		else if (hasPositionOffset<1>(childNode)) childNode.layout.x = x + width - childNode.layout.width - resolvedPositionOffsetWithBasis<1>(childNode, width) - childNode.style.margin[1];
 		else childNode.layout.x = alignedAbsoluteChildPosition(childNode, true);
-		if (hasPositionOffset(childNode, 0)) childNode.layout.y = y + resolvedPositionOffsetWithBasis(childNode, 0, height) + childNode.style.margin[0];
-		else if (hasPositionOffset(childNode, 2)) childNode.layout.y = y + height - childNode.layout.height - resolvedPositionOffsetWithBasis(childNode, 2, height) - childNode.style.margin[2];
+		if (hasPositionOffset<0>(childNode)) childNode.layout.y = y + resolvedPositionOffsetWithBasis<0>(childNode, height) + childNode.style.margin[0];
+		else if (hasPositionOffset<2>(childNode)) childNode.layout.y = y + height - childNode.layout.height - resolvedPositionOffsetWithBasis<2>(childNode, height) - childNode.style.margin[2];
 		else childNode.layout.y = alignedAbsoluteChildPosition(childNode, false);
 	}
 
@@ -3270,42 +3331,46 @@ private:
 				Node &childNode = nodes_[child];
 				if (splitInlineChildren_ && splitInlineWrapper(nodes_, child)) self(self, child);
 				if (childNode.style.position != 2) continue;
-				if (hasPositionOffset(childNode, 0))
-					childNode.layout.y += resolvedRelativePositionOffset(childNode, 0);
-				else if (hasPositionOffset(childNode, 2))
-					childNode.layout.y -= resolvedRelativePositionOffset(childNode, 2);
-				if (hasPositionOffset(childNode, 3))
-					childNode.layout.x += resolvedRelativePositionOffset(childNode, 3);
-				else if (hasPositionOffset(childNode, 1))
-					childNode.layout.x -= resolvedRelativePositionOffset(childNode, 1);
+				if (hasPositionOffset<0>(childNode))
+					childNode.layout.y += resolvedRelativePositionOffset<0>(childNode);
+				else if (hasPositionOffset<2>(childNode))
+					childNode.layout.y -= resolvedRelativePositionOffset<2>(childNode);
+				if (hasPositionOffset<3>(childNode))
+					childNode.layout.x += resolvedRelativePositionOffset<3>(childNode);
+				else if (hasPositionOffset<1>(childNode))
+					childNode.layout.x -= resolvedRelativePositionOffset<1>(childNode);
 			}
 		};
 		apply(apply, id_);
 	}
 
-	bool hasPositionOffset(const Node &node, int side) const
+	template <int side>
+	bool hasPositionOffset(const Node &node) const
 	{
-		return node.style.pos_offsets[side] != kUnset || node.style.pos_offset_percent[side] != kUnset;
+		return GEA_CSS_POSITION_PX(node.style, side) != kUnset || GEA_CSS_POSITION_PERCENT(node.style, side) != kUnset;
 	}
 
-	int resolvedPositionOffset(const Node &node, int side) const
+	template <int side>
+	int resolvedPositionOffset(const Node &node) const
 	{
-		return resolvedPositionOffsetWithBasis(node, side, (side == 0 || side == 2) ? node_.layout.height : node_.layout.width);
+		return resolvedPositionOffsetWithBasis<side>(node, (side == 0 || side == 2) ? node_.layout.height : node_.layout.width);
 	}
 
-	int resolvedRelativePositionOffset(const Node &node, int side) const
+	template <int side>
+	int resolvedRelativePositionOffset(const Node &node) const
 	{
 		int basis = (side == 0 || side == 2) ? node_.layout.height : node_.layout.width;
 		if (isDisplayGrid(node_.style)) {
 			basis = (side == 0 || side == 2) ? node.layout.height : node.layout.width;
 		}
-		return resolvedPositionOffsetWithBasis(node, side, basis);
+		return resolvedPositionOffsetWithBasis<side>(node, basis);
 	}
 
-	int resolvedPositionOffsetWithBasis(const Node &node, int side, int percentBasis) const
+	template <int side>
+	int resolvedPositionOffsetWithBasis(const Node &node, int percentBasis) const
 	{
-		int offset = node.style.pos_offsets[side] != kUnset ? node.style.pos_offsets[side] : 0;
-		const int percent = node.style.pos_offset_percent[side];
+		int offset = GEA_CSS_POSITION_PX(node.style, side) != kUnset ? GEA_CSS_POSITION_PX(node.style, side) : 0;
+		const int percent = GEA_CSS_POSITION_PERCENT(node.style, side);
 		if (percent != kUnset) {
 			const int numerator = percentBasis * percent;
 			offset += (numerator + (numerator >= 0 ? 500 : -500)) / 1000;
@@ -3349,15 +3414,17 @@ int containingBlockForAbsoluteNode(int node, int root, Node *nodes)
 	return root;
 }
 
-bool hasPositionOffsetValue(const Node &node, int side)
+template <int side>
+bool hasPositionOffsetValue(const Node &node)
 {
-	return node.style.pos_offsets[side] != kUnset || node.style.pos_offset_percent[side] != kUnset;
+	return GEA_CSS_POSITION_PX(node.style, side) != kUnset || GEA_CSS_POSITION_PERCENT(node.style, side) != kUnset;
 }
 
-int resolvedPositionOffsetForBasis(const Node &node, int side, int percentBasis)
+template <int side>
+int resolvedPositionOffsetForBasis(const Node &node, int percentBasis)
 {
-	int offset = node.style.pos_offsets[side] != kUnset ? node.style.pos_offsets[side] : 0;
-	const int percent = node.style.pos_offset_percent[side];
+	int offset = GEA_CSS_POSITION_PX(node.style, side) != kUnset ? GEA_CSS_POSITION_PX(node.style, side) : 0;
+	const int percent = GEA_CSS_POSITION_PERCENT(node.style, side);
 	if (percent != kUnset) {
 		const int numerator = percentBasis * percent;
 		offset += (numerator + (numerator >= 0 ? 500 : -500)) / 1000;
@@ -3385,11 +3452,11 @@ void stretchAbsoluteNodeToContainingBlock(int node, int containingWidth, int con
 	Node &absolute = nodes[node];
 	bool resized = false;
 	if (!hasExplicitWidth(absolute) && !isIntrinsicSizeExpression(absolute.style.width_expression) &&
-	    hasPositionOffsetValue(absolute, 3) &&
-	    hasPositionOffsetValue(absolute, 1)) {
+	    hasPositionOffsetValue<3>(absolute) &&
+	    hasPositionOffsetValue<1>(absolute)) {
 		int width = containingWidth -
-		            resolvedPositionOffsetForBasis(absolute, 3, containingWidth) -
-		            resolvedPositionOffsetForBasis(absolute, 1, containingWidth) -
+		            resolvedPositionOffsetForBasis<3>(absolute, containingWidth) -
+		            resolvedPositionOffsetForBasis<1>(absolute, containingWidth) -
 		            absolute.style.margin[1] - absolute.style.margin[3];
 		if (width < 0) width = 0;
 		width = clampLayoutSize(absolute, width, true);
@@ -3400,11 +3467,11 @@ void stretchAbsoluteNodeToContainingBlock(int node, int containingWidth, int con
 	}
 
 	if (!hasExplicitHeight(absolute) && !isIntrinsicSizeExpression(absolute.style.height_expression) &&
-	    hasPositionOffsetValue(absolute, 0) &&
-	    hasPositionOffsetValue(absolute, 2)) {
+	    hasPositionOffsetValue<0>(absolute) &&
+	    hasPositionOffsetValue<2>(absolute)) {
 		int height = containingHeight -
-		             resolvedPositionOffsetForBasis(absolute, 0, containingHeight) -
-		             resolvedPositionOffsetForBasis(absolute, 2, containingHeight) -
+		             resolvedPositionOffsetForBasis<0>(absolute, containingHeight) -
+		             resolvedPositionOffsetForBasis<2>(absolute, containingHeight) -
 		             absolute.style.margin[0] - absolute.style.margin[2];
 		if (height < 0) height = 0;
 		height = clampLayoutSize(absolute, height, false);
@@ -3421,7 +3488,7 @@ void layoutAbsoluteNode(int node, int containing, int areaX, int areaWidth, int 
 {
 	Node &absolute = nodes[node];
 	auto &engine = LayoutEngine::instance();
-	const bool left = hasPositionOffsetValue(absolute, 3), right = hasPositionOffsetValue(absolute, 1);
+	const bool left = hasPositionOffsetValue<3>(absolute), right = hasPositionOffsetValue<1>(absolute);
 	if (absolute.type != NodeType::View || writingMode(absolute) != 0 ||
 	    hasExplicitWidth(absolute) || isIntrinsicSizeExpression(absolute.style.width_expression) ||
 	    (left && right) || (preferredRatio(absolute) > 0 && hasExplicitHeight(absolute))) {
@@ -3437,10 +3504,12 @@ void layoutAbsoluteNode(int node, int containing, int areaX, int areaWidth, int 
 	scope.constraint = 2;
 	engine.layoutNode(node, 32767, areaHeight, true);
 	const int maximum = std::max(minimum, absolute.layout.width - boxInsets(absolute.style, true));
+#if GEA_CSS_BOX_EXPRESSIONS
 	resolveLayoutBoxLengths(node, areaWidth);
+#endif
 	int available = areaWidth - absolute.style.margin[3] - absolute.style.margin[1];
 	if (left || right) {
-		available -= resolvedPositionOffsetForBasis(absolute, left ? 3 : 1, areaWidth);
+		available -= (left ? resolvedPositionOffsetForBasis<3>(absolute, areaWidth) : resolvedPositionOffsetForBasis<1>(absolute, areaWidth));
 	} else {
 		int parentX = 0, parentY = 0;
 		offsetFromAncestorToNode(containing, absolute.parent, nodes, &parentX, &parentY);
@@ -3472,10 +3541,10 @@ void positionAbsoluteNodeInContainingBlock(int node, int containing, Node *nodes
 			staticX += nodes[id].layout.x; staticY += nodes[id].layout.y;
 			if (LayoutEngine::isViewportFixed(nodes[id])) break;
 		}
-		absolute.layout.x = hasPositionOffsetValue(absolute, 3) ? resolvedPositionOffsetForBasis(absolute, 3, width) + absolute.style.margin[3]
-		    : hasPositionOffsetValue(absolute, 1) ? width - absolute.layout.width - resolvedPositionOffsetForBasis(absolute, 1, width) - absolute.style.margin[1] : staticX;
-		absolute.layout.y = hasPositionOffsetValue(absolute, 0) ? resolvedPositionOffsetForBasis(absolute, 0, height) + absolute.style.margin[0]
-		    : hasPositionOffsetValue(absolute, 2) ? height - absolute.layout.height - resolvedPositionOffsetForBasis(absolute, 2, height) - absolute.style.margin[2] : staticY;
+		absolute.layout.x = hasPositionOffsetValue<3>(absolute) ? resolvedPositionOffsetForBasis<3>(absolute, width) + absolute.style.margin[3]
+		    : hasPositionOffsetValue<1>(absolute) ? width - absolute.layout.width - resolvedPositionOffsetForBasis<1>(absolute, width) - absolute.style.margin[1] : staticX;
+		absolute.layout.y = hasPositionOffsetValue<0>(absolute) ? resolvedPositionOffsetForBasis<0>(absolute, height) + absolute.style.margin[0]
+		    : hasPositionOffsetValue<2>(absolute) ? height - absolute.layout.height - resolvedPositionOffsetForBasis<2>(absolute, height) - absolute.style.margin[2] : staticY;
 		return;
 	}
 
@@ -3491,24 +3560,24 @@ void positionAbsoluteNodeInContainingBlock(int node, int containing, Node *nodes
 	stretchAbsoluteNodeToContainingBlock(node, areaWidth, areaHeight, nodes);
 	int parentOffsetX = 0, parentOffsetY = 0;
 	offsetFromAncestorToNode(containing, parent, nodes, &parentOffsetX, &parentOffsetY);
-	if (!hasPositionOffsetValue(absolute, 3) && !hasPositionOffsetValue(absolute, 1))
+	if (!hasPositionOffsetValue<3>(absolute) && !hasPositionOffsetValue<1>(absolute))
 		absolute.layout.x = LayoutEngine::alignedAbsoluteOffset(nodes[parent], absolute, true, &containingNode, areaX - parentOffsetX, areaWidth);
-	if (!hasPositionOffsetValue(absolute, 0) && !hasPositionOffsetValue(absolute, 2))
+	if (!hasPositionOffsetValue<0>(absolute) && !hasPositionOffsetValue<2>(absolute))
 		absolute.layout.y = LayoutEngine::alignedAbsoluteOffset(nodes[parent], absolute, false, &containingNode, areaY - parentOffsetY, areaHeight);
 
 	int containingX = absolute.layout.x + parentOffsetX;
-	if (hasPositionOffsetValue(absolute, 3))
-		containingX = areaX + resolvedPositionOffsetForBasis(absolute, 3, areaWidth) + absolute.style.margin[3];
-	else if (hasPositionOffsetValue(absolute, 1))
+	if (hasPositionOffsetValue<3>(absolute))
+		containingX = areaX + resolvedPositionOffsetForBasis<3>(absolute, areaWidth) + absolute.style.margin[3];
+	else if (hasPositionOffsetValue<1>(absolute))
 		containingX = areaX + areaWidth - absolute.layout.width -
-		              resolvedPositionOffsetForBasis(absolute, 1, areaWidth) - absolute.style.margin[1];
+		              resolvedPositionOffsetForBasis<1>(absolute, areaWidth) - absolute.style.margin[1];
 
 	int containingY = absolute.layout.y + parentOffsetY;
-	if (hasPositionOffsetValue(absolute, 0))
-		containingY = areaY + resolvedPositionOffsetForBasis(absolute, 0, areaHeight) + absolute.style.margin[0];
-	else if (hasPositionOffsetValue(absolute, 2))
+	if (hasPositionOffsetValue<0>(absolute))
+		containingY = areaY + resolvedPositionOffsetForBasis<0>(absolute, areaHeight) + absolute.style.margin[0];
+	else if (hasPositionOffsetValue<2>(absolute))
 		containingY = areaY + areaHeight - absolute.layout.height -
-		              resolvedPositionOffsetForBasis(absolute, 2, areaHeight) - absolute.style.margin[2];
+		              resolvedPositionOffsetForBasis<2>(absolute, areaHeight) - absolute.style.margin[2];
 
 	absolute.layout.x = containingX - parentOffsetX;
 	absolute.layout.y = containingY - parentOffsetY;
@@ -3584,6 +3653,7 @@ void LayoutEngine::absoluteContainingArea(const Node &parent, const Node &child,
 
 bool LayoutEngine::absoluteGridArea(const Node &parent, const Node &child, int &x, int &y, int &width, int &height)
 {
+#if GEA_CSS_GRID
 	if (!isDisplayGrid(parent.style)) return false;
 	if (child.style.position == kPositionFixed) {
 		if (fixedContainingBlock(child) != &parent - Tree::instance().nodes()) return false;
@@ -3624,6 +3694,15 @@ bool LayoutEngine::absoluteGridArea(const Node &parent, const Node &child, int &
 		gridPhysicalRange(parent, columns, start, std::max(start, end), horizontal ? x : y, horizontal ? width : height);
 	}
 	return true;
+#else
+	(void)parent;
+	(void)child;
+	(void)x;
+	(void)y;
+	(void)width;
+	(void)height;
+	return false;
+#endif
 }
 
 int LayoutEngine::alignedAbsoluteOffset(const Node &parent, const Node &childNode, bool horizontal,
@@ -3670,7 +3749,7 @@ int LayoutEngine::alignedAbsoluteOffset(const Node &parent, const Node &childNod
 	const bool grid = isDisplayGrid(parent.style), flex = parent.style.display == kDisplayFlex;
 	const bool row = flex ? flexRowDirection(parent.style) != (writingMode(parent) != 0) : usesRowLayout(parent.style);
 	const int crossAlign = childNode.style.align_self >= 0 ? childNode.style.align_self : parent.style.align_items;
-	const int inlineAlign = rstyle(childNode.style).justify_self >= 0 ? rstyle(childNode.style).justify_self : parent.style.justify_items;
+	const int inlineAlign = (GEA_CSS_JUSTIFY_SELF ? rstyle(childNode.style).justify_self : -1) >= 0 ? (GEA_CSS_JUSTIFY_SELF ? rstyle(childNode.style).justify_self : -1) : parent.style.justify_items;
 	int align = grid
 		? (horizontal == (writingMode(parent) == 0) ? inlineAlign : crossAlign)
 		: (horizontal ? (row ? parent.style.justify_content : crossAlign)
@@ -3833,7 +3912,15 @@ std::uint32_t gLayoutPassSerial = 1;
 
 void LayoutEngine::beginLayoutPass()
 {
-	if (++gLayoutPassSerial == 0) gLayoutPassSerial = 1;
+	if (++gLayoutPassSerial == 0x10000u) {
+		// Stored tags are 16-bit. Invalidate before reusing a serial so a node
+		// untouched for a full cycle cannot appear freshly laid out. Keep the
+		// arithmetic counter 32-bit; normal memo field reads remain direct.
+		auto &tree = Tree::instance();
+		for (int id = 0; id < tree.nodeCount(); ++id)
+			tree.nodes()[id].layout.memo_pass = tree.nodes()[id].layout.memo2_pass = 0;
+		gLayoutPassSerial = 1;
+	}
 }
 
 void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBoxEdges)
@@ -3879,8 +3966,10 @@ void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBo
 		}
 		const int minimum = keyword == kSizeMaxContent ? 0 : measure(1);
 		const int maximum = keyword == kSizeMinContent ? minimum : std::max(minimum, measure(2));
+#if GEA_CSS_BOX_EXPRESSIONS
 		const int inlineBasis = node.parent >= 0 && writingMode(Tree::instance().nodes()[node.parent]) != 0 ? avail_h : avail_w;
 		resolveLayoutBoxLengths(id, intrinsicBoxEdges ? 0 : inlineBasis);
+#endif
 		const int edges = boxInsets(node.style, horizontal);
 		const int stretch = std::max(0, (horizontal ? avail_w : avail_h) -
 		    node.style.margin[horizontal ? 1 : 0] - node.style.margin[horizontal ? 3 : 2] - edges);
@@ -3891,10 +3980,12 @@ void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBo
 	}
 	if (node.type == NodeType::Text && intrinsicWidthConstraint(node) == 1)
 		avail_w = std::max(avail_w, TextRenderer::minContentWidth(node) + boxInsets(node.style, true));
+#if GEA_CSS_BOX_EXPRESSIONS
 	const int inlineBasis = node.parent >= 0 && writingMode(Tree::instance().nodes()[node.parent]) != 0 ? avail_h : avail_w;
 	if (resolveLayoutBoxLengths(id, intrinsicBoxEdges ? 0 : inlineBasis)) {
 		node.layout.memo_pass = node.layout.memo2_pass = 0;
 	}
+#endif
 	const bool memoizable = !gIntrinsicSizeScope && !gFlexBasisScope && avail_w >= INT16_MIN && avail_w <= INT16_MAX &&
 	                        avail_h >= INT16_MIN && avail_h <= INT16_MAX;
 	if (memoizable) {
@@ -3909,13 +4000,11 @@ void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBo
 		if (node.layout.memo2_pass == gLayoutPassSerial &&
 		    node.layout.memo2_avail_w == avail_w &&
 		    node.layout.memo2_avail_h == avail_h &&
-		    node.layout.memo2_result_w == node.layout.width &&
-		    node.layout.memo2_result_h == node.layout.height) {
+		    node.layout.memo_result_w == node.layout.width &&
+		    node.layout.memo_result_h == node.layout.height) {
 			// Promote the hit to the MRU slot.
 			std::swap(node.layout.memo_avail_w, node.layout.memo2_avail_w);
 			std::swap(node.layout.memo_avail_h, node.layout.memo2_avail_h);
-			std::swap(node.layout.memo_result_w, node.layout.memo2_result_w);
-			std::swap(node.layout.memo_result_h, node.layout.memo2_result_h);
 			std::swap(node.layout.memo_pass, node.layout.memo2_pass);
 			refreshPerfStatsMutable().treeLayoutMemoHits++;
 			return;
@@ -3937,9 +4026,8 @@ void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBo
 	}
 	node.layout.memo2_avail_w = node.layout.memo_avail_w;
 	node.layout.memo2_avail_h = node.layout.memo_avail_h;
-	node.layout.memo2_result_w = node.layout.memo_result_w;
-	node.layout.memo2_result_h = node.layout.memo_result_h;
-	node.layout.memo2_pass = node.layout.memo_pass;
+	node.layout.memo2_pass = node.layout.memo_result_w == node.layout.width &&
+	                         node.layout.memo_result_h == node.layout.height ? node.layout.memo_pass : 0;
 	if (memoizable) {
 		node.layout.memo_avail_w = static_cast<std::int16_t>(avail_w);
 		node.layout.memo_avail_h = static_cast<std::int16_t>(avail_h);
@@ -4019,7 +4107,7 @@ bool LayoutEngine::layoutNodeScoped(int scope, int treeRoot)
 		if (a.parent >= 0 && a.parent < nodeCount) {
 			const Node &parent = nodes[a.parent];
 			if (isDisplayGrid(parent.style)) {
-				const int inlineAlign = rstyle(a.style).justify_self >= 0 ? rstyle(a.style).justify_self : parent.style.justify_items;
+				const int inlineAlign = (GEA_CSS_JUSTIFY_SELF ? rstyle(a.style).justify_self : -1) >= 0 ? (GEA_CSS_JUSTIFY_SELF ? rstyle(a.style).justify_self : -1) : parent.style.justify_items;
 				const int blockAlign = a.style.align_self >= 0 ? a.style.align_self : parent.style.align_items;
 				const int alignX = writingMode(parent) == 0 ? inlineAlign : blockAlign;
 				const int alignY = writingMode(parent) == 0 ? blockAlign : inlineAlign;

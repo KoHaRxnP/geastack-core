@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+#include "ui/renderer_features.h"
 #include "canvas.h"
 #include "display.h"
 #include "graphics/font.h"
@@ -833,6 +834,7 @@ SolidGlyphCacheEntry *solidGlyphCacheEntry(const RasterizedFont &font,
 
 class CanvasMath {
 public:
+#if GEA_EMBEDDED_RENDERER_CIRCLES
 #ifndef GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX
 #define GEA_EMBEDDED_CANVAS_CIRCLE_RADIUS_MAX 63
 #endif
@@ -853,6 +855,7 @@ public:
 	static_assert(kCircleBoxSpanMax > 0 && kCircleBoxSpanMax <= 255);
 	static_assert(kCircleBoxSpanSlots > 0);
 
+#endif
 	static int min(int a, int b) { return a < b ? a : b; }
 
 	static int integerSqrt(int n)
@@ -867,33 +870,39 @@ public:
 		return x;
 	}
 
-	const std::uint8_t (*circleSpans(int size))[2]
+	static const std::uint8_t (*circleSpans(int size))[2]
 	{
+#if GEA_EMBEDDED_RENDERER_CIRCLES
 		if (size <= 0 || size > kCircleSpanMax || (size & 1)) return nullptr;
 		int slot = size / 2;
 		std::uint32_t bit = 1u << slot;
-		if (!(circleSpanCacheReady_ & bit)) {
+		if (!(instance().circleSpanCacheReady_ & bit)) {
 			int radius2 = size * size;
 			for (int row = 0; row < size; row++) {
 				int dy2 = row * 2 + 1 - size;
 				int dx2 = integerSqrt(radius2 - dy2 * dy2);
-				circleSpanCache_[slot][row][0] = (std::uint8_t)((size - dx2) / 2);
-				circleSpanCache_[slot][row][1] = (std::uint8_t)((size + dx2 - 1) / 2);
+				instance().circleSpanCache_[slot][row][0] = (std::uint8_t)((size - dx2) / 2);
+				instance().circleSpanCache_[slot][row][1] = (std::uint8_t)((size + dx2 - 1) / 2);
 			}
-			circleSpanCacheReady_ |= bit;
+			instance().circleSpanCacheReady_ |= bit;
 		}
-		return circleSpanCache_[slot];
+		return instance().circleSpanCache_[slot];
+#else
+		(void)size;
+		return nullptr;
+#endif
 	}
 
-	const std::uint8_t (*circleBoxSpans(int size))[2]
+	static const std::uint8_t (*circleBoxSpans(int size))[2]
 	{
+#if GEA_EMBEDDED_RENDERER_CIRCLES
 		if (size <= 0 || size > kCircleBoxSpanMax) return nullptr;
 		for (int slot = 0; slot < kCircleBoxSpanSlots; ++slot) {
-			if (circleBoxSpanSize_[slot] == size)
-				return circleBoxSpanCache_[slot];
+			if (instance().circleBoxSpanSize_[slot] == size)
+				return instance().circleBoxSpanCache_[slot];
 		}
-		const int slot = circleBoxSpanNext_;
-		circleBoxSpanNext_ = (circleBoxSpanNext_ + 1) % kCircleBoxSpanSlots;
+		const int slot = instance().circleBoxSpanNext_;
+		instance().circleBoxSpanNext_ = (instance().circleBoxSpanNext_ + 1) % kCircleBoxSpanSlots;
 		const long long ss = static_cast<long long>(size) * static_cast<long long>(size);
 		for (int row = 0; row < size; row++) {
 			const long long dy2 = static_cast<long long>(row * 2 + 1 - size);
@@ -904,31 +913,41 @@ public:
 			int sx1 = (size + dx2 - 1) / 2;
 			if (sx0 < 0) sx0 = 0;
 			if (sx1 >= size) sx1 = size - 1;
-			circleBoxSpanCache_[slot][row][0] = static_cast<std::uint8_t>(sx0);
-			circleBoxSpanCache_[slot][row][1] = static_cast<std::uint8_t>(sx1);
+			instance().circleBoxSpanCache_[slot][row][0] = static_cast<std::uint8_t>(sx0);
+			instance().circleBoxSpanCache_[slot][row][1] = static_cast<std::uint8_t>(sx1);
 		}
-		circleBoxSpanSize_[slot] = size;
-		return circleBoxSpanCache_[slot];
+		instance().circleBoxSpanSize_[slot] = size;
+		return instance().circleBoxSpanCache_[slot];
+#else
+		(void)size;
+		return nullptr;
+#endif
 	}
 
-	const std::uint8_t (*circleRadiusSpans(int radius))[2]
+	static const std::uint8_t (*circleRadiusSpans(int radius))[2]
 	{
+#if GEA_EMBEDDED_RENDERER_CIRCLES
 		if (radius <= 0 || radius > kCircleRadiusMax) return nullptr;
 		std::uint64_t bit = 1ull << radius;
-		if (!(circleRadiusSpanCacheReady_ & bit)) {
+		if (!(instance().circleRadiusSpanCacheReady_ & bit)) {
 			const int diameter = radius * 2 + 1;
 			const int rr = radius * radius;
 			for (int row = 0; row < diameter; row++) {
 				const int dy = row - radius;
 				const int dx = integerSqrt(rr - dy * dy);
-				circleRadiusSpanCache_[radius][row][0] = (std::uint8_t)(radius - dx);
-				circleRadiusSpanCache_[radius][row][1] = (std::uint8_t)(radius + dx);
+				instance().circleRadiusSpanCache_[radius][row][0] = (std::uint8_t)(radius - dx);
+				instance().circleRadiusSpanCache_[radius][row][1] = (std::uint8_t)(radius + dx);
 			}
-			circleRadiusSpanCacheReady_ |= bit;
+			instance().circleRadiusSpanCacheReady_ |= bit;
 		}
-		return circleRadiusSpanCache_[radius];
+		return instance().circleRadiusSpanCache_[radius];
+#else
+		(void)radius;
+		return nullptr;
+#endif
 	}
 
+#if GEA_EMBEDDED_RENDERER_CIRCLES
 	static CanvasMath &instance()
 	{
 		static CanvasMath math;
@@ -943,6 +962,7 @@ private:
 	std::uint8_t circleBoxSpanCache_[kCircleBoxSpanSlots][kCircleBoxSpanMax][2]{};
 	std::uint8_t circleBoxSpanSize_[kCircleBoxSpanSlots]{};
 	int circleBoxSpanNext_ = 0;
+#endif
 };
 
 pixel::native_t Canvas::readPixelNative(int x, int y) const
@@ -1658,7 +1678,7 @@ bool Canvas::fillCircleNoDirty(int cx, int cy, int r, pixel::native_t color)
 	const ClipRect *clip = &clipStack_[clipDepth_];
 	if (cx + r < clip->x0 || cx - r > clip->x1 || cy + r < clip->y0 || cy - r > clip->y1) return false;
 
-	const std::uint8_t (*spans)[2] = CanvasMath::instance().circleRadiusSpans(r);
+	const std::uint8_t (*spans)[2] = CanvasMath::circleRadiusSpans(r);
 	if (!spans) {
 		const int rr = r * r;
 		int dy0 = -r;
@@ -1807,7 +1827,7 @@ void Canvas::fillCirclesRgb565WorldYSorted(const CircleEntry *circles,
                                             int yOffset)
 {
 	if (!pixels_ || !circles || count <= 0 || r <= 0) return;
-	const std::uint8_t (*spans)[2] = CanvasMath::instance().circleRadiusSpans(r);
+	const std::uint8_t (*spans)[2] = CanvasMath::circleRadiusSpans(r);
 	const int diameter = r * 2 + 1;
 	const int w = width_;
 	const int h = height_;
@@ -3226,8 +3246,8 @@ void Canvas::fillQuarterCircle(int cx, int cy, int r, int quadrant, pixel::nativ
 void Canvas::fillCircleBox(int x, int y, int size, pixel::native_t color)
 {
 	if (!pixels_) return;
-	const std::uint8_t (*spans)[2] = CanvasMath::instance().circleSpans(size);
-	if (!spans) return;
+	const std::uint8_t (*spans)[2] = CanvasMath::circleSpans(size);
+	if (size <= 0 || size > 32 || (size & 1)) return;
 	const ClipRect *clip = &clipStack_[clipDepth_];
 
 	if (x > clip->x1 || y > clip->y1 || x + size - 1 < clip->x0 || y + size - 1 < clip->y0) return;
@@ -3242,8 +3262,10 @@ void Canvas::fillCircleBox(int x, int y, int size, pixel::native_t color)
 	for (int row = row0; row <= row1; row++) {
 		int sy = y + row;
 
-		int sx0 = x + spans[row][0];
-		int sx1 = x + spans[row][1];
+		const int dy2 = row * 2 + 1 - size;
+		const int dx2 = spans ? 0 : CanvasMath::integerSqrt(size * size - dy2 * dy2);
+		int sx0 = x + (spans ? spans[row][0] : (size - dx2) / 2);
+		int sx1 = x + (spans ? spans[row][1] : (size + dx2 - 1) / 2);
 		if (sx0 < clip->x0) sx0 = clip->x0;
 		if (sx1 > clip->x1) sx1 = clip->x1;
 		if (sx0 < 0) sx0 = 0;
@@ -3275,7 +3297,7 @@ void Canvas::fillRoundedRectBoxesRgb565(const std::int16_t *xs,
 	// four-corner rounded-rect raster.
 	if (Canvas::antialiasSamples() < 2 && roundedRectIsCircleLike(w, h, tl, tr, br, bl) && h <= 256) {
 		const std::uint8_t (*cachedSpans)[2] =
-			(w == h) ? CanvasMath::instance().circleBoxSpans(w) : nullptr;
+			(w == h) ? CanvasMath::circleBoxSpans(w) : nullptr;
 		std::uint16_t spanX0[256];
 		std::uint16_t spanX1[256];
 		if (!cachedSpans) {
@@ -3368,7 +3390,7 @@ void Canvas::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br,
 	// 62fps circle path (its poles are marginally rounder than the integer scanline).
 	if (Canvas::antialiasSamples() < 2 && w == h &&
 			tl == w / 2 && tr == w / 2 && br == w / 2 && bl == w / 2 &&
-			CanvasMath::instance().circleSpans(w)) {
+			w > 0 && w <= 32 && !(w & 1)) {
 		fillCircleBox(x, y, w, color);
 		return;
 	}
@@ -4378,7 +4400,7 @@ void Canvas::drawImageRounded(
 		// lookup per row instead of an integer sqrt, and repeat draws of the
 		// same radius (every full-size icon, every chunk that touches it) pay
 		// nothing at all.
-		const std::uint8_t (*spans)[2] = CanvasMath::instance().circleRadiusSpans(rr);
+		const std::uint8_t (*spans)[2] = CanvasMath::circleRadiusSpans(rr);
 		for (int py = y0; py <= y1; py++) {
 			const int ly = py - dy;
 			int lo, hi;

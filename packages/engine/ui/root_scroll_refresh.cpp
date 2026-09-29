@@ -29,6 +29,7 @@
 
 namespace gea::embedded::ui {
 
+#if GEA_CSS_SCROLLING
 namespace {
 
 bool hasTransformState(const Node &node)
@@ -107,8 +108,8 @@ bool isSlotRepositionCandidate(const TreeState &state, int node, int scrollNode)
 	if (n.style.position != 1) return false;
 	// Anchored via top/bottom (the windowed axis); refresh() recomputes y from
 	// these offsets directly.
-	if (n.style.pos_offsets[0] == kUnset && n.style.pos_offset_percent[0] == kUnset &&
-	    n.style.pos_offsets[2] == kUnset && n.style.pos_offset_percent[2] == kUnset)
+	if (GEA_CSS_POSITION_PX_0(n.style) == kUnset && GEA_CSS_POSITION_PERCENT_0(n.style) == kUnset &&
+	    GEA_CSS_POSITION_PX_2(n.style) == kUnset && GEA_CSS_POSITION_PERCENT_2(n.style) == kUnset)
 		return false;
 	if (hasTransformState(n)) return false;
 	// The reconcile translates the slot box; a pending size change needs layout.
@@ -117,10 +118,11 @@ bool isSlotRepositionCandidate(const TreeState &state, int node, int scrollNode)
 	return true;
 }
 
-int resolvedSlotOffset(const Node &slot, int side, int basis)
+template <int side>
+int resolvedSlotOffset(const Node &slot, int basis)
 {
-	int offset = slot.style.pos_offsets[side] != kUnset ? slot.style.pos_offsets[side] : 0;
-	const int percent = slot.style.pos_offset_percent[side];
+	int offset = GEA_CSS_POSITION_PX(slot.style, side) != kUnset ? GEA_CSS_POSITION_PX(slot.style, side) : 0;
+	const int percent = GEA_CSS_POSITION_PERCENT(slot.style, side);
 	if (percent != kUnset) {
 		const int numerator = basis * percent;
 		offset += (numerator + (numerator >= 0 ? 500 : -500)) / 1000;
@@ -333,7 +335,10 @@ int RootScrollOnlyRefresh::refreshNode(int root,
 			if (hasTransformState(*n)) return -1;
 			if (n->style.opacity != 255 || hasAnyBorder(n->style)) return -1;
 			for (int r = 0; r < 4; r++) {
-				if (n->style.border_radius[r] != 0 || n->style.border_radius_percent[r] != kUnset) return -1;
+				if (n->style.border_radius[GEA_CSS_RADIUS_INDEX(r)] != 0) return -1;
+#if GEA_CSS_PERCENT_RADIUS
+				if (n->style.border_radius_percent[GEA_CSS_RADIUS_INDEX(r)] != kUnset) return -1;
+#endif
 			}
 			foundNode = i;
 			continue;
@@ -537,18 +542,18 @@ int RootScrollOnlyRefresh::refresh(int root, int width, int height)
 		if (slot.style.display == 1) continue;  // display:none — erase old rect only
 
 		int newX = slot.layout.x;
-		if (slot.style.pos_offsets[3] != kUnset || slot.style.pos_offset_percent[3] != kUnset)
-			newX = n->layout.x + resolvedSlotOffset(slot, 3, n->layout.width);
-		else if (slot.style.pos_offsets[1] != kUnset || slot.style.pos_offset_percent[1] != kUnset)
+		if (GEA_CSS_POSITION_PX_3(slot.style) != kUnset || GEA_CSS_POSITION_PERCENT_3(slot.style) != kUnset)
+			newX = n->layout.x + resolvedSlotOffset<3>(slot, n->layout.width);
+		else if (GEA_CSS_POSITION_PX_1(slot.style) != kUnset || GEA_CSS_POSITION_PERCENT_1(slot.style) != kUnset)
 			newX = n->layout.x + n->layout.width - slot.layout.width -
-			       resolvedSlotOffset(slot, 1, n->layout.width);
+			       resolvedSlotOffset<1>(slot, n->layout.width);
 
 		int newY = slot.layout.y;
-		if (slot.style.pos_offsets[0] != kUnset || slot.style.pos_offset_percent[0] != kUnset)
-			newY = n->layout.y - n->layout.scroll_y + resolvedSlotOffset(slot, 0, n->layout.height);
-		else if (slot.style.pos_offsets[2] != kUnset || slot.style.pos_offset_percent[2] != kUnset)
+		if (GEA_CSS_POSITION_PX_0(slot.style) != kUnset || GEA_CSS_POSITION_PERCENT_0(slot.style) != kUnset)
+			newY = n->layout.y - n->layout.scroll_y + resolvedSlotOffset<0>(slot, n->layout.height);
+		else if (GEA_CSS_POSITION_PX_2(slot.style) != kUnset || GEA_CSS_POSITION_PERCENT_2(slot.style) != kUnset)
 			newY = n->layout.y - n->layout.scroll_y + n->layout.height - slot.layout.height -
-			       resolvedSlotOffset(slot, 2, n->layout.height);
+			       resolvedSlotOffset<2>(slot, n->layout.height);
 
 		const int dx = newX - slot.layout.x;
 		const int dy = newY - slot.layout.y;
@@ -858,7 +863,19 @@ void rootScrollImageHoldTick()
 	if (state.mountedRoot < 0) return;
 	Tree::instance().markDisplayListDirty();
 	state.nodes[state.mountedRoot].render.dirty = 1;
+#if GEA_CSS_SCROLLING
 	state.nodes[state.mountedRoot].render.non_scroll_dirty = 1;
+#endif
 }
+
+#else
+int RootScrollOnlyRefresh::refresh(int root, int width, int height)
+{
+	(void)root; (void)width; (void)height;
+	return 0;
+}
+
+void rootScrollImageHoldTick() {}
+#endif
 
 }  // namespace gea::embedded::ui

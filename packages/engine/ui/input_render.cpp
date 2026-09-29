@@ -78,6 +78,7 @@ const char *inputMeasureText(int id)
 
 void InputRenderer::layout(int id, int)
 {
+	if (!GEA_UI_INPUT_NODES) return;
 	auto &tree = Tree::instance();
 	if (id < 0 || id >= tree.nodeCount()) return;
 	Node &n = tree.node(id);
@@ -95,12 +96,15 @@ void InputRenderer::layout(int id, int)
 	else if ((n.style.height_percent != kUnset || n.style.height_expression >= 0) && n.layout.height > 0) height = n.layout.height;
 	n.layout.width = clampBorderBoxSize(n.style, width, true);
 	n.layout.height = clampBorderBoxSize(n.style, height, false);
+#if GEA_CSS_SCROLLING
 	n.layout.scroll_content_height = n.layout.height;
 	n.layout.scroll_y = 0;
+#endif
 }
 
 void InputRenderer::record(int id)
 {
+	if (!GEA_UI_INPUT_NODES) return;
 	auto &tree = Tree::instance();
 	if (id < 0 || id >= tree.nodeCount()) return;
 	const Node &n = tree.node(id);

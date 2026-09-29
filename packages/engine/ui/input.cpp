@@ -135,7 +135,9 @@ public:
 		activeBackgroundColor_ = node.style.bg_color;
 		activeHasBackground_ = node.style.has_bg;
 		node.render.dirty = 1;  // paint-only: press highlight recolors in place
+#if GEA_CSS_SCROLLING
 		node.render.non_scroll_dirty = 1;
+#endif
 		// We mutated bg_color directly (bypassing setStyleValue), so the
 		// direct-replay refresh path would otherwise keep the cached
 		// pre-press color in the display list. Mark commands dirty so the
@@ -559,6 +561,7 @@ private:
 
 	static void setScrollLeft(int nodeId, int next)
 	{
+#if GEA_CSS_SCROLLING
 		Tree &tree = Tree::instance();
 		if (nodeId < 0 || nodeId >= tree.nodeCount()) return;
 		Node &node = tree.node(nodeId);
@@ -571,10 +574,14 @@ private:
 		// handles either axis), so it no longer forces the full clipped-replay
 		// path via non_scroll_dirty — mirror the vertical setScrollTop path.
 		tree.markScrollDirty(nodeId);
-	}
+	#else
+		(void)nodeId; (void)next;
+#endif
+}
 
 	static void setScrollTop(int nodeId, int next)
 	{
+#if GEA_CSS_SCROLLING
 		Tree &tree = Tree::instance();
 		if (nodeId < 0 || nodeId >= tree.nodeCount()) return;
 		if (tree.node(nodeId).type == NodeType::VirtualList) {
@@ -587,7 +594,10 @@ private:
 		node.render.dirty = 1;
 		node.render.layout_dirty = 1;
 		tree.markScrollDirty(nodeId);
-	}
+	#else
+		(void)nodeId; (void)next;
+#endif
+}
 
 	static std::uint16_t lightenRgb565(std::uint16_t color)
 	{
@@ -650,7 +660,9 @@ private:
 			node.style.bg_color = savedBackgroundColor_;
 			node.style.has_bg = savedHasBackground_;
 			node.render.dirty = 1;  // paint-only: press highlight restore
+#if GEA_CSS_SCROLLING
 			node.render.non_scroll_dirty = 1;
+#endif
 			Tree::instance().markNodeDisplayCommandsDirty(activeTouchNode_);
 		}
 		activeTouchNode_ = -1;
@@ -893,6 +905,7 @@ int Tree::activeInputId() const
 
 void Tree::setActiveInput(int nodeId)
 {
+#if GEA_UI_INPUT_NODES
 	auto &state = treeState();
 	if (nodeId < -1 || nodeId >= state.nodeCount) nodeId = -1;
 	if (state.activeInputId == nodeId) return;
@@ -910,7 +923,9 @@ void Tree::setActiveInput(int nodeId)
 		Node &n = state.nodes[id];
 		n.render.dirty = 1;
 		n.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		n.render.non_scroll_dirty = 1;
+#endif
 		state.nodeCommandDirty[id] = 1;
 	};
 	markInputDirty(previousId);
@@ -923,6 +938,7 @@ void Tree::setActiveInput(int nodeId)
 	// `displayListDirty`; the keyboard subsystem decides activity in
 	// notifyActiveInputChanged.
 	state.displayListDirty = true;
+#endif
 }
 
 bool Tree::activeInputCaretVisible() const
@@ -932,6 +948,7 @@ bool Tree::activeInputCaretVisible() const
 
 void Tree::tickInputCaret(int timestampMs)
 {
+#if GEA_UI_INPUT_NODES
 	auto &state = treeState();
 	if (state.activeInputId < 0) {
 		state.caretVisible = false;
@@ -959,8 +976,11 @@ void Tree::tickInputCaret(int timestampMs)
 		Node &n = state.nodes[state.activeInputId];
 		n.render.dirty = 1;
 		n.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		n.render.non_scroll_dirty = 1;
+#endif
 	}
+#endif
 }
 
 }  // namespace gea::embedded::ui

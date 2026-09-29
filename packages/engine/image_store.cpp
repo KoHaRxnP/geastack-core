@@ -2,8 +2,35 @@
 #include "image.h"
 #include "memory.h"
 #include "pixel.h"
+#include "gea_perf_config.h"
 
 #include <cstring>
+#include <limits>
+
+#if GEA_EMBEDDED_PERF && defined(ESP_PLATFORM)
+#include "esp_timer.h"
+#include <atomic>
+#include <cstdio>
+#endif
+
+// Baseline JPEGs can stream from the S3 ROM decoder directly into native
+// pixels. Keep unsupported JPEG variants on stb's general-purpose path.
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#endif
+#if !defined(GEA_EMBEDDED_ROM_TJPGD) && defined(ESP_PLATFORM) && defined(CONFIG_IDF_TARGET_ESP32S3)
+#define GEA_EMBEDDED_ROM_TJPGD 1
+#endif
+
+// A linked esp_new_jpeg component supplies the S3 SIMD decoder. It writes
+// straight to native RGB565; other pixel formats keep the ROM/stb paths.
+#if !defined(GEA_EMBEDDED_ESP_JPEG) && defined(ESP_PLATFORM) && \
+    GEA_EMBEDDED_PIXEL_FORMAT == GEA_PIXEL_RGB565 && __has_include("esp_jpeg_dec.h")
+#define GEA_EMBEDDED_ESP_JPEG 1
+#endif
+#if defined(GEA_EMBEDDED_ESP_JPEG) && GEA_EMBEDDED_ESP_JPEG && GEA_EMBEDDED_PIXEL_FORMAT == GEA_PIXEL_RGB565
+#include "esp_jpeg_dec.h"
+#endif
 
 // Route stb_image's allocations through the framework allocator (PSRAM-first
 // on embedded targets). Plain malloc would land on the tiny SRAM newlib heap
@@ -50,11 +77,15 @@ void *gea_stbi_realloc_sized(void *ptr, std::size_t oldSize, std::size_t newSize
 #include "stb_image.h"
 
 #if defined(GEA_EMBEDDED_ROM_TJPGD) && GEA_EMBEDDED_ROM_TJPGD
-// ESP32 ROM TinyJPEG decompressor. Block-streaming with a small work pool and
-// 1/2–1/8 descaling, so a full-page cover decodes in a few KB of scratch instead
-// of stb_image's several MB of large contiguous buffers (which the reader's
-// fragmented PSRAM cannot satisfy).
+// The ROM emits one RGB888 MCU at a time, not a full-frame RGB(A) buffer.
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#include "esp32s3/rom/tjpgd.h"
+#else
 #include "esp32/rom/tjpgd.h"
+#endif
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#endif
 #endif
 
 #include "AnimatedGIF.h"
@@ -339,6 +370,73 @@ int ImageStore::decodeGif(ImageSlot &image, const std::uint8_t *data, int length
 	return -1;
 }
 
+#if defined(GEA_EMBEDDED_ESP_JPEG) && GEA_EMBEDDED_ESP_JPEG && GEA_EMBEDDED_PIXEL_FORMAT == GEA_PIXEL_RGB565
+int ImageStore::decodeJpegEsp(ImageSlot &image, const std::uint8_t *data, int length)
+{
+#if GEA_EMBEDDED_PERF && defined(ESP_PLATFORM)
+	static std::atomic<unsigned> sampleSequence{0};
+	const bool measure = sampleSequence.fetch_add(1, std::memory_order_relaxed) % 10 == 0;
+	const std::int64_t started = measure ? esp_timer_get_time() : 0;
+#endif
+	const auto result = [&](jpeg_error_t rc, const char *stage) {
+#if GEA_EMBEDDED_PERF && defined(ESP_PLATFORM)
+		if (measure) std::printf("[jpeg-esp] rc=%d stage=%s size=%dx%d total_us=%lld fallback=%s\n",
+		                         static_cast<int>(rc), stage, image.width, image.height,
+		                         static_cast<long long>(esp_timer_get_time() - started), rc == JPEG_ERR_OK ? "no" : "yes");
+#else
+		(void)stage;
+#endif
+		return rc == JPEG_ERR_OK ? 0 : -1;
+	};
+	struct Decoder {
+		jpeg_dec_handle_t handle = nullptr;
+		~Decoder() { if (handle) jpeg_dec_close(handle); }
+	} decoder;
+	jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+#if GEA_EMBEDDED_PIXEL_PANEL_ENDIAN
+	config.output_type = JPEG_PIXEL_FORMAT_RGB565_BE;
+#else
+	config.output_type = JPEG_PIXEL_FORMAT_RGB565_LE;
+#endif
+	// Plain whole-image decode supports arbitrary dimensions, including 410x502.
+	// Block mode, rotation and resize have stricter alignment requirements.
+	jpeg_error_t rc = jpeg_dec_open(&config, &decoder.handle);
+	if (rc != JPEG_ERR_OK) return result(rc, "open");
+	jpeg_dec_io_t io{};
+	io.inbuf = const_cast<std::uint8_t *>(data);
+	io.inbuf_len = length;
+	jpeg_dec_header_info_t info{};
+	rc = jpeg_dec_parse_header(decoder.handle, &io, &info);
+	if (rc != JPEG_ERR_OK) return result(rc, "header");
+	if (!info.width || !info.height || static_cast<std::size_t>(info.width) >
+	    static_cast<std::size_t>(std::numeric_limits<int>::max()) / sizeof(pixel::native_t) / info.height)
+		return result(JPEG_ERR_INVALID_PARAM, "dimensions");
+	const std::size_t count = static_cast<std::size_t>(info.width) * info.height;
+	const int byteCount = static_cast<int>(count * sizeof(pixel::native_t));
+	int outputBytes = 0;
+	rc = jpeg_dec_get_outbuf_len(decoder.handle, &outputBytes);
+	if (rc != JPEG_ERR_OK) return result(rc, "buffer-size");
+	if (outputBytes != byteCount) return result(JPEG_ERR_INVALID_PARAM, "buffer-size");
+	auto *pixels = ImageMemory::allocate<pixel::native_t>(count);
+	if (!pixels) return result(JPEG_ERR_NO_MEM, "allocation");
+	io.outbuf = reinterpret_cast<std::uint8_t *>(pixels);
+	rc = jpeg_dec_process(decoder.handle, &io);
+	if (rc != JPEG_ERR_OK || io.out_size != byteCount) {
+		ImageMemory::release(pixels);
+		return result(rc == JPEG_ERR_OK ? JPEG_ERR_BAD_DATA : rc, "decode");
+	}
+	image.width = info.width;
+	image.height = info.height;
+	image.frameCount = 1;
+	image.pixels = pixels;
+	image.ownsPixels = true;
+	image.alpha = nullptr;
+	image.loopCount = 0;
+	image.playing = false;
+	return result(JPEG_ERR_OK, "decode");
+}
+#endif
+
 #if defined(GEA_EMBEDDED_ROM_TJPGD) && GEA_EMBEDDED_ROM_TJPGD
 namespace {
 // Shared input+output context for one ROM-tjpgd session (jd->device carries it
@@ -363,10 +461,13 @@ UINT geaTjpgdInput(JDEC *jd, BYTE *buf, UINT nbyte)
 	return static_cast<UINT>(take);
 }
 
-// Receive a decoded RGB888 block and write it (as luma) into the native buffer.
+// Convert each MCU directly into the final image. Preserve colour and source
+// dimensions: image loading must not silently resize a 502px-high video frame.
 UINT geaTjpgdOutput(JDEC *jd, void *bitmap, JRECT *rect)
 {
 	auto *c = static_cast<TjpgdCtx *>(jd->device);
+	if (!bitmap || rect->left > rect->right || rect->top > rect->bottom ||
+	    rect->right >= c->outW || rect->bottom >= c->outH) return 0;
 	const std::uint8_t *rgb = static_cast<const std::uint8_t *>(bitmap);
 	for (int y = rect->top; y <= rect->bottom; y++) {
 		for (int x = rect->left; x <= rect->right; x++) {
@@ -374,48 +475,49 @@ UINT geaTjpgdOutput(JDEC *jd, void *bitmap, JRECT *rect)
 			const std::uint8_t g = rgb[1];
 			const std::uint8_t b = rgb[2];
 			rgb += 3;
-			if (x < c->outW && y < c->outH) {
-				const std::uint8_t lum = static_cast<std::uint8_t>((r * 77 + g * 150 + b * 29) >> 8);
-				c->out[y * c->outW + x] = rgbaToNative(lum, lum, lum, 255);
-			}
+			c->out[static_cast<std::size_t>(y) * c->outW + x] = rgbaToNative(r, g, b, 255);
 		}
 	}
 	return 1;
 }
 }  // namespace
 
-// Decode a (large) JPEG with the ROM tinyjpeg decompressor, descaling so the
-// output fits the panel. Returns 0 on success (fills `image`), -1 otherwise.
+// Decode at the source dimensions with bounded scratch plus the native image.
 int ImageStore::decodeJpegTjpgd(ImageSlot &image, const std::uint8_t *data, int length)
 {
 	TjpgdCtx ctx{data, static_cast<std::size_t>(length), 0, nullptr, 0, 0};
-	// Work pool for the huffman/quant tables + one-MCU scratch. Generous and
-	// PSRAM-backed so jd_prepare never fails for lack of pool.
-	const std::size_t poolSize = 64 * 1024;
-	void *pool = memory::Allocator::allocatePreferSpiram(poolSize, alignof(std::max_align_t));
+
+	// Keep the frequently accessed Huffman/quant tables in internal memory when
+	// available. Allocation is per decode and falls back to PSRAM under pressure.
+	constexpr std::size_t poolSize = 8 * 1024;
+	void *pool = nullptr;
+#ifdef ESP_PLATFORM
+	pool = heap_caps_malloc(poolSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+#endif
+	if (!pool) pool = memory::Allocator::allocatePreferSpiram(poolSize, alignof(std::max_align_t));
 	if (!pool) return -1;
-	JDEC jd;
-	if (jd_prepare(&jd, geaTjpgdInput, pool, poolSize, &ctx) != JDR_OK) {
+	JDEC jd{};
+	const JRESULT prepareRc = jd_prepare(&jd, geaTjpgdInput, pool, poolSize, &ctx);
+	if (prepareRc != JDR_OK) {
 		memory::Allocator::free(pool);
 		return -1;
 	}
-	// Descale by powers of two until both axes sit at/under the panel's long
-	// side; a grayscale e-paper contain-fitting the result shows no visible loss.
-	int scale = 0;
-	while (((static_cast<int>(jd.width) >> scale) > 480 || (static_cast<int>(jd.height) >> scale) > 480) && scale < 3) scale++;
-	ctx.outW = static_cast<int>(jd.width) >> scale;
-	ctx.outH = static_cast<int>(jd.height) >> scale;
-	if (ctx.outW <= 0 || ctx.outH <= 0) {
+	if (jd.width == 0 || jd.height == 0 ||
+	    jd.width > static_cast<UINT>(std::numeric_limits<int>::max()) ||
+	    jd.height > static_cast<UINT>(std::numeric_limits<int>::max()) ||
+	    static_cast<std::size_t>(jd.width) > std::numeric_limits<std::size_t>::max() / sizeof(pixel::native_t) / jd.height) {
 		memory::Allocator::free(pool);
 		return -1;
 	}
+	ctx.outW = static_cast<int>(jd.width);
+	ctx.outH = static_cast<int>(jd.height);
 	auto *px = ImageMemory::allocate<pixel::native_t>(static_cast<std::size_t>(ctx.outW) * ctx.outH);
 	if (!px) {
 		memory::Allocator::free(pool);
 		return -1;
 	}
 	ctx.out = px;
-	const JRESULT rc = jd_decomp(&jd, geaTjpgdOutput, static_cast<BYTE>(scale));
+	const JRESULT rc = jd_decomp(&jd, geaTjpgdOutput, 0);
 	memory::Allocator::free(pool);
 	if (rc != JDR_OK) {
 		ImageMemory::release(px);
@@ -462,16 +564,17 @@ int ImageStore::decodeStatic(ImageSlot &image, const std::uint8_t *data, int len
 		return 0;
 	}
 
-#if defined(GEA_EMBEDDED_ROM_TJPGD) && GEA_EMBEDDED_ROM_TJPGD
-	// Large JPEGs (covers/photos) go through the low-memory ROM decoder. Small
-	// JPEGs keep the stb path (its fixed cost is fine and avoids the pool alloc).
+#if defined(GEA_EMBEDDED_ESP_JPEG) && GEA_EMBEDDED_ESP_JPEG && GEA_EMBEDDED_PIXEL_FORMAT == GEA_PIXEL_RGB565
 	if (detectFormat(data, length) == ImageFormat::Jpeg) {
-		int jw = 0, jh = 0, jc = 0;
-		if (stbi_info_from_memory(data, length, &jw, &jh, &jc) && static_cast<long long>(jw) * jh > 200000) {
-			const int rc = decodeJpegTjpgd(image, data, length);
-			if (rc == 0) return 0;
-			// Fall through to stb on tjpgd failure (best-effort).
-		}
+		if (decodeJpegEsp(image, data, length) == 0) return 0;
+	}
+#endif
+
+#if defined(GEA_EMBEDDED_ROM_TJPGD) && GEA_EMBEDDED_ROM_TJPGD
+	// JPEG has no alpha; both loadBytes and loadBytesOpaque can use the native
+	// streaming path. Unsupported encodings (e.g. progressive) fall back to stb.
+	if (detectFormat(data, length) == ImageFormat::Jpeg) {
+		if (decodeJpegTjpgd(image, data, length) == 0) return 0;
 	}
 #endif
 

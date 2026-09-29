@@ -139,6 +139,11 @@ void appendText(int nodeId, std::string &out)
 	for (int child = node.first_child; child >= 0; child = tree.node(child).next_sibling) appendText(child, out);
 }
 
+// Saved reference engines retain the original direct arrays.
+#ifndef GEA_CSS_POSITION_PX
+#define GEA_CSS_POSITION_PX(style, side) ((style).pos_offsets[side])
+#endif
+
 void dumpNode(int nodeId, int indent)
 {
 	auto &tree = gea::embedded::ui::Tree::instance();
@@ -152,8 +157,8 @@ void dumpNode(int nodeId, int indent)
 	             static_cast<int>(node.type),
 	             tree.className(nodeId).c_str(),
 	             node.text.c_str(),
-	             node.style.pos_offsets[3],
-	             node.style.pos_offsets[0],
+	             GEA_CSS_POSITION_PX(node.style, 3),
+	             GEA_CSS_POSITION_PX(node.style, 0),
 	             node.style.width,
 	             node.style.height,
 	             node.layout.x,

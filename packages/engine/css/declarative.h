@@ -34,6 +34,7 @@ public:
   // Call once after an app mounts; nowMs is the current frame clock.
   static void scanAndStart(uint32_t nowMs)
   {
+#if GEA_CSS_ANIMATIONS
     gea::embedded::ui::Tree &tree = gea::embedded::ui::Tree::instance();
     const int count = tree.nodeCount();
     for (int id = 0; id < count; ++id) {
@@ -41,9 +42,13 @@ public:
       if (!kind || kind[0] == '\0') continue;
       startForNode(tree, id, kind, nowMs);
     }
+#else
+    (void)nowMs;
+#endif
   }
 
 private:
+#if GEA_CSS_ANIMATIONS
   static int attrInt(gea::embedded::ui::Tree &tree, int id, const char *name, int def)
   {
     const char *v = tree.getAttribute(id, name);
@@ -126,6 +131,7 @@ private:
       startOne(Property::Height, from, to);
     }
   }
+#endif
 };
 
 }  // namespace gea::css

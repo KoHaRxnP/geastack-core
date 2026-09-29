@@ -36,12 +36,13 @@
 //      handlers fire.
 
 #include "virtual_keyboard.h"
+#include "node_features.h"
 
 #ifndef GEA_EMBEDDED_ENABLE_VIRTUAL_KEYBOARD
 #define GEA_EMBEDDED_ENABLE_VIRTUAL_KEYBOARD 1
 #endif
 
-#if GEA_EMBEDDED_ENABLE_VIRTUAL_KEYBOARD
+#if GEA_EMBEDDED_ENABLE_VIRTUAL_KEYBOARD && GEA_UI_INPUT_NODES
 
 #include "display.h"
 #include "internal.h"
@@ -579,7 +580,9 @@ void applyKeyToActiveInput(int code)
 		Node &nn = tree.node(nodeId);
 		nn.render.dirty = 1;
 		nn.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
 		nn.render.non_scroll_dirty = 1;
+#endif
 	};
 
 	if (code == kCodeBackspace) {
@@ -701,10 +704,14 @@ void applyAppResize()
 	// first setStyle lands, so none of them is read back post-mutation.
 	const int prevHeight = n.style.height;
 	const int prevFlex = n.style.flex;
+#if GEA_CSS_OVERFLOW_AXES
 	const int prevOverflowY = n.style.overflow_y;
+#else
+	const int prevOverflowY = n.style.overflow;
+#endif
 	const int prevPosition = n.style.position;
-	const int prevTop = n.style.pos_offsets[0];
-	const int prevLeft = n.style.pos_offsets[3];
+	const int prevTop = GEA_CSS_POSITION_PX_0(n.style);
+	const int prevLeft = GEA_CSS_POSITION_PX_3(n.style);
 	const int viewportH = tree.mountedHeight();
 	// Available vertical space between the top of this node (set by
 	// previous siblings' heights during the most recent layout pass)
