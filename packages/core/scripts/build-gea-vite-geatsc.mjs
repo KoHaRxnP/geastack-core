@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inlineJsonImports, transformGeaEmbeddedCompatSource } from './gea-embedded-compat-transform.mjs'
-import { shouldIgnoreCompatStagingDirectory } from './gea-embedded-compat-staging.mjs'
+import { normalizeEmbeddedJsxOptions, shouldIgnoreCompatStagingDirectory } from './gea-embedded-compat-staging.mjs'
 import { dotEnvDefines, inlineProcessEnv } from './dotenv-defines.mjs'
 import {
   MODULE_HINT_SCOPE,
@@ -360,6 +360,7 @@ function stateRuntimeAliasToTypeScript(stagedAppDir, compatSrcDir, stagingRoot) 
     }
   }
   const options = config.compilerOptions ?? (config.compilerOptions = {})
+  normalizeEmbeddedJsxOptions(options)
   options.baseUrl = options.baseUrl ?? '.'
   const base = path.resolve(stagedAppDir, options.baseUrl)
   // Both specifiers, because the Vite config aliases both to the same
@@ -4279,7 +4280,10 @@ const moduleGraphOutOption = readOption('--module-graph-out') ?? process.env.GEA
 const moduleGraphOnly = hasFlag('--module-graph-only')
 const moduleGraphCompileRequested = hasFlag('--compile-module-graph')
 const moduleGraphCompileDisabled = hasFlag('--no-compile-module-graph')
-const geaPluginSpecifier = path.resolve(readOption('--geatsc-gea-plugin') ?? requireFromLib.resolve('@geastack/geatsc-plugin-gea'))
+const geaPluginSpecifier = path.resolve(
+  readOption('--geatsc-gea-plugin') ??
+  (process.env.GEA_PLUGIN_DIR ? path.join(process.env.GEA_PLUGIN_DIR, 'dist/index.js') : undefined) ??
+  requireFromLib.resolve('@geastack/geatsc-plugin-gea'))
 const extraGeatscPlugins = readAllOptions('--extra-geatsc-plugin').map((plugin) => path.resolve(plugin))
 const appendJsFiles = readAllOptions('--append-js').map((file) => path.resolve(file))
 const entry = readOption('--entry') ?? 'index.tsx'

@@ -1,3 +1,4 @@
+import { nodeAuxVersion, addNodeAuxFeatures, addUnknownNodeAux, cssUsesNodeAttributes } from './analyze-node-aux.js'
 import { sourceLiteralResolver } from './analyze-literals.js'
 import fs from 'node:fs'
 import { analyzeClassCapacity } from './analyze-classes.js'
@@ -8,7 +9,7 @@ import type { HostBindingAnalysisPatch } from './types.js'
 import { nodeAnalysisVersion, addNodeFeatures, addUnknownNodeFeatures } from './analyze-nodes.js'
 import { cssRangeObserver } from './analyze-css-ranges.js'
 import { cssAnalysisVersion, cssUsageObserver, addUnknownCssFeatures } from './analyze-css.js'
-import { addRendererFeatures, addUnknownRendererFeatures, rendererAnalysisVersion, rendererVariableAnalysis } from './analyze-renderer.js'
+import { addRendererFeatures, addUnknownRendererFeatures, rendererAnalysisVersion, rendererOcclusionAnalysisVersion, rendererVariableAnalysis } from './analyze-renderer.js'
 
 export function capabilitiesToAnalyzePatch(capabilities: string[]): HostBindingAnalysisPatch {
   const features: string[] = []
@@ -30,7 +31,7 @@ export function capabilitiesToAnalyzePatch(capabilities: string[]): HostBindingA
 // connection with "No server verification option set".
 export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPatch {
   const bindings = new Set<string>()
-  const features = new Set<string>([rendererAnalysisVersion, cssAnalysisVersion, nodeAnalysisVersion])
+  const features = new Set<string>([rendererAnalysisVersion, rendererOcclusionAnalysisVersion, cssAnalysisVersion, nodeAnalysisVersion, nodeAuxVersion])
   const discovery = discoverSourceFiles(entry)
   const classSources = new Map<string, string>()
   let classUnknown = discovery.unknown
@@ -41,12 +42,13 @@ export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPat
   const ranges = cssRangeObserver(features)
   const observer = {
     isSourceMethod: literals.isSourceMethod,
-    selector(value: string): void { css.selector?.(value); ranges.selector?.(value) },
+    selector(value: string): void { css.selector?.(value); ranges.selector?.(value); if (cssUsesNodeAttributes(value)) features.add('node-attributes') },
     property(name: string | undefined, value: string | undefined, expression?: ts.Expression): void { css.property(name, value, expression); ranges.property(name, value); variables.property(name, value) },
-    unknown(): void { classUnknown = true; css.unknown(); ranges.unknown(); variables.unknown(); addUnknownNodeFeatures(features) },
-    unknownRanges(): void { ranges.unknown() },
+    unknown(): void { features.add('renderer-occlusion-triangles'); classUnknown = true; css.unknown(); ranges.unknown(); variables.unknown(); addUnknownNodeFeatures(features); addUnknownNodeAux(features) },
+    unknownRanges(): void { features.add('renderer-occlusion-triangles'); ranges.unknown(); css.unknownDefaults() },
+    unknownCircleBounds(): void { ranges.unknownCircleBounds?.() },
   }
-  if (discovery.unknown) { variables.unknown(); ranges.unknown(); addUnknownNodeFeatures(features) }
+  if (discovery.unknown) { variables.unknown(); ranges.unknown(); addUnknownNodeFeatures(features); addUnknownNodeAux(features) }
   if (discovery.unknown) { addUnknownRendererFeatures(features); addUnknownCssFeatures(features) }
   for (const file of discovery.files) {
     if (!fs.existsSync(file)) continue
@@ -58,9 +60,13 @@ export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPat
     addFeaturesForUrlSchemes(text, features)
     addRendererFeatures(file, text, features, observer, variables)
     addNodeFeatures(file, text, features)
+    addNodeAuxFeatures(file, text, features, literals.isNumeric)
   }
   const classCapacity = analyzeClassCapacity(classSources, classUnknown || features.has('node-inputs') || features.has('node-images'))
-  if (classCapacity !== undefined) features.add(`node-class-capacity-v1-${classCapacity}`)
+  if (classCapacity !== undefined) {
+    features.add(`node-class-capacity-v1-${classCapacity}`)
+    features.add(`node-class-storage-v1-${classCapacity}`)
+  }
   variables.finish()
   css.finish()
   ranges.finish()

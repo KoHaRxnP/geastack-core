@@ -31,7 +31,7 @@ void LayoutSnapshot::capture()
 		// ~1ms/frame on the spinning css-3d-cube (the "snap" phase); spine read these as
 		// direct ComputedStyle fields. (Same regression class as the reproject path.)
 #if GEA_CSS_TRANSFORMS || GEA_CSS_FILTERS
-		const RareStyle &rs = rstyle(state.nodes[i].style);
+		const RareStyle &rs = rstyle(state.nodes[i].computedStyle());
 #endif
 #if GEA_CSS_TRANSFORMS
 		state.nodes[i].render.previous_transformable_box = ViewRenderer::isTransformableBox(state.nodes[i]);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { transformGeaEmbeddedCompatSource } from '../scripts/gea-embedded-compat-transform.mjs'
 import {
   COMPAT_STAGING_IGNORED_DIRECTORIES,
+  normalizeEmbeddedJsxOptions,
   shouldIgnoreCompatStagingDirectory,
 } from '../scripts/gea-embedded-compat-staging.mjs'
 
@@ -78,3 +79,21 @@ assert.match(
   /import \{\s*Store\s*\} from ['"]gea-embedded['"]/,
   'non-JSX store modules should still be normalized for the Gea IR plugin',
 )
+
+const browserComponent = transformGeaEmbeddedCompatSource(
+  "import { Component as View, Store, Router } from '@geajs/core'; export class App extends View { template() { return <div /> } }",
+  'src/App.tsx',
+)
+assert.match(browserComponent, /import \{ Component as View, Store \} from ["']gea-embedded["']/)
+assert.match(browserComponent, /import \{ Router \} from ["']@geajs\/core["']/)
+const browserStore = transformGeaEmbeddedCompatSource(
+  storeOnlyModule.replace('@geastack/core', '@geajs/core'), 'src/GameStore.ts',
+)
+assert.match(browserStore, /import \{\s*Store\s*\} from ["']gea-embedded["']/)
+assert.doesNotMatch(browserStore, /@geajs\/core/)
+const embeddedOptions = { jsx: 'preserve', jsxImportSource: '@geajs/core', strict: true }
+normalizeEmbeddedJsxOptions(embeddedOptions)
+assert.deepEqual(embeddedOptions, { jsx: 'preserve', strict: true })
+const customOptions = { jsxImportSource: 'custom-jsx-provider' }
+normalizeEmbeddedJsxOptions(customOptions)
+assert.equal(customOptions.jsxImportSource, 'custom-jsx-provider')
