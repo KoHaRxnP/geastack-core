@@ -3224,6 +3224,13 @@ export function createGeaHostShims(): HostShimDefinitions {
           returnType: "std::string",
         },
       ],
+      json: [
+        {
+          receiverTypes: ["gea::host::FetchResponse"],
+          emit: "([&]() { const std::string text = ({receiver}).text(); gea::json::Reader reader(text); gea::Value value = reader.readDynamicValue(); reader.finish(); return value; }())",
+          returnType: "gea::Value",
+        },
+      ],
       ...CSS_STYLE_DECLARATION_NATIVE_MEMBER_METHODS,
     },
     embeddedHostConstants: {
