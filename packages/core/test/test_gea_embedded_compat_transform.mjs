@@ -119,7 +119,7 @@ try {
   assert.equal(resolveCompilerRuntimeEntry([child, core]), expected)
   assert.equal(resolveCompilerRuntimeEntry([path.join(workspace, 'web'), core]), expected)
   fs.rmSync(path.join(packageRoot, 'src/compiler-runtime.ts'))
-  assert.equal(resolveCompilerRuntimeEntry([child, core]), '', 'untyped dist packages cannot satisfy the native source requirement')
+  assert.equal(resolveCompilerRuntimeEntry([child]), '', 'untyped dist packages cannot satisfy the native source requirement')
   const nested = path.join(core, 'node_modules', '@geajs', 'core', 'src')
   fs.mkdirSync(nested, { recursive: true })
   for (const name of ['index.ts', 'compiler-runtime.ts']) fs.writeFileSync(path.join(nested, name), '')

@@ -12,6 +12,8 @@ export function resolveCompilerRuntimeEntry(bases) {
       const entry = path.join(source, 'index.ts')
       if (fs.existsSync(entry) && fs.existsSync(path.join(source, 'compiler-runtime.ts')))
         return fs.realpathSync(entry)
+      // An installed package shadows ancestors, even if it lacks typed sources.
+      if (fs.existsSync(path.join(modules, '@geajs/core/package.json'))) break
     }
   }
   return ''
