@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inlineJsonImports, transformGeaEmbeddedCompatSource } from './gea-embedded-compat-transform.mjs'
 import { normalizeEmbeddedJsxOptions, shouldIgnoreCompatStagingDirectory } from './gea-embedded-compat-staging.mjs'
 import { dotEnvDefines, inlineProcessEnv } from './dotenv-defines.mjs'
+import { resolveCompilerRuntimeEntry } from './gea-native-style-plugin.mjs'
 import {
   MODULE_HINT_SCOPE,
   applyBundledTypeHints,
@@ -459,23 +460,8 @@ function writeCompatViteConfig({ configPath, compatSrcDir, appDir, entry, viteOu
   // whole reactive runtime dynamically (gea_cpp_value, ill-formed auto-vectors,
   // proxy derefs). From source, everything is typed and lowers natively, exactly
   // like three.js/hono/mongodb. The env var still wins when explicitly set;
-  // otherwise resolve the package's source entry via its node_modules symlink.
-  let compilerRuntimeEntry = process.env.GEA_COMPILER_RUNTIME_SOURCE || ''
-  if (!compilerRuntimeEntry) {
-    for (const base of [appDir, coreRoot]) {
-      try {
-        const pkgDir = fs.realpathSync(path.join(base, 'node_modules/@geajs/core'))
-        const srcIndex = path.join(pkgDir, 'src/index.ts')
-        if (fs.existsSync(srcIndex) && fs.existsSync(path.join(pkgDir, 'src/compiler-runtime.ts'))) {
-          compilerRuntimeEntry = srcIndex
-          break
-        }
-      } catch {
-        // No @geajs/core source under this base (e.g. published-only install) —
-        // fall through; the alias stays empty and the dist runtime is used.
-      }
-    }
-  }
+  // otherwise follow ordinary package resolution, including hoisted installs.
+  const compilerRuntimeEntry = process.env.GEA_COMPILER_RUNTIME_SOURCE || resolveCompilerRuntimeEntry([appDir, coreRoot])
   const compilerRuntimeAlias = compilerRuntimeEntry && fs.existsSync(compilerRuntimeEntry)
     ? `      { find: new RegExp('^@geajs/core$'), replacement: ${q(compilerRuntimeEntry)} },\n`
     : ''
