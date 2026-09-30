@@ -9,7 +9,7 @@ import { createGeaHostShims } from '../dist/host-shims.js'
 test('native FetchResponse.json decodes response bytes and rejects malformed JSON', () => {
   const packageRoot = resolve(import.meta.dirname, '..')
   const packages = resolve(packageRoot, '..')
-  const require = createRequire(resolve(packages, 'core/package.json'))
+  const require = createRequire(resolve(packageRoot, 'package.json'))
   const compilerRoot = process.env.GEATSC_ROOT ?? dirname(require.resolve('@geastack/compiler/package.json'))
   const method = createGeaHostShims().nativeMemberMethods.json.find(row =>
     row.receiverTypes.includes('gea::host::FetchResponse')
