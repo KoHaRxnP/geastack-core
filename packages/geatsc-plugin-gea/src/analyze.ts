@@ -36,9 +36,11 @@ export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPat
   let classUnknown = discovery.unknown
   const variables = rendererVariableAnalysis(features)
   const literalSources = new Map([...discovery.files].filter(file => fs.existsSync(file)).map(file => [file, fs.readFileSync(file, 'utf8')]))
-  const css = cssUsageObserver(features, sourceLiteralResolver(literalSources, discovery.unknown))
+  const literals = sourceLiteralResolver(literalSources, discovery.unknown)
+  const css = cssUsageObserver(features, literals)
   const ranges = cssRangeObserver(features)
   const observer = {
+    isSourceMethod: literals.isSourceMethod,
     selector(value: string): void { css.selector?.(value); ranges.selector?.(value) },
     property(name: string | undefined, value: string | undefined, expression?: ts.Expression): void { css.property(name, value, expression); ranges.property(name, value); variables.property(name, value) },
     unknown(): void { classUnknown = true; css.unknown(); ranges.unknown(); variables.unknown(); addUnknownNodeFeatures(features) },

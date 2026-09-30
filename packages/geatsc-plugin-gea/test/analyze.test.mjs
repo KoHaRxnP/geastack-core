@@ -818,3 +818,25 @@ for (const selector of ['.x:first-child', '.x:last-child', '.x::first-line', '.x
     if (selector.includes('first-line')) assert.ok(features.includes('css-first-line'))
   })
 }
+
+test('authored animation store methods do not enable native animation storage', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': "import agent from './store.js'; setInterval(() => agent.animate(), 50)",
+    'store.js': "import { Store } from '@geastack/core'; class AgentStore extends Store { position = 0; animate() { this.position += 1 } }; const agent = new AgentStore(); export default agent",
+  })).features
+  for (const feature of ['css-animations', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients']) assert.ok(!features.includes(feature), feature)
+})
+
+test('authored animation method bodies still retain actual native style operations', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': "class Agent { animate() { el.style.transform = 'rotate(10deg)' } }; const agent = new Agent(); agent.animate()",
+  })).features
+  assert.ok(features.includes('renderer-transforms'))
+})
+
+test('an opaque receiver cast to an authored animation class stays conservative', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': "class Agent { animate() {} }; const agent = el as Agent; agent.animate()",
+  })).features
+  assert.ok(features.includes('css-animations'))
+})

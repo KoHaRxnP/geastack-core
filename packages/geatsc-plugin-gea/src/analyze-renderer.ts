@@ -12,6 +12,7 @@ export function addUnknownRendererFeatures(features: Set<string>): void {
 // all relevant optimizations; literal colors/sizes and video canvas operations
 // do not reserve shape, transform or gradient tables.
 export interface StyleUsageObserver {
+  isSourceMethod?(node: ts.Expression): boolean
   selector?(css: string): void
   property(name: string | undefined, value: string | undefined, expression?: ts.Expression): void
   unknown(): void
@@ -220,7 +221,8 @@ export function addRendererFeatures(file: string, text: string, features: Set<st
     // Imperative animation APIs can mutate arbitrary style fields. Observe
     // references as well as calls so aliases cannot bypass the proof. Frame
     // scheduling (requestAnimationFrame) is independent and stays available.
-    if (ts.isIdentifier(node) && /^(?:animate|KeyframeEffect|Animation|AnimationEngine|DeclarativeAnimations|Reflect)$/.test(node.text)) allStyles()
+    if (ts.isIdentifier(node) && /^(?:animate|KeyframeEffect|Animation|AnimationEngine|DeclarativeAnimations|Reflect)$/.test(node.text) &&
+        !(node.text === 'animate' && observer?.isSourceMethod?.(node))) allStyles()
     if (ts.isBindingElement(node) && /^(?:createElement|createElementNS|animate|setAttribute|insertRule|replaceSync)$/.test(node.propertyName?.getText(source).replace(/^['"]|['"]$/g, '') ?? node.name.getText(source))) allStyles()
     if (ts.isBindingElement(node) && node.propertyName && ts.isComputedPropertyName(node.propertyName) && literal(node.propertyName.expression) === undefined) allStyles()
     if (ts.isTaggedTemplateExpression(node) && ts.isTemplateExpression(node.template)) allStyles()
@@ -230,7 +232,7 @@ export function addRendererFeatures(file: string, text: string, features: Set<st
       const name = member(node)
       if (name && /^(?:setDevicePixelRatio|setViewportMetrics|devicePixelRatio)$/.test(name)) observer?.unknownRanges?.()
       if (name && circleMethods.has(name)) features.add('renderer-circles')
-      if (name === 'dataset' || name === 'animate') allStyles()
+      if (name === 'dataset' || (name === 'animate' && !observer?.isSourceMethod?.(node))) allStyles()
       if (name && /^(?:setAttribute|insertRule|replaceSync)$/.test(name) && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) allStyles()
       if (name && /^(?:getOwnPropertyDescriptor|getOwnPropertyDescriptors|getPrototypeOf|setPrototypeOf|defineProperty|defineProperties)$/.test(name)) allStyles()
       if ((name === 'createElement' || name === 'createElementNS') && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) allStyles()

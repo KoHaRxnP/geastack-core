@@ -197,5 +197,23 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
   const expressions = new Map<string, ts.Expression>()
   const index = (node: ts.Node): void => { if (ts.isExpression(node)) expressions.set(`${node.getSourceFile().fileName}:${node.pos}:${node.end}`, node); ts.forEachChild(node, index) }
   for (const source of sources.values()) index(source)
-  return (node: ts.Expression): string[] | undefined => resolve(expressions.get(`${node.getSourceFile().fileName}:${node.pos}:${node.end}`))
+  const original = (node: ts.Expression): ts.Expression | undefined => expressions.get(`${node.getSourceFile().fileName}:${node.pos}:${node.end}`)
+  return Object.assign((node: ts.Expression): string[] | undefined => resolve(original(node)), {
+    // A user-authored method called animate is not Element.animate. Require
+    // both its implementation in the scanned graph and a local receiver;
+    // an opaque/DOM receiver merely cast to a class is not sufficient.
+    isSourceMethod(node: ts.Expression): boolean {
+      const at = original(node)
+      if (!at || initiallyOpaque) return false
+      const parent = at.parent
+      if (ts.isMethodDeclaration(parent) && parent.name === at && parent.body) return true
+      const access = ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at) ? at
+        : ts.isPropertyAccessExpression(parent) && parent.name === at ? parent : undefined
+      if (!access || !localReceiver(access.expression)) return false
+      const name = ts.isPropertyAccessExpression(access) ? access.name : access.argumentExpression
+      const declarations = name && typeChecker().getSymbolAtLocation(name)?.declarations
+      return !!declarations?.length && declarations.every(declaration =>
+        sources.has(declaration.getSourceFile().fileName) && ts.isMethodDeclaration(declaration) && !!declaration.body)
+    },
+  })
 }
