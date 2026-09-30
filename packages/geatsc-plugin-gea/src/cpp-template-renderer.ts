@@ -1960,7 +1960,7 @@ function lowerRowPxLengthStyleExpr(
   if (!parts || parts.length !== 2) return null
   if (parts[0].kind !== 'expr' || parts[1].kind !== 'text' || parts[1].value !== 'px') return null
   const lowered = lowerRowExpr(parts[0].value, itemParam, indexParam, itemKind, constants)
-  return lowered ? { cpp: rowExprAsNumber(lowered), kind: 'number', styleUnit: isBorderWidthStylePropertyName(propertyName) ? 'px' : undefined } : null
+  return lowered ? { cpp: rowExprAsNumber(lowered), kind: 'number', styleUnit: 'px' } : null
 }
 
 function lowerRowPercentLengthStyleExpr(
@@ -2551,7 +2551,7 @@ function lowerPxLengthStyleValue(
   if (parts[0].kind !== 'expr' || parts[1].kind !== 'text' || parts[1].value !== 'px') return null
   const value = lowerTemplateExpression(parts[0].value, storeFields, constants, propBindings)
   if (!value) return null
-  return { ...mergeLowered('number', loweredAsKind(value, 'number'), [value]), styleUnit: isBorderWidthStylePropertyName(propertyName) ? 'px' : undefined }
+  return { ...mergeLowered('number', loweredAsKind(value, 'number'), [value]), styleUnit: 'px' }
 }
 
 function lowerPercentLengthStyleValue(
@@ -2689,7 +2689,12 @@ function opacityNumberExpression(value: string): string {
 }
 
 function styleNumberApplyLine(node: string, propertyName: string, value: string, styleUnit?: 'percent' | 'color' | 'keyword' | 'px'): string | null {
-  if (styleUnit === 'px') return `gea::embedded::ui::StyleSheet::instance().applyPixelLengthProperty(${node}, gea::embedded::ui::StyleDeclaration::${styleDeclarationEnumForPropertyName(propertyName)}, static_cast<double>(${value}));`
+  if (styleUnit === 'px') {
+    const declaration = styleDeclarationEnumForPropertyName(propertyName)
+    return declaration
+      ? `gea::embedded::ui::StyleSheet::instance().applyPixelLengthProperty(${node}, gea::embedded::ui::StyleDeclaration::${declaration}, static_cast<double>(${value}));`
+      : directNumberStyleApplyLine(node, propertyName, `(${value}) * gea::embedded::ui::devicePixelRatio()`)
+  }
   if (styleUnit === 'percent') return directPercentStyleApplyLine(node, propertyName, value)
   if (styleUnit === 'color') return directColorStyleApplyLine(node, propertyName, value)
   if (styleUnit === 'keyword') return directKeywordStyleApplyLine(node, propertyName, value)

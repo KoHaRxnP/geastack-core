@@ -8158,6 +8158,20 @@ void setStyleValue(NodeHandle node, Property property, int value, StyleApplicati
 	}
 }
 
+void setLengthStyleValue(NodeHandle node, const CssLengthSpec &length, Property property, int value, StyleApplicationSource source)
+{
+	setStyleValue(node, property, value, source);
+	if (source == StyleApplicationSource::Inline && length.unit == CssLengthUnit::Px && std::isfinite(length.value))
+		ensureRareData(node.id()).inlineStyles.setCssPixels(property, length.value);
+}
+
+void setLengthStyleValue(NodeHandle node, const std::string &text, Property property, int value, StyleApplicationSource source)
+{
+	CssLengthSpec length;
+	if (parseCompiledLengthSpec(text, length)) setLengthStyleValue(node, length, property, value, source);
+	else setStyleValue(node, property, value, source);
+}
+
 void setStyleValueKnownTarget(NodeHandle node,
                               Node &target,
                               Property property,
@@ -8198,7 +8212,7 @@ void setPositionOffsetValue(NodeHandle node,
 			return;
 		}
 	}
-	setStyleValue(node, lengthProperty, parseLengthForNode(value, node.id(), axis), source);
+	setLengthStyleValue(node, value, lengthProperty, parseLengthForNode(value, node.id(), axis), source);
 }
 
 int deferredLengthExpression(const CssLengthSpec &length)
@@ -8228,7 +8242,8 @@ void setFlexBasisValue(NodeHandle node, bool hasBasis, const CssLengthSpec &leng
 		const int expression = deferredLengthExpression(length);
 		if (expression >= 0) setStyleValue(node, Property::FlexBasisExpression, expression, source);
 	} else {
-		setStyleValue(node, Property::FlexBasis, hasBasis ? resolveCompiledLengthForNode(length, node.id(), LengthAxis::Horizontal) : kUnset, source);
+		if (hasBasis) setLengthStyleValue(node, length, Property::FlexBasis, resolveCompiledLengthForNode(length, node.id(), LengthAxis::Horizontal), source);
+		else setStyleValue(node, Property::FlexBasis, kUnset, source);
 	}
 }
 
@@ -8236,7 +8251,7 @@ void setBoxLengthValue(NodeHandle node, bool padding, int side, const CssLengthS
 {
 	const Property pixel = static_cast<Property>(static_cast<int>(padding ? Property::PaddingTop : Property::MarginTop) + side);
 	const int value = length.unit == CssLengthUnit::Auto ? 0 : resolveCompiledLengthForNode(length, node.id(), LengthAxis::Horizontal);
-	setStyleValue(node, pixel, padding ? std::max(0, value) : value, source);
+	setLengthStyleValue(node, length, pixel, padding ? std::max(0, value) : value, source);
 	if (!padding)
 		setStyleValue(node, static_cast<Property>(static_cast<int>(Property::MarginTopAuto) + side), length.unit == CssLengthUnit::Auto, source);
 	// A var() can acquire a percentage or font-relative value later, even
@@ -8246,6 +8261,22 @@ void setBoxLengthValue(NodeHandle node, bool padding, int side, const CssLengthS
 	if (expression < 0) return;
 	setStyleValue(node, static_cast<Property>(static_cast<int>(padding ? Property::PaddingTopExpression : Property::MarginTopExpression) + side),
 	              expression, source);
+}
+
+void setGapLengthValues(NodeHandle node, CssDeclarationId declaration, const CssLengthSpec &row, const CssLengthSpec &column, StyleApplicationSource source)
+{
+	if (declaration == CssDeclarationId::Gap)
+		setLengthStyleValue(node, row, Property::Gap, row.unit == CssLengthUnit::Percent ? 0 : resolveCompiledLengthForNode(row, node.id(), LengthAxis::Vertical), source);
+	for (int axis = 0; axis < 2; ++axis) {
+		if (declaration == CssDeclarationId::RowGap && axis != 0) continue;
+		if (declaration == CssDeclarationId::ColumnGap && axis != 1) continue;
+		const auto &length = axis == 0 ? row : column;
+		const bool percent = length.unit == CssLengthUnit::Percent;
+		setLengthStyleValue(node, length, axis == 0 ? Property::RowGap : Property::ColumnGap,
+		                    percent ? 0 : resolveCompiledLengthForNode(length, node.id(), axis == 0 ? LengthAxis::Vertical : LengthAxis::Horizontal), source);
+		setStyleValue(node, axis == 0 ? Property::RowGapPercent : Property::ColumnGapPercent,
+		              percent ? roundToInt(length.value * 10.0) : kUnset, source);
+	}
 }
 
 void setSizeValue(NodeHandle node,
@@ -8287,7 +8318,7 @@ void setSizeValue(NodeHandle node,
 	if (parseSimplePercentPermille(value, percent))
 		setStyleValue(node, percentProperty, percent, source);
 	else
-		setStyleValue(node, lengthProperty, parseLengthForNode(value, node.id(), axis), source);
+		setLengthStyleValue(node, value, lengthProperty, parseLengthForNode(value, node.id(), axis), source);
 }
 
 void setAllPadding(NodeHandle node, int value, StyleApplicationSource source)
@@ -8361,7 +8392,7 @@ void setBorderRadiusCornerValue(NodeHandle node,
 	if (parseSimplePercentPermille(value, percent))
 		setStyleValue(node, borderRadiusPercentProperty(corner), percent, source);
 	else
-		setStyleValue(node, borderRadiusLengthProperty(corner), parseLengthForNode(value, node.id(), LengthAxis::None), source);
+		setLengthStyleValue(node, value, borderRadiusLengthProperty(corner), parseLengthForNode(value, node.id(), LengthAxis::None), source);
 }
 
 void applyBorderRadiusValue(NodeHandle node, const std::string &value, StyleApplicationSource source)
@@ -8581,10 +8612,15 @@ bool applyBorderWidthBox(NodeHandle node, const CssCompiledValue &compiled, Styl
 		widths[side] = resolveBorderWidth(compiled.lengths[side], node.id());
 		if (widths[side] < 0) return true;
 	}
-	const bool uniform = widths[0] == widths[1] && widths[0] == widths[2] && widths[0] == widths[3];
+	bool uniform = widths[0] == widths[1] && widths[0] == widths[2] && widths[0] == widths[3];
+	if (source == StyleApplicationSource::Inline)
+		for (int side = 1; side < 4; ++side)
+			uniform = uniform && compiled.lengths[side].unit == compiled.lengths[0].unit && compiled.lengths[side].value == compiled.lengths[0].value;
 	setUniformBorderWidth(node, uniform ? widths[0] : 0, source);
+	if (uniform && source == StyleApplicationSource::Inline && compiled.lengths[0].unit == CssLengthUnit::Px)
+		ensureRareData(node.id()).inlineStyles.setCssPixels(Property::BorderWidth, compiled.lengths[0].value);
 	if (!uniform)
-		for (int side = 0; side < 4; ++side) setStyleValue(node, borderSideWidthProperty(side), widths[side], source);
+		for (int side = 0; side < 4; ++side) setLengthStyleValue(node, compiled.lengths[side], borderSideWidthProperty(side), widths[side], source);
 	return true;
 }
 
@@ -8595,7 +8631,7 @@ void applyBorderShorthand(NodeHandle node, const std::string &value, StyleApplic
 	const auto parts = splitFunctionAwareWords(value);
 	const int width = resolveBorderWidth(compiled.lengths[0], node.id());
 	if (width < 0) return;
-	setUniformBorderWidth(node, width, source);
+	setLengthStyleValue(node, compiled.lengths[0], Property::BorderWidth, width, source);
 	for (int side = 0; side < 4; ++side)
 		setStyleValue(node, static_cast<Property>(static_cast<int>(Property::BorderTopRelief) + side), compiled.values[2], source);
 	for (const auto &part : parts) {
@@ -8666,7 +8702,7 @@ void applyBorderSideShorthand(NodeHandle node, int side, const std::string &valu
 	const auto parts = splitFunctionAwareWords(value);
 	const int width = resolveBorderWidth(compiled.lengths[0], node.id());
 	if (width < 0) return;
-	setStyleValue(node, borderSideWidthProperty(side), width, source);
+	setLengthStyleValue(node, compiled.lengths[0], borderSideWidthProperty(side), width, source);
 	setStyleValue(node, static_cast<Property>(static_cast<int>(Property::BorderTopRelief) + side), compiled.values[2], source);
 	for (const auto &part : parts) {
 		if (part.empty()) continue;
@@ -9337,18 +9373,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 			else if (!parseCompiledLengthSpec(parts[i], specs[i]) || specs[i].value < 0) return true;
 		}
 		if (parts.size() == 1) specs[1] = specs[0];
-		if (declaration == CssDeclarationId::Gap)
-			setStyleValue(node, Property::Gap, specs[0].unit == CssLengthUnit::Percent ? 0 : resolveCompiledLengthForNode(specs[0], nodeId, LengthAxis::Vertical), source);
-		for (int axis = 0; axis < 2; ++axis) {
-			if (declaration == CssDeclarationId::RowGap && axis != 0) continue;
-			if (declaration == CssDeclarationId::ColumnGap && axis != 1) continue;
-			const auto &spec = specs[declaration == CssDeclarationId::Gap ? axis : 0];
-			const bool percent = spec.unit == CssLengthUnit::Percent;
-			setStyleValue(node, axis == 0 ? Property::RowGap : Property::ColumnGap,
-			              percent ? 0 : resolveCompiledLengthForNode(spec, nodeId, axis == 0 ? LengthAxis::Vertical : LengthAxis::Horizontal), source);
-			setStyleValue(node, axis == 0 ? Property::RowGapPercent : Property::ColumnGapPercent,
-			              percent ? roundToInt(spec.value * 10.0) : kUnset, source);
-		}
+		setGapLengthValues(node, declaration, specs[0], specs[1], source);
 		return true;
 	}
 	case CssDeclarationId::Order: {
@@ -9474,16 +9499,16 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		setSizeValue(node, Property::Height, Property::HeightPercent, value, LengthAxis::Vertical, source);
 		return true;
 	case CssDeclarationId::MinWidth:
-		setStyleValue(node, Property::MinWidth, parseLengthForNode(value, nodeId, LengthAxis::Horizontal), source);
+		setLengthStyleValue(node, value, Property::MinWidth, parseLengthForNode(value, nodeId, LengthAxis::Horizontal), source);
 		return true;
 	case CssDeclarationId::MinHeight:
-		setStyleValue(node, Property::MinHeight, parseLengthForNode(value, nodeId, LengthAxis::Vertical), source);
+		setLengthStyleValue(node, value, Property::MinHeight, parseLengthForNode(value, nodeId, LengthAxis::Vertical), source);
 		return true;
 	case CssDeclarationId::MaxWidth:
-		setStyleValue(node, Property::MaxWidth, value == "none" ? kUnset : parseLengthForNode(value, nodeId, LengthAxis::Horizontal), source);
+		setLengthStyleValue(node, value, Property::MaxWidth, value == "none" ? kUnset : parseLengthForNode(value, nodeId, LengthAxis::Horizontal), source);
 		return true;
 	case CssDeclarationId::MaxHeight:
-		setStyleValue(node, Property::MaxHeight, value == "none" ? kUnset : parseLengthForNode(value, nodeId, LengthAxis::Vertical), source);
+		setLengthStyleValue(node, value, Property::MaxHeight, value == "none" ? kUnset : parseLengthForNode(value, nodeId, LengthAxis::Vertical), source);
 		return true;
 	case CssDeclarationId::Flex: {
 		CssCompiledValue compiled;
@@ -9617,16 +9642,16 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		applyBorderSideShorthand(node, 3, value, source);
 		return true;
 	case CssDeclarationId::BorderTopWidth:
-		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setStyleValue(node, Property::BorderTopWidth, width, source);
+		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setLengthStyleValue(node, value, Property::BorderTopWidth, width, source);
 		return true;
 	case CssDeclarationId::BorderRightWidth:
-		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setStyleValue(node, Property::BorderRightWidth, width, source);
+		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setLengthStyleValue(node, value, Property::BorderRightWidth, width, source);
 		return true;
 	case CssDeclarationId::BorderBottomWidth:
-		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setStyleValue(node, Property::BorderBottomWidth, width, source);
+		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setLengthStyleValue(node, value, Property::BorderBottomWidth, width, source);
 		return true;
 	case CssDeclarationId::BorderLeftWidth:
-		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setStyleValue(node, Property::BorderLeftWidth, width, source);
+		if (const int width = parseBorderWidth(value, nodeId); width >= 0) setLengthStyleValue(node, value, Property::BorderLeftWidth, width, source);
 		return true;
 	case CssDeclarationId::BorderTopColor:
 		applyBorderSideColorValue(node, 0, value, source);
@@ -9664,12 +9689,12 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		if (!parseFontShorthand(value, font)) return true;
 		setStyleValue(node, Property::FontWeight, font.weight, source);
 		setStyleValue(node, Property::FontId, fontFamilyValue(font.family), source);
-		setStyleValue(node, Property::FontSize, fontSizeValue(font.size, nodeId), source);
+		setLengthStyleValue(node, font.size, Property::FontSize, fontSizeValue(font.size, nodeId), source);
 		setAuthoredLineHeightValue(node, font.lineHeight, source);
 		return true;
 	}
 	case CssDeclarationId::FontSize:
-		setStyleValue(node, Property::FontSize, fontSizeValue(value, nodeId), source);
+		setLengthStyleValue(node, value, Property::FontSize, fontSizeValue(value, nodeId), source);
 		return true;
 	case CssDeclarationId::FontWeight:
 		setStyleValue(node, Property::FontWeight, fontWeightValue(value), source);
@@ -9767,7 +9792,7 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 		return true;
 	}
 	case CssDeclarationId::Perspective:
-		setStyleValue(node, Property::Perspective, parseLengthForNode(value, nodeId, LengthAxis::Horizontal), source);
+		setLengthStyleValue(node, value, Property::Perspective, parseLengthForNode(value, nodeId, LengthAxis::Horizontal), source);
 		return true;
 	case CssDeclarationId::PerspectiveOrigin: {
 		const auto parts = splitWords(value);
@@ -9828,7 +9853,7 @@ void setCompiledSizeValue(NodeHandle node,
 	if (resolved.isPercent)
 		setStyleValue(node, percentProperty, roundToInt(resolved.value), source);
 	else
-		setStyleValue(node, lengthProperty, roundToInt(resolved.value), source);
+		setLengthStyleValue(node, length, lengthProperty, roundToInt(resolved.value), source);
 }
 
 void setCompiledPositionOffsetValue(NodeHandle node,
@@ -9842,7 +9867,7 @@ void setCompiledPositionOffsetValue(NodeHandle node,
 	if (resolved.isPercent)
 		setStyleValue(node, percentProperty, roundToInt(resolved.value), source);
 	else
-		setStyleValue(node, lengthProperty, roundToInt(resolved.value), source);
+		setLengthStyleValue(node, length, lengthProperty, roundToInt(resolved.value), source);
 }
 
 void setCompiledBorderRadiusCornerValue(NodeHandle node,
@@ -9854,7 +9879,7 @@ void setCompiledBorderRadiusCornerValue(NodeHandle node,
 	if (resolved.isPercent)
 		setStyleValue(node, borderRadiusPercentProperty(corner), roundToInt(resolved.value), source);
 	else
-		setStyleValue(node, borderRadiusLengthProperty(corner), roundToInt(resolved.value), source);
+		setLengthStyleValue(node, length, borderRadiusLengthProperty(corner), roundToInt(resolved.value), source);
 }
 
 void resolveCompiledTranslate(const CssLengthSpec &length,
@@ -10334,37 +10359,37 @@ bool applyRuntimeLengthValue(NodeHandle node,
 	}
 	switch (declaration) {
 	case CssDeclarationId::Gap:
-		setStyleValue(node, Property::Gap, length.unit == CssLengthUnit::Percent ? 0 : resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source);
-		if (length.unit == CssLengthUnit::Percent) {
-			setStyleValue(node, Property::RowGapPercent, roundToInt(length.value * 10.0), source);
-			setStyleValue(node, Property::ColumnGapPercent, roundToInt(length.value * 10.0), source);
-		}
+		setGapLengthValues(node, declaration, length, length, source);
 		return true;
-	case CssDeclarationId::MinWidth: setStyleValue(node, Property::MinWidth, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
-	case CssDeclarationId::MinHeight: setStyleValue(node, Property::MinHeight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
-	case CssDeclarationId::MaxWidth: setStyleValue(node, Property::MaxWidth, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
-	case CssDeclarationId::MaxHeight: setStyleValue(node, Property::MaxHeight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
-	case CssDeclarationId::PaddingTop: setStyleValue(node, Property::PaddingTop, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
-	case CssDeclarationId::PaddingRight: setStyleValue(node, Property::PaddingRight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
-	case CssDeclarationId::PaddingBottom: setStyleValue(node, Property::PaddingBottom, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
-	case CssDeclarationId::PaddingLeft: setStyleValue(node, Property::PaddingLeft, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
-	case CssDeclarationId::MarginTop: setStyleValue(node, Property::MarginTop, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
-	case CssDeclarationId::MarginRight: setStyleValue(node, Property::MarginRight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
-	case CssDeclarationId::MarginBottom: setStyleValue(node, Property::MarginBottom, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
-	case CssDeclarationId::MarginLeft: setStyleValue(node, Property::MarginLeft, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
-	case CssDeclarationId::BorderWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setUniformBorderWidth(node, width, source); return true;
-	case CssDeclarationId::BorderTopWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setStyleValue(node, Property::BorderTopWidth, width, source); return true;
-	case CssDeclarationId::BorderRightWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setStyleValue(node, Property::BorderRightWidth, width, source); return true;
-	case CssDeclarationId::BorderBottomWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setStyleValue(node, Property::BorderBottomWidth, width, source); return true;
-	case CssDeclarationId::BorderLeftWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setStyleValue(node, Property::BorderLeftWidth, width, source); return true;
+	case CssDeclarationId::MinWidth: setLengthStyleValue(node, length, Property::MinWidth, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::MinHeight: setLengthStyleValue(node, length, Property::MinHeight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
+	case CssDeclarationId::MaxWidth: setLengthStyleValue(node, length, Property::MaxWidth, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::MaxHeight: setLengthStyleValue(node, length, Property::MaxHeight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
+	case CssDeclarationId::PaddingTop: setLengthStyleValue(node, length, Property::PaddingTop, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
+	case CssDeclarationId::PaddingRight: setLengthStyleValue(node, length, Property::PaddingRight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::PaddingBottom: setLengthStyleValue(node, length, Property::PaddingBottom, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
+	case CssDeclarationId::PaddingLeft: setLengthStyleValue(node, length, Property::PaddingLeft, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::MarginTop: setLengthStyleValue(node, length, Property::MarginTop, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
+	case CssDeclarationId::MarginRight: setLengthStyleValue(node, length, Property::MarginRight, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::MarginBottom: setLengthStyleValue(node, length, Property::MarginBottom, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Vertical), source); return true;
+	case CssDeclarationId::MarginLeft: setLengthStyleValue(node, length, Property::MarginLeft, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::BorderWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) {
+		setUniformBorderWidth(node, width, source);
+		if (source == StyleApplicationSource::Inline && length.unit == CssLengthUnit::Px)
+			ensureRareData(node.id()).inlineStyles.setCssPixels(Property::BorderWidth, length.value);
+	} return true;
+	case CssDeclarationId::BorderTopWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setLengthStyleValue(node, length, Property::BorderTopWidth, width, source); return true;
+	case CssDeclarationId::BorderRightWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setLengthStyleValue(node, length, Property::BorderRightWidth, width, source); return true;
+	case CssDeclarationId::BorderBottomWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setLengthStyleValue(node, length, Property::BorderBottomWidth, width, source); return true;
+	case CssDeclarationId::BorderLeftWidth: if (const int width = resolveBorderWidth(length, nodeId); width >= 0) setLengthStyleValue(node, length, Property::BorderLeftWidth, width, source); return true;
 	case CssDeclarationId::FontSize:
-		setStyleValue(node, Property::FontSize, resolveFontSizeLength(length, nodeId), source);
+		setLengthStyleValue(node, length, Property::FontSize, resolveFontSizeLength(length, nodeId), source);
 		return true;
 #if GEA_CSS_TRANSFORMS
-	case CssDeclarationId::Perspective: setStyleValue(node, Property::Perspective, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
+	case CssDeclarationId::Perspective: setLengthStyleValue(node, length, Property::Perspective, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal), source); return true;
 #endif
 	case CssDeclarationId::MaskImage:
-		setStyleValue(node,
+		setLengthStyleValue(node, length,
 		              Property::MaskRightFadeWidth,
 		              std::max(0, resolveCompiledLengthForNode(length, nodeId, LengthAxis::Horizontal)),
 		              source);
@@ -10501,6 +10526,8 @@ bool applyRuntimeBorderShorthandValue(NodeHandle node,
 	const int snappedWidth = resolveBorderWidth(width, nodeId);
 	if (snappedWidth < 0) return true;
 	setUniformBorderWidth(node, snappedWidth, source);
+	if (source == StyleApplicationSource::Inline && width.unit == CssLengthUnit::Px)
+		ensureRareData(node.id()).inlineStyles.setCssPixels(Property::BorderWidth, width.value);
 	for (int side = 0; side < 4; ++side)
 		setStyleValue(node, static_cast<Property>(static_cast<int>(Property::BorderTopRelief) + side), relief, source);
 	if (alpha >= 0) {
@@ -17634,7 +17661,27 @@ void StyleSheet::setClassName(NodeHandle node, const std::string &className) con
 
 bool StyleSheet::applyPixelLengthProperty(NodeHandle node, StyleDeclaration declaration, double value) const
 {
-	return applyNumberDeclarationWithSource(node, declaration, value * g_device_pixel_ratio, StyleApplicationSource::Inline);
+	if (!node || !std::isfinite(value)) return false;
+	// A compiled `${value}px` has the same unit as a parsed CSS length. In
+	// particular, use the size/position rules that clear competing percentage
+	// values and preserve length expressions; a raw numeric setter cannot do that.
+	const CssLengthSpec length{static_cast<float>(value), CssLengthUnit::Px};
+	if (applyRuntimeSizeValue(node, declaration, length, StyleApplicationSource::Inline) ||
+	    applyRuntimePositionOffsetValue(node, declaration, length, StyleApplicationSource::Inline) ||
+	    applyRuntimeLengthValue(node, declaration, length, StyleApplicationSource::Inline)) return true;
+	if (declaration == CssDeclarationId::Padding || declaration == CssDeclarationId::Margin) {
+		for (int side = 0; side < 4; ++side) setBoxLengthValue(node, declaration == CssDeclarationId::Padding, side, length, StyleApplicationSource::Inline);
+		return true;
+	}
+	if (declaration == CssDeclarationId::BorderRadius) {
+		for (int corner = 0; corner < 4; ++corner) setCompiledBorderRadiusCornerValue(node, corner, length, StyleApplicationSource::Inline);
+		return true;
+	}
+	if (declaration >= CssDeclarationId::BorderTopLeftRadius && declaration <= CssDeclarationId::BorderBottomLeftRadius) {
+		setCompiledBorderRadiusCornerValue(node, static_cast<int>(declaration) - static_cast<int>(CssDeclarationId::BorderTopLeftRadius), length, StyleApplicationSource::Inline);
+		return true;
+	}
+	return false;
 }
 
 bool StyleSheet::applyNumberProperty(NodeHandle node, const char *property, double value) const
@@ -17929,12 +17976,36 @@ std::string Tree::className(int node) const
 	return state.classLists[node].value();
 }
 
+void rescaleInlineCssPixels()
+{
+	auto &state = treeState();
+	for (int node = 0; node < state.nodeCount; ++node) {
+		auto *rare = rareDataFor(node);
+		if (!rare) continue;
+		auto &values = rare->inlineStyles;
+		for (std::size_t i = 0; i < values.size(); ++i) {
+			const Property property = values.at(i).property;
+			float pixels;
+			if (!values.getCssPixels(property, pixels)) continue;
+			const CssLengthSpec length{pixels, CssLengthUnit::Px};
+			const bool border = property == Property::BorderWidth || property == Property::BorderTopWidth ||
+			    property == Property::BorderRightWidth || property == Property::BorderBottomWidth || property == Property::BorderLeftWidth;
+			int resolved = border ? resolveBorderWidth(length, node) : property == Property::FontSize
+			    ? resolveFontSizeLength(length, node) : resolveCompiledLengthForNode(length, node, LengthAxis::None);
+			if (property >= Property::PaddingTop && property <= Property::PaddingLeft) resolved = std::max(0, resolved);
+			values.set(property, resolved);
+			values.setCssPixels(property, pixels);
+		}
+	}
+}
+
 void setViewportMetrics(int width, int height, double devicePixelRatio)
 {
 	g_viewport_width = width;
 	g_viewport_height = height;
 	g_device_pixel_ratio = sanitizedDevicePixelRatio(devicePixelRatio);
 	clearStaticLengthExpressionResolutionCache();
+	rescaleInlineCssPixels();
 	invalidateRuleIndex();
 	recomputeAllClassStyles();
 }
@@ -17950,6 +18021,7 @@ void setDevicePixelRatio(double devicePixelRatio)
 	if (sanitized == g_device_pixel_ratio) return;
 	g_device_pixel_ratio = sanitized;
 	clearStaticLengthExpressionResolutionCache();
+	rescaleInlineCssPixels();
 	invalidateRuleIndex();
 	recomputeAllClassStyles();
 }

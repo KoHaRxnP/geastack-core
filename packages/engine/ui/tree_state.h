@@ -63,6 +63,8 @@ struct NodeStyleOverrideStore {
 
 	void clear();
 	void set(Property property, int value);
+	void setCssPixels(Property property, float value);
+	bool getCssPixels(Property property, float &value) const;
 	bool remove(Property property);
 	std::size_t size() const;
 	bool empty() const { return size() == 0; }

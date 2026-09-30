@@ -17,4 +17,4 @@ gea_build_native_test \
   "$BUILD_DIR/gea-style-viewport-metrics-test" \
   "$ROOT/packages/core/test/test_style_viewport_metrics.cpp"
 
-"$BUILD_DIR/gea-style-viewport-metrics-test"
+"$BUILD_DIR/gea-style-viewport-metrics-test" "$@"

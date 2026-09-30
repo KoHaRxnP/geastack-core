@@ -493,6 +493,7 @@ function writeCompatViteConfig({ configPath, compatSrcDir, appDir, entry, viteOu
     .join('\n')
   const config = `import { resolve } from 'node:path'
 import { geaPlugin } from ${q(geaPluginResolved)}
+import { geaNativeStylePlugin } from ${q(path.join(coreRoot, 'scripts/gea-native-style-plugin.mjs'))}
 import { geaAppleNativeModuleAliases, geaModuleGraphPlugins } from ${q(moduleGraphPluginPath)}
 
 const root = ${q(compatSrcDir)}
@@ -510,7 +511,7 @@ export default {
   define: {
 ${defineEntries}
   },
-  plugins: [geaPlugin({ ir: { enabled: true, outFile: ${q(geaIrPath)} } }), ...geaModuleGraph],
+  plugins: [geaNativeStylePlugin({ runtimeEntry: ${q(compilerRuntimeEntry)} }), geaPlugin({ ir: { enabled: true, outFile: ${q(geaIrPath)} } }), ...geaModuleGraph],
   resolve: {
     alias: [
 ${compilerRuntimeAlias}

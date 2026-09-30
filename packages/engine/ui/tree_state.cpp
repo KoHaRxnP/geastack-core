@@ -471,6 +471,9 @@ std::string NodeClassList::value() const
 // and values; computed styles remain ordinary aligned fields in Node.
 struct NodeStyleOverrideStore::Block {
 	std::size_t count = 0, capacity = 0;
+	// Only CSS px overrides allocate unit metadata. Raw numeric styles keep
+	// their compact entries and do not lose precision by reverse-scaling ints.
+	std::unique_ptr<std::vector<std::pair<Property, float>>> cssPixels;
 	NodeStyleOverride *values() { return reinterpret_cast<NodeStyleOverride *>(this + 1); }
 	const NodeStyleOverride *values() const { return reinterpret_cast<const NodeStyleOverride *>(this + 1); }
 };
@@ -484,6 +487,7 @@ void appendStyleOverride(NodeStyleOverrideStore &store, NodeStyleOverride entry)
 		next->capacity = capacity;
 		if (old) {
 			next->count = old->count;
+			next->cssPixels = std::move(old->cssPixels);
 			for (std::size_t i = 0; i < old->count; ++i) new (&next->values()[i]) NodeStyleOverride(old->values()[i]);
 			old->~Block();
 			::operator delete(old);
@@ -496,6 +500,8 @@ void appendStyleOverride(NodeStyleOverrideStore &store, NodeStyleOverride entry)
 NodeStyleOverrideStore::NodeStyleOverrideStore(const NodeStyleOverrideStore &other)
 {
 	for (std::size_t i = 0; i < other.size(); ++i) appendStyleOverride(*this, other.at(i));
+	if (other.block && other.block->cssPixels)
+		block->cssPixels = std::make_unique<std::vector<std::pair<Property, float>>>(*other.block->cssPixels);
 }
 NodeStyleOverrideStore &NodeStyleOverrideStore::operator=(const NodeStyleOverrideStore &other)
 {
@@ -531,14 +537,41 @@ void NodeStyleOverrideStore::set(Property property, int value)
 {
 	for (std::size_t i = 0; i < size(); ++i) {
 		auto &entry = block->values()[i];
-		if (entry.property == property) { entry.value = value; return; }
+		if (entry.property == property) {
+			entry.value = value;
+			if (block->cssPixels) {
+				auto &units = *block->cssPixels;
+				units.erase(std::remove_if(units.begin(), units.end(), [property](const auto &item) { return item.first == property; }), units.end());
+			}
+			return;
+		}
 	}
 	appendStyleOverride(*this, {property, value});
+}
+void NodeStyleOverrideStore::setCssPixels(Property property, float value)
+{
+	if (!block) return;
+	bool present = false;
+	for (std::size_t i = 0; i < size(); ++i) if (at(i).property == property) { present = true; break; }
+	if (!present) return;
+	if (!block->cssPixels) block->cssPixels = std::make_unique<std::vector<std::pair<Property, float>>>();
+	for (auto &entry : *block->cssPixels) if (entry.first == property) { entry.second = value; return; }
+	block->cssPixels->emplace_back(property, value);
+}
+bool NodeStyleOverrideStore::getCssPixels(Property property, float &value) const
+{
+	if (!block || !block->cssPixels) return false;
+	for (const auto &entry : *block->cssPixels) if (entry.first == property) { value = entry.second; return true; }
+	return false;
 }
 bool NodeStyleOverrideStore::remove(Property property)
 {
 	for (std::size_t i = 0; i < size(); ++i) {
 		if (at(i).property != property) continue;
+		if (block->cssPixels) {
+			auto &units = *block->cssPixels;
+			units.erase(std::remove_if(units.begin(), units.end(), [property](const auto &item) { return item.first == property; }), units.end());
+		}
 		for (std::size_t j = i + 1; j < block->count; ++j) block->values()[j - 1] = block->values()[j];
 		if (--block->count == 0) clear();
 		return true;

@@ -259,6 +259,8 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			overrides.remove(static_cast<Property>(static_cast<int>(Property::MarginTopExpression) + static_cast<int>(prop) - static_cast<int>(Property::MarginTop)));
 		if (prop >= Property::PaddingTop && prop <= Property::PaddingLeft)
 			overrides.remove(static_cast<Property>(static_cast<int>(Property::PaddingTopExpression) + static_cast<int>(prop) - static_cast<int>(Property::PaddingTop)));
+		if (prop == Property::Gap)
+			for (Property companion : {Property::RowGap, Property::ColumnGap, Property::RowGapPercent, Property::ColumnGapPercent}) overrides.remove(companion);
 		if (prop == Property::BorderWidth)
 			for (Property side : {Property::BorderTopWidth, Property::BorderRightWidth, Property::BorderBottomWidth, Property::BorderLeftWidth}) overrides.remove(side);
 		if (prop == Property::BorderRelief)

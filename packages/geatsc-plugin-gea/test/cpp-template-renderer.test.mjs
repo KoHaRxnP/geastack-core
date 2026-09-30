@@ -630,7 +630,7 @@ test("primitive fieldType preserves native mounted style applies when shape is m
   );
   assert.match(
     source,
-    /root\.style\(\)\.set\(gea::embedded::ui::Property::Height, .*static_cast<double>\(__gea_width\)/,
+    /applyPixelLengthProperty\(root, gea::embedded::ui::StyleDeclaration::Height, static_cast<double>\(__gea_width\)/,
   );
   assert.match(
     source,
@@ -638,7 +638,7 @@ test("primitive fieldType preserves native mounted style applies when shape is m
   );
   assert.match(
     source,
-    /root\.style\(\)\.translateX\(.*static_cast<double>\(__gea_width\)/,
+    /root\.style\(\)\.translateX\(.*__gea_width.*devicePixelRatio\(\)/,
   );
   assert.match(source, /root\.style\(\)\.cssRotateDegrees\(/);
   assert.equal(
@@ -1704,7 +1704,7 @@ test("typed row style values avoid primitive gea_cpp_key boxing", () => {
   );
   assert.match(
     source,
-    /row\.style\(\)\.set\(gea::embedded::ui::Property::Height, .*static_cast<double>\(item\.size\)/,
+    /applyPixelLengthProperty\(row, gea::embedded::ui::StyleDeclaration::Height, static_cast<double>\(item\.size\)/,
   );
   assert.match(
     source,
@@ -1712,7 +1712,7 @@ test("typed row style values avoid primitive gea_cpp_key boxing", () => {
   );
   assert.match(
     source,
-    /row\.style\(\)\.translateY\(.*static_cast<double>\(item\.size\)/,
+    /row\.style\(\)\.translateY\(.*item\.size.*devicePixelRatio\(\)/,
   );
   assert.match(source, /row\.style\(\)\.cssRotateDegrees\(/);
   assert.equal(

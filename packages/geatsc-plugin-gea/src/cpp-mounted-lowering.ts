@@ -744,7 +744,7 @@ function lowerRowPxLengthStyleExpression(
   return {
     expr: loweredRowAsNumber(lowered),
     shape: { kind: 'literal', valueType: 'number' },
-    styleUnit: isBorderWidthStylePropertyName(propertyName) ? 'px' : undefined,
+    styleUnit: 'px',
     itemFields: lowered.itemFields,
     storeFields: lowered.storeFields,
   }
@@ -1967,7 +1967,7 @@ function lowerStorePxLengthStyleExpression(
   const expr = unwrapExpressionNode(span.expression)
   if (!ts.isPropertyAccessExpression(expr)) return null
   const lowered = lowerStoreFieldByName(expr.name.text, storeFieldLocalName(expr.name.text), storeFields)
-  return lowered ? { ...lowered, shape: { kind: 'literal', valueType: 'number' }, styleUnit: isBorderWidthStylePropertyName(propertyName) ? 'px' : undefined } : null
+  return lowered ? { ...lowered, shape: { kind: 'literal', valueType: 'number' }, styleUnit: 'px' } : null
 }
 
 function lowerStorePercentLengthStyleExpression(
@@ -2232,7 +2232,13 @@ function styleApplyLines(
   styleUnit?: 'percent' | 'color' | 'keyword' | 'px',
 ): string[] {
   const property = stylePropertyArgument(propertyName)
-  if (styleUnit === 'px') return [`gea::embedded::ui::StyleSheet::instance().applyPixelLengthProperty(${node}, ${property}, static_cast<double>(${value}));`]
+  if (styleUnit === 'px') {
+    const declaration = styleDeclarationEnumForPropertyName(propertyName)
+    if (declaration) return [`gea::embedded::ui::StyleSheet::instance().applyPixelLengthProperty(${node}, ${property}, static_cast<double>(${value}));`]
+    const translated = directNumberStyleApplyLine(node, propertyName, `(${value}) * gea::embedded::ui::devicePixelRatio()`)
+    if (!translated) throw new Error(`No CSS pixel style apply for ${propertyName}`)
+    return [translated]
+  }
   if (shape?.kind === 'literal' && shape.valueType === 'number') {
     const direct = styleUnit === 'percent'
       ? directPercentStyleApplyLine(node, propertyName, value)

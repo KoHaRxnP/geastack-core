@@ -9,6 +9,7 @@
 #include "ui/internal.h"
 #include "ui/node.h"
 #include "ui/style.h"
+#include "ui/style_values.h"
 #include "ui/tree_internal.h"
 #include "ui/tree_state.h"
 
@@ -62,13 +63,83 @@ int findDirectChildByTag(int parent, const char *tag)
 
 }  // namespace
 
-int main()
+int main(int argc, char **argv)
 {
 	using namespace gea::embedded::test;
 	using namespace gea::embedded::ui;
 
 	resetNativeHost();
 	StyleSheet::instance().clear();
+	gea::embedded::ui::setViewportMetrics(410, 502, 1.5);
+
+	// Authored numbers, strings and optimized dynamic px must agree across scales.
+	for (double ratio : {1.0, 1.5, 2.0}) {
+		gea::host::Display.setDevicePixelRatio(ratio);
+		const int rawId = Tree::instance().createView();
+		const int cssId = Tree::instance().createView();
+		const int optimizedId = Tree::instance().createView();
+		StyleSheet::instance().applyNumberProperty(NodeHandle(rawId), "width", 150);
+		StyleSheet::instance().applyProperty(NodeHandle(cssId), "width", "150px");
+		StyleSheet::instance().applyPixelLengthProperty(NodeHandle(optimizedId), StyleDeclaration::Width, 150);
+		float authoredPixels = 0;
+		if (!rareDataFor(cssId)->inlineStyles.getCssPixels(Property::Width, authoredPixels) || authoredPixels != 150) {
+			std::fprintf(stderr, "[test_style_viewport_metrics] parsed width must retain its authored CSS pixels\n");
+			return 1;
+		}
+		if (!expectEqual(Tree::instance().node(rawId).style.width, 150, "raw width does not acquire CSS units")) return 1;
+		if (!expectEqual(Tree::instance().node(cssId).style.width, static_cast<int>(150 * ratio), "explicit CSS width scales")) return 1;
+		if (!expectEqual(Tree::instance().node(optimizedId).style.width, Tree::instance().node(cssId).style.width, "optimized px matches parsed px")) return 1;
+		gea::host::Display.setDevicePixelRatio(3);
+		if (!expectEqual(Tree::instance().node(rawId).style.width, 150, "raw width survives a scale change")) return 1;
+		if (!expectEqual(Tree::instance().node(cssId).style.width, 450, "parsed px survives a scale change")) return 1;
+		if (!expectEqual(Tree::instance().node(optimizedId).style.width, 450, "optimized px survives a scale change")) return 1;
+		StyleSheet::instance().applyNumberProperty(NodeHandle(cssId), "width", 42);
+		StyleSheet::instance().removeProperty(NodeHandle(optimizedId), "width");
+		gea::host::Display.setDevicePixelRatio(1);
+		if (!expectEqual(Tree::instance().node(cssId).style.width, 42, "raw replacement clears the previous CSS unit")) return 1;
+		if (!expectEqual(Tree::instance().node(optimizedId).style.width, kUnset, "removed CSS width stays removed")) return 1;
+	}
+	// Every CSS declaration optimized from `${value}px` must agree with the
+	// parser, including shorthands and corner radii, before and after rescaling.
+	const struct { const char *name; StyleDeclaration declaration; } pixelDeclarations[] = {
+		{"gap", StyleDeclaration::Gap}, {"width", StyleDeclaration::Width}, {"height", StyleDeclaration::Height},
+		{"min-width", StyleDeclaration::MinWidth}, {"min-height", StyleDeclaration::MinHeight},
+		{"max-width", StyleDeclaration::MaxWidth}, {"max-height", StyleDeclaration::MaxHeight},
+		{"padding", StyleDeclaration::Padding}, {"padding-left", StyleDeclaration::PaddingLeft},
+		{"margin", StyleDeclaration::Margin}, {"margin-top", StyleDeclaration::MarginTop},
+		{"left", StyleDeclaration::Left}, {"top", StyleDeclaration::Top},
+		{"right", StyleDeclaration::Right}, {"bottom", StyleDeclaration::Bottom},
+		{"border-width", StyleDeclaration::BorderWidth}, {"border-left-width", StyleDeclaration::BorderLeftWidth},
+		{"border-radius", StyleDeclaration::BorderRadius},
+		{"border-top-left-radius", StyleDeclaration::BorderTopLeftRadius},
+		{"border-top-right-radius", StyleDeclaration::BorderTopRightRadius},
+		{"border-bottom-right-radius", StyleDeclaration::BorderBottomRightRadius},
+		{"border-bottom-left-radius", StyleDeclaration::BorderBottomLeftRadius},
+		{"font-size", StyleDeclaration::FontSize},
+	};
+	for (const auto &declaration : pixelDeclarations) {
+		gea::host::Display.setDevicePixelRatio(1.5);
+		const int parsed = Tree::instance().createView(), optimized = Tree::instance().createView();
+		StyleSheet::instance().applyProperty(NodeHandle(parsed), declaration.name, "12.5px");
+		if (!StyleSheet::instance().applyPixelLengthProperty(NodeHandle(optimized), declaration.declaration, 12.5)) {
+			std::fprintf(stderr, "[test_style_viewport_metrics] optimized px rejected %s\n", declaration.name);
+			return 1;
+		}
+		for (double ratio : {1.5, 2.0}) {
+			gea::host::Display.setDevicePixelRatio(ratio);
+			const auto &a = rareDataFor(parsed)->inlineStyles, &b = rareDataFor(optimized)->inlineStyles;
+			if (!expectEqual(a.size(), b.size(), declaration.name)) return 1;
+			for (std::size_t i = 0; i < a.size(); ++i) {
+				if (!expectEqual(static_cast<int>(a.at(i).property), static_cast<int>(b.at(i).property), declaration.name) ||
+				    !expectEqual(a.at(i).value, b.at(i).value, declaration.name)) return 1;
+			}
+		}
+	}
+	if (argc > 1 && std::strcmp(argv[1], "--units") == 0) {
+		std::puts("Native style units: raw numbers and parsed/optimized px agree at scales 1, 1.5 and 2");
+		return 0;
+	}
+	Tree::instance().clear();
 	gea::embedded::ui::setViewportMetrics(410, 502, 1.5);
 
 	const int nodeId = Tree::instance().createView();
@@ -104,6 +175,7 @@ int main()
 	if (!expectEqual(style.min_width, 33, "legacy unitless min-width")) return 1;
 	if (!expectEqual(style.flex, 1, "flex")) return 1;
 	if (!expectEqual(style.z_index, 7, "z-index")) return 1;
+
 
 	gea::host::Display.setDevicePixelRatio(2);
 	if (!expectClose(gea::host::Display.getDevicePixelRatio(), 2.0, "Display device pixel ratio")) return 1;
@@ -257,8 +329,9 @@ int main()
 	if (!expectEqual(staticBgRare.bg_grid_axes, 3, "static background grid axes")) return 1;
 	if (!expectEqual(staticBgRare.bg_grid_line_x, 1, "static background grid line x")) return 1;
 	if (!expectEqual(staticBgRare.bg_grid_line_y, 2, "static background grid line y")) return 1;
-	if (!expectEqual(staticBgRare.bg_grid_step_x, 38, "static background-size x")) return 1;
-	if (!expectEqual(staticBgRare.bg_grid_step_y, 39, "static background-size y")) return 1;
+	const auto staticBgPlacement = StyleValues::backgroundPlacement(staticBgStyle, staticBgId, 0, 0, 0, 200, 200);
+	if (!expectEqual(staticBgPlacement.width, 38, "static background-size x")) return 1;
+	if (!expectEqual(staticBgPlacement.height, 39, "static background-size y")) return 1;
 	const int firstRareStyle = staticBgStyle.rare_style;
 	int maxRareStyle = firstRareStyle;
 	for (int i = 0; i < 8; ++i) {
