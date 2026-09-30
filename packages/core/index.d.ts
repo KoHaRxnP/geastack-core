@@ -746,6 +746,8 @@ export class Component<RootElement extends GeaElement = GeaElement, Props = void
   // same thing as the mounted host node `el` points at. `null` is the base's
   // own stub answer in `runtime/compiler.ts`.
   template(props?: Props): GeaJsxElement | null
+  /** Called after the rendered root is available in el; start loading or drawing here. */
+  onAfterRender(): void
 }
 
 // Opt-in base for a component that holds its OWN reactive state — its instance

@@ -12,6 +12,7 @@ NODE_TESTS=(
   test_embedded_weak_symbols.mjs
   test_gea_embedded_compat_transform.mjs
   test_gea_native_style_plugin.mjs
+  test_component_startup.mjs
   test_gea_runtime_settings_gesture.mjs
   test_gea_vite_module_graph_assets.mjs
   test_generate_embedded_fonts.mjs

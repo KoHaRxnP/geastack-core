@@ -24,6 +24,39 @@ and include roots to compile, and run its build driver, which bundles the app
 with Vite, compiles it with `geatsc` and the Gea plugin, and hands the emitted
 C++ to the target.
 
+## Component startup
+
+Use `@geastack/core` for applications targeting the native GeaStack hosts.
+`Component` is the component base; `ReactiveComponent` makes its own fields
+reactive, and `Store` holds shared reactive state. The web target supplies the
+matching browser runtime. Direct use of `@geajs/core` belongs to the Gea web
+framework and is not the native application contract.
+
+Start loading data or drawing in `onAfterRender()`. The component's `el` is set
+before this hook runs. Field initializers and constructors initialize state;
+code that needs a rendered canvas belongs in the hook.
+
+```tsx
+import { ReactiveComponent } from '@geastack/core'
+
+class Counter extends ReactiveComponent {
+  count = 0
+  onAfterRender(): void {
+    this.count = 1
+  }
+  template(): JSX.Element {
+    return <div>{this.count}</div>
+  }
+}
+```
+
+Compiler/runtime regressions should use generic language or framework cases.
+Report compiler issues in `geastack/compiler`, host API and application-runtime
+issues in `geastack/core`, Apple rendering/bindings in `geastack/apple`, and web
+target integration in `geastack/simulator`. Contributions should include a
+reproduction and target-specific validation. Lifecycle and representation
+changes need to preserve the shared component and native-type contracts.
+
 ## Related packages
 
 - `@geastack/engine` renders the element tree, `@geastack/host` supplies the

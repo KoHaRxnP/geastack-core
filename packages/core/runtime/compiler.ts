@@ -22,6 +22,7 @@ export class Component<RootElement extends GeaElement = GeaElement, Props = void
   template(_props?: Props): GeaJsxElement | null {
     return null
   }
+  onAfterRender(): void {}
   // NB: deliberately NO `render` here. `render` is synthesised onto compiled
   // components by the embedded compiler. Declaring it on the base looks tidier
   // (it would let mount() drop its cast) but it BREAKS embedded codegen: once
