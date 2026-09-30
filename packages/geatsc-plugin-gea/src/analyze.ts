@@ -1,3 +1,4 @@
+import { inferCanvasOnly } from './analyze-runtime.js'
 import { nodeAuxVersion, addNodeAuxFeatures, addUnknownNodeAux, cssUsesNodeAttributes } from './analyze-node-aux.js'
 import { sourceLiteralResolver } from './analyze-literals.js'
 import fs from 'node:fs'
@@ -67,6 +68,8 @@ export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPat
     features.add(`node-class-capacity-v1-${classCapacity}`)
     features.add(`node-class-storage-v1-${classCapacity}`)
   }
+  features.add('runtime-analysis-v1')
+  if (inferCanvasOnly(literalSources, discovery.unknown || discovery.runtimeUnknown)) features.add('runtime-canvas-only')
   variables.finish()
   css.finish()
   ranges.finish()
@@ -181,10 +184,11 @@ function addBindingsForEmbeddedHostNames(text: string, bindings: Set<string>): v
   if (documentHostRegex.test(text)) bindings.add('dom')
 }
 
-function discoverSourceFiles(entry: string): { files: string[]; unknown: boolean } {
+function discoverSourceFiles(entry: string): { files: string[]; unknown: boolean; runtimeUnknown: boolean } {
   const visited = new Set<string>()
   const files: string[] = []
   let unknown = false
+  let runtimeUnknown = false
 
   function visit(file: string): void {
     const resolved = path.resolve(file)
@@ -192,6 +196,15 @@ function discoverSourceFiles(entry: string): { files: string[]; unknown: boolean
     // is not a program; reading it would throw EISDIR out of the analyzer.
     if (visited.has(resolved) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) return
     visited.add(resolved)
+    // Imported data is not executable source. Parsing a JPEG or JSON as TS
+    // manufactures syntax errors and falsely marks every renderer feature as
+    // reachable. Dynamic use of data as CSS is still observed at its call site.
+    if (/\.(?:json|png|jpe?g|gif|webp|bmp|ico|ttf|otf|woff2?|wav|mp3|ogg|mp4)$/i.test(resolved)) {
+      // Asset imports can generate decoder/host calls outside this source
+      // graph. Plain JSON is data; other assets cannot certify a minimal boot.
+      if (!/\.json$/i.test(resolved)) runtimeUnknown = true
+      return
+    }
     const text = fs.readFileSync(resolved, 'utf8')
     for (const specifier of /\.css$/i.test(resolved) ? [] : moduleSpecifiers(resolved, text)) {
       // Framework host imports do not inject renderer instructions. Other
@@ -214,7 +227,7 @@ function discoverSourceFiles(entry: string): { files: string[]; unknown: boolean
 
   visit(entry)
   if (!files.length) unknown = true
-  return { files, unknown }
+  return { files, unknown, runtimeUnknown }
 }
 
 function moduleSpecifiers(file: string, text: string): string[] {

@@ -57,8 +57,8 @@ namespace {
 void run_app_frame(int timestampMs, void *context)
 {
 	(void)context;
-	events::TouchRuntime::poll(timestampMs);
-	services::BatteryService::poll(timestampMs);
+	// Canvas-only inference excludes input/battery consumers. These services
+	// belong to the full runtime and are not linked in the reduced source set.
 	app::Application::frame(timestampMs);
 }
 

@@ -8,7 +8,7 @@ import { analyzeSourceHostBindings as analyzeAllFeatures } from '../dist/analyze
 // CSS elimination has separate end-to-end assertions below.
 function analyzeSourceHostBindings(entry) {
   const result = analyzeAllFeatures(entry)
-  return { ...result, features: result.features.filter(feature => !feature.startsWith('css-') && !feature.startsWith('node-') && !feature.startsWith('renderer-occlusion-')) }
+  return { ...result, features: result.features.filter(feature => !feature.startsWith('css-') && !feature.startsWith('node-') && !feature.startsWith('renderer-occlusion-') && !feature.startsWith('runtime-')) }
 }
 
 function app(t, files) {
@@ -1172,4 +1172,12 @@ test('CSS colors and quoted declaration contents do not allocate attribute owner
 test('attribute selectors retain owners even when quoted values contain delimiters', t => {
   const features=analyzeAllFeatures(app(t, {'index.tsx':"import './style.css'",'style.css':'[title=";{}"]{color:red}'})).features
   assert.ok(features.includes('node-attributes'))
+})
+
+test('canvas inference retains services for imports lowered to native asset loaders', (t) => {
+  const entry = app(t, {
+    'index.tsx': "import { Display } from '@geastack/core'; import image from './picture.png'; Display.ctx.drawImage(image, 0, 0)",
+    'picture.png': 'image data',
+  })
+  assert.ok(!analyzeAllFeatures(entry).features.includes('runtime-canvas-only'))
 })
