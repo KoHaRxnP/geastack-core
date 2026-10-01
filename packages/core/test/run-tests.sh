@@ -30,6 +30,7 @@ NATIVE_TESTS=(
   run-canvas-rounded-rect-alpha.sh
   run-transformed-rounded-rect.sh
   run-renderer-features.sh
+  run-rotated-projected-text.sh
   run-position-storage.sh
   run-canvas-overlay.sh
   run-native-jpeg.sh

@@ -1233,16 +1233,12 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		if (prop == Property::Display) {
 			forceFull = !stayLocal;
 		} else if (prop == Property::Opacity) {
-			// Partial→partial fade: the SetAlpha scope already exists on both
-			// sides (opacity 0 still records a scope), so patch its value in place
-			// and keep the display list — no rebuild, no displayListDirty. The
-			// full per-rect replay path (tree_render) replays the scope in order,
-			// so the patched alpha applies correctly. (The incremental
-			// direct-replay path can't use this: it replays only a node's
-			// [drawStart,drawEnd], which excludes the scope — which is why
-			// canReplayDirectDirtyRegions still bails and we fall to the safe
-			// full-per-rect replay. The record stays incremental either way.)
-			if (stayLocal && prevOpacity < 255 && style.opacity < 255 &&
+			// An existing leaf alpha scope can represent every opacity, including
+			// full brightness. Keep it across 255 instead of repeatedly removing
+			// and recreating it during a fade. patchNodeAlpha returns false when
+			// no scope exists (for example, an initially opaque or culled node),
+			// so those cases still take the ordinary recording path below.
+			if (stayLocal &&
 			    DisplayList::instance().patchNodeAlpha(node, static_cast<uint8_t>(style.opacity)))
 				return;
 			// Crossing the 255 boundary (scope appears/disappears) or a non-leaf:

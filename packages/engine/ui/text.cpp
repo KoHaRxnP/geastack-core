@@ -1998,6 +1998,9 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	int y = n->layout.y;
 	int w = n->layout.width;
 	int h = n->layout.height;
+	// Empty bounds are not a transform. Hidden-overflow text in an empty
+	// content box has no paintable pixels and must not emit projected ink.
+	if ((w <= 0 && overflowX(n->computedStyle())) || (h <= 0 && overflowY(n->computedStyle()))) return;
 	int tx = x + boxInset(n->computedStyle(), 3);
 	int ty = y + boxInset(n->computedStyle(), 0);
 	int tw = w - boxInset(n->computedStyle(), 1) - boxInset(n->computedStyle(), 3);

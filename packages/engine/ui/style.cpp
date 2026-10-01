@@ -9101,6 +9101,12 @@ void Style::setProperty(const std::string &property, const std::string &value) c
 	StyleSheet::instance().applyProperty(NodeHandle(nodeId_), property, value);
 }
 
+bool Style::setNumberProperty(const std::string &property, double value) const
+{
+	if (nodeId_ < 0) return false;
+	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId_), property.c_str(), value);
+}
+
 bool Style::removeProperty(const std::string &property) const
 {
 	if (nodeId_ < 0) return false;

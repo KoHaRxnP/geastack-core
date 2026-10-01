@@ -5,6 +5,8 @@ export const COMPAT_STAGING_IGNORED_DIRECTORIES = Object.freeze([
   '.build',
   '.build-test',
   '.vite',
+  '.gea',
+  '.git',
   '.scratch',
   '.test-tmp',
   'generated-output',

@@ -87,8 +87,8 @@ export function cxxSources(env = process.env) {
     // @geastack/host — platform layer + services
     ...cpp(host, ['input', 'wifi', 'bluetooth', 'geolocation']),
     ...cpp(join(host, 'host'), [
-      'timers', 'input', 'display', 'fetch', 'media', 'rtc', 'websocket', 'http', 'wifi',
-      'ble', 'apps', 'audio', 'image', 'touch', 'imu', 'memory', 'camera', 'geolocation',
+      'timers', 'worker', 'input', 'display', 'fetch', 'media', 'rtc', 'websocket', 'http', 'wifi',
+      'ble', 'apps', 'audio', 'audio_worklet', 'video', 'mjpeg', 'image', 'touch', 'imu', 'memory', 'camera', 'geolocation',
       'tile_loader'
     ]),
     // framework services (built on the platform abstraction — no target-specific deps)

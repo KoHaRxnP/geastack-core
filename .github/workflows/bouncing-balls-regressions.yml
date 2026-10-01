@@ -28,5 +28,6 @@ jobs:
       - run: GEA_BALLS_NARROW_STYLE=1 GEA_BALLS_BASE_STYLE_PRUNED=1 GEA_BALLS_CUSTOM_PROPERTIES=0 GEA_BALLS_WIDTH_PERCENT=0 GEA_BALLS_HEIGHT_PERCENT=0 GEA_BALLS_PERF=0 GEA_BALLS_SHARED_STYLES=1 bash packages/core/test/run-bouncing-balls-regressions.sh --compact-classes
       - run: GEA_BALLS_BASE_STYLE_PRUNED=1 GEA_BALLS_CUSTOM_PROPERTIES=0 GEA_BALLS_WIDTH_PERCENT=0 GEA_BALLS_HEIGHT_PERCENT=0 bash packages/core/test/run-bouncing-balls-regressions.sh --compact-classes
       - run: bash packages/core/test/run-renderer-features.sh
+      - run: bash packages/core/test/run-rotated-projected-text.sh
       - run: bash packages/core/test/run-text-sprite-cache.sh --mutations
       - run: bash packages/core/test/run-gea-retained-absolute-subtree.sh

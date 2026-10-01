@@ -658,17 +658,51 @@ inline std::uint16_t fromNative(native_t pixel)
 #endif
 }
 
-// Row copies across the RGB565-scratch <-> native-framebuffer boundary. Both
-// compile to a plain std::memcpy on RGB565 targets (native_t == std::uint16_t),
-// byte-identical to the original framebuffer code; on RGBA8888 they convert
-// per pixel (inactive path).
+// Non-overlapping native pixel spans, including cropped rows whose source and
+// destination have different vector alignment. Keep every load within the span:
+// a scalar head precedes the first aligned-down load, and the scalar tail leaves
+// room for the unaligned vector load's second aligned block.
+inline void copyNative(native_t *dst, const native_t *src, int count)
+{
+	if (count <= 0) return;
+#if GEA_PIXEL_PIE_FILL16 && !GEA_PIXEL_FORMAT_IS_8888 && !GEA_PIXEL_FORMAT_IS_GRAY
+	if (count >= 32) {
+		for (int i = 0; i < 8; ++i) { *dst++ = *src++; --count; }
+		while ((reinterpret_cast<std::uintptr_t>(dst) & 15u) != 0) {
+			*dst++ = *src++;
+			--count;
+		}
+		const int vectors = (count - 8) >> 3;
+		if (vectors > 0) {
+			const native_t *cursor = src;
+			asm volatile(
+				"ee.ld.128.usar.ip q0, %[src], 16\n"
+				"loopnez %[vectors], 1f\n"
+				"ee.ld.128.usar.ip q1, %[src], 16\n"
+				"ee.src.q.qup q2, q0, q1\n"
+				"ee.vst.128.ip q2, %[dst], 16\n"
+				"ee.orq q0, q1, q1\n"
+				"1:\n"
+				: [src] "+&r"(cursor), [dst] "+&r"(dst)
+				: [vectors] "r"(vectors)
+				: "memory");
+			src += vectors * 8;
+			count -= vectors * 8;
+		}
+	}
+#endif
+	std::memcpy(dst, src, static_cast<std::size_t>(count) * sizeof(native_t));
+}
+
+// Row copies across the RGB565-scratch <-> native-framebuffer boundary. RGB565
+// uses the native span copy above; other framebuffer formats convert per pixel.
 inline void copyNativeToRgb565(std::uint16_t *dst, const native_t *src, int count)
 {
 	if (count <= 0) return;
 #if GEA_PIXEL_FORMAT_IS_8888 || GEA_PIXEL_FORMAT_IS_GRAY
 	for (int i = 0; i < count; i++) dst[i] = fromNative(src[i]);
 #else
-	std::memcpy(dst, src, static_cast<std::size_t>(count) * sizeof(std::uint16_t));
+	copyNative(dst, src, count);
 #endif
 }
 
@@ -678,7 +712,7 @@ inline void copyRgb565ToNative(native_t *dst, const std::uint16_t *src, int coun
 #if GEA_PIXEL_FORMAT_IS_8888 || GEA_PIXEL_FORMAT_IS_GRAY
 	for (int i = 0; i < count; i++) dst[i] = toNative(src[i]);
 #else
-	std::memcpy(dst, src, static_cast<std::size_t>(count) * sizeof(std::uint16_t));
+	copyNative(dst, src, count);
 #endif
 }
 

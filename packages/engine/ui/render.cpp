@@ -2725,6 +2725,9 @@ int gLastScrollUiFrame = -1000;
 				return;
 
 			const int stride = canvas->strideBytes() / static_cast<int>(sizeof(gea::framework::graphics::pixel::native_t));
+#if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
+			const bool rotated = canvas->isLandscapeRotated();
+#endif
 			int dirtyX0 = canvas->width();
 			int dirtyY0 = canvas->height();
 			int dirtyX1 = -1;
@@ -3111,13 +3114,19 @@ int gLastScrollUiFrame = -1000;
 							alpha = (alpha * parentAlpha + 127) / 255;
 						if (alpha <= 0)
 							continue;
+						auto *target = dst;
+#if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
+						// Projected text writes native pixels directly, so it must use
+						// the same logical-to-physical mapping as Canvas text drawing.
+						if (rotated) target = canvas->pixels() + (canvas->width() - 1 - xi) * stride + y;
+#endif
 						if (alpha >= 255)
-							*dst = textColorNative;
+							*target = textColorNative;
 						else
 #if GEA_EMBEDDED_PIXEL_FORMAT == GEA_PIXEL_RGB565
-							*dst = blendTextRgb565(*dst, alpha);
+							*target = blendTextRgb565(*target, alpha);
 #else
-							*dst = gea::framework::graphics::pixel::blendNative(textColorNative, *dst, alpha);
+							*target = gea::framework::graphics::pixel::blendNative(textColorNative, *target, alpha);
 #endif
 
 						if (xi < dirtyX0)
@@ -10246,11 +10255,23 @@ int gLastScrollUiFrame = -1000;
 	bool DisplayList::patchNodeAlpha(int node, uint8_t opacity)
 	{
 		// The OPEN SetAlpha wrapping a node's subtree lives OUTSIDE the node's
-		// [drawStart,drawEnd] range, so scan by the nodeId tag recordNode stamped on
-		// it. Recompute from the record-time parent alpha so nested scopes stay
+		// [drawStart,drawEnd] range, immediately before drawStart. Recompute
+		// from the record-time parent alpha so nested scopes stay
 		// correct: alpha = recordParentAlpha * opacity / 255.
 		if (!state.commands || node < 0 || node >= Tree::instance().nodeCount())
 			return false;
+		// Reuse the existing range index. Scanning the entire retained list for
+		// each fading leaf makes an N-lamp animation quadratic in command count.
+		if (state.hasNodeScratchFor(node)) {
+			const int ci = state.nodeDrawStart[node] - 1;
+			if (ci >= 0 && ci < state.commandCount) {
+				auto &command = state.commands[ci];
+				if (command.type == DisplayCommandType::SetAlpha && command.alpha.nodeId == node) {
+					command.alpha.alpha = static_cast<uint8_t>((static_cast<int>(command.alpha.recordParentAlpha) * opacity) / 255);
+					return true;
+				}
+			}
+		}
 		for (int ci = 0; ci < state.commandCount; ci++)
 		{
 			DisplayCommand *c = &state.commands[ci];

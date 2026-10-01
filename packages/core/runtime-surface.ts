@@ -1,4 +1,7 @@
 export * from './runtime/compiler'
+export type * from './workers'
+export type * from './audio-worklet'
+export { flushAudioWorkletOutput } from './runtime/audio-worklet'
 export * from './runtime/host'
 export * from './runtime/ble'
 export * from './runtime/images'
@@ -109,6 +112,10 @@ export type {
   GeolocationPosition,
   GeolocationPositionError,
   HTMLAudioElement,
+  PcmAudioStream,
+  PcmAudioStreamConstructor,
+  HTMLVideoElement,
+  VideoProps,
   HttpModule,
   HttpRequestHandler,
   HttpServer,
