@@ -274,9 +274,12 @@ void Application::frame(int timestampMs)
 	applicationFramePhaseSet(ApplicationFramePhase::AnimationFrameCallbacks);
 	gea::host::runAnimationFrameCallbacks(static_cast<double>(timestampMs));
 	generated::drainMicrotasks();
+	// Offline builds have no network events to drain. Avoid locking empty queues every frame.
+#if !defined(GEA_EMBEDDED_NETWORK_SERVICES_DISABLED) || !GEA_EMBEDDED_NETWORK_SERVICES_DISABLED
 	gea::host::websocket::runCallbacks();
 	gea::host::rtc::runCallbacks();
 	gea::host::http::runRequests();
+#endif
 	recordFramePhase(ApplicationFramePhase::AnimationFrameCallbacks, phaseClockUs() - startUs);
 
 	// Apply the coalesced style recompute for everything changed above, so layout
