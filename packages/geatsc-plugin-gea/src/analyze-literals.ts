@@ -88,7 +88,14 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
     if (ts.isObjectLiteralExpression(node)) return true
     if (ts.isIdentifier(node)) {
       const declaration = declarationOf(node)
-      return !!declaration?.initializer && localReceiver(declaration.initializer, seen)
+      if (declaration?.initializer) return localReceiver(declaration.initializer, seen)
+      // A default-exported instance has an ExportAssignment declaration,
+      // rather than a const variable. Follow its authored initializer too.
+      let symbol = typeChecker().getSymbolAtLocation(node)
+      if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = typeChecker().getAliasedSymbol(symbol)
+      const exported = symbol?.valueDeclaration
+      return !!exported && ts.isExportAssignment(exported) &&
+        sources.has(exported.getSourceFile().fileName) && localReceiver(exported.expression, seen)
     }
     if (ts.isNewExpression(node)) {
       let symbol = typeChecker().getSymbolAtLocation(node.expression)
@@ -208,6 +215,15 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
   for (const source of sources.values()) index(source)
   const original = (node: ts.Expression): ts.Expression | undefined => expressions.get(`${node.getSourceFile().fileName}:${node.pos}:${node.end}`)
   return Object.assign((node: ts.Expression): string[] | undefined => resolve(original(node)), {
+    // A boolean named animate is an application flag, never a Web Animations
+    // API reference. Unknown or mixed types still retain animation support.
+    isBoolean(node: ts.Expression): boolean {
+      const at = original(node)
+      if (!at || initiallyOpaque) return false
+      const type = typeChecker().getTypeAtLocation(at)
+      const alternatives = type.isUnion() ? type.types : [type]
+      return alternatives.every(value => !!(value.flags & ts.TypeFlags.BooleanLike))
+    },
     // In a statically lowered numeric slot no value can contain a CSS '%'.
     // Ambiguous imports, assertions and any/unknown retain storage. A typed
     // native number remains numeric when unrelated literal objects escape;
@@ -223,6 +239,30 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
       const at = original(node)
       if (!at || initiallyOpaque) return false
       const parent = at.parent
+      // A locally declared frame callback may also be named animate. Resolve
+      // its binding instead of confusing the name with Element.animate.
+      if (ts.isIdentifier(at)) {
+        let symbol = typeChecker().getSymbolAtLocation(at)
+        if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = typeChecker().getAliasedSymbol(symbol)
+        const declarations = symbol?.declarations
+        if (declarations?.length && declarations.every(declaration =>
+          sources.has(declaration.getSourceFile().fileName) && ts.isFunctionDeclaration(declaration) && !!declaration.body)) {
+          let reassigned = false
+          const checkWrites = (child: ts.Node): void => {
+            if (ts.isBinaryExpression(child) && child.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+                child.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
+              const checkTarget = (target: ts.Node): void => {
+                if (ts.isIdentifier(target) && typeChecker().getSymbolAtLocation(target) === symbol) reassigned = true
+                ts.forEachChild(target, checkTarget)
+              }
+              checkTarget(child.left)
+            }
+            ts.forEachChild(child, checkWrites)
+          }
+          for (const source of sources.values()) checkWrites(source)
+          if (!reassigned) return true
+        }
+      }
       if (ts.isMethodDeclaration(parent) && parent.name === at && parent.body) return true
       const access = ts.isPropertyAccessExpression(at) || ts.isElementAccessExpression(at) ? at
         : ts.isPropertyAccessExpression(parent) && parent.name === at ? parent : undefined
