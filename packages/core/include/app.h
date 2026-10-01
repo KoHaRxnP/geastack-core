@@ -31,6 +31,12 @@ enum class ApplicationFramePhase : std::uint8_t {
 	StyleRecompute,
 	DocumentFrame,
 	RefreshMounted,
+	CycleCollection,
+	CallbackMicrotasks,
+	WebSocketCallbacks,
+	RtcCallbacks,
+	VideoPresentation,
+	HttpRequests,
 };
 
 struct ApplicationFramePerfStats {

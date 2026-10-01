@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <functional>
 
 namespace gea::platform::audio {
 
@@ -72,6 +73,14 @@ public:
 	static bool playFile(const std::string &path);
 	static bool playPcm(const std::int16_t *samples, std::size_t sample_count, int sample_rate, int channels);
 	static void stopPlayback();
+	static void flushPlayback();
+	// Continuous 16 kHz mono source; zero means the platform could not attach it.
+	static std::uint64_t playPcmStream(std::function<std::size_t(std::int16_t*, std::size_t)> pull);
+	static void stopPcmStream(std::uint64_t stream);
+	static bool pcmStreamSettled(std::uint64_t stream);
+	// Maximum mixer and device buffering delays, in seconds.
+	static double processingLatency();
+	static double outputLatency();
 };
 
 #ifdef GEA_AUDIO_DRIVER_INTERNAL
@@ -80,8 +89,10 @@ public:
 	static bool open(int sample_rate, int channels, int bits_per_sample);
 	static bool write(const std::int16_t *pcm, std::size_t sample_count, int timeout_ms);
 	static void close();
+	static bool flush();
 	static int volume();
 	static void setVolume(int volume_percent);
+	static double outputLatency(int sample_rate);
 };
 #endif
 

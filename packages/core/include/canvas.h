@@ -88,6 +88,7 @@ public:
 	// LANDSCAPE is defined (papers3), so every other target is byte-for-byte
 	// unaffected. Supports both packed grayscale and native RGB framebuffers.
 	void bindPixelsRotatedLandscape(pixel::native_t *physPixels, int logicalWidth, int logicalHeight);
+	bool isLandscapeRotated() const { return landscapeRot_; }
 #endif
 
 	pixel::native_t *pixels();

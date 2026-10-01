@@ -22,6 +22,7 @@
 // shared binary) without duplicate-definition errors when they share
 // an asset filename; the linker keeps one copy.
 
+import { describeStaticAsset } from './gea-static-asset.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -276,7 +277,7 @@ if (assets.length === 0) {
   for (const file of assets) {
     const rel = relPath(file)
     const sym = assetSymbol(rel)
-    const aliases = [rel]
+    const aliases = [rel, describeStaticAsset(file).url]
     if (rel.startsWith('public/')) aliases.push(rel.slice('public/'.length))
     const condition = aliases
       .map((alias) => `(std::strcmp(path, ${JSON.stringify(alias)}) == 0 || (path[0] == '/' && std::strcmp(path + 1, ${JSON.stringify(alias)}) == 0))`)

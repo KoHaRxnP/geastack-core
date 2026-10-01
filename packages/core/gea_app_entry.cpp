@@ -6,6 +6,7 @@
 #include "gea_perf_config.h"  // GEA_EMBEDDED_PERF master + per-subsystem perf flags
 #include "gea/embedded.h"
 #include "host/backends.h"
+#include "host/worker.h"
 #include "ui/style.h"
 #include "ui/tree_internal.h"  // Tree::mount for the post-mount clean repaint in init()
 
@@ -64,7 +65,23 @@ public:
 	{
 		if (active_) gea_cycle_collection_defer_begin();
 	}
-	~FrameCycleCollectionDeferral() { if (active_) gea_cycle_collection_defer_end(); }
+	~FrameCycleCollectionDeferral() {
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto started = nowUs();
+#endif
+		if (active_) {
+			// Scope-exit collection runs after frame phases finish. Keep it
+			// visible to the watchdog instead of reporting a stalled frame as idle.
+			const auto previous = applicationFramePhaseRead();
+			applicationFramePhaseSet(ApplicationFramePhase::CycleCollection);
+			gea_cycle_collection_defer_end();
+			applicationFramePhaseSet(previous);
+		}
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto elapsed = nowUs() - started;
+		if (elapsed > 30000) ESP_LOGW("frame_phase", "cycle_collection duration_ms=%lld", (long long)(elapsed / 1000));
+#endif
+	}
 
 private:
 	bool active_;
@@ -209,7 +226,7 @@ void logFramePerfWindow(int64_t windowEndUs)
 // pays zero for phase instrumentation.
 std::int64_t phaseClockUs()
 {
-#if GEA_FRAME_PHASE_TIMING
+#if GEA_FRAME_PHASE_TIMING || CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
 	return nowUs();
 #else
 	return 0;
@@ -222,6 +239,11 @@ std::int64_t phaseClockUs()
 // neither is set.
 void recordFramePhase(ApplicationFramePhase phase, int64_t durationUs)
 {
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+	if (durationUs > 30000)
+		ESP_LOGW("frame_phase", "%s duration_ms=%lld", applicationFramePhaseName(phase),
+			static_cast<long long>(durationUs / 1000));
+#endif
 #if GEA_EMBEDDED_FRAME_SCHEDULER_PERF_LOG
 	applicationFramePerfStatsAdd(phase, durationUs);
 #endif
@@ -273,10 +295,24 @@ void Application::frame(int timestampMs)
 	startUs = phaseClockUs();
 	applicationFramePhaseSet(ApplicationFramePhase::AnimationFrameCallbacks);
 	gea::host::runAnimationFrameCallbacks(static_cast<double>(timestampMs));
+	applicationFramePhaseSet(ApplicationFramePhase::CallbackMicrotasks);
 	generated::drainMicrotasks();
+	// The build already proves whether network services are reachable. Keep their
+	// callback pumps out of offline frame loops, while still servicing local workers.
+#if !defined(GEA_EMBEDDED_NETWORK_SERVICES_DISABLED) || !GEA_EMBEDDED_NETWORK_SERVICES_DISABLED
+	applicationFramePhaseSet(ApplicationFramePhase::WebSocketCallbacks);
 	gea::host::websocket::runCallbacks();
+	applicationFramePhaseSet(ApplicationFramePhase::RtcCallbacks);
 	gea::host::rtc::runCallbacks();
+#else
+	gea::host::workers::Context::runMainPending();
+#endif
+	applicationFramePhaseSet(ApplicationFramePhase::VideoPresentation);
+	gea::host::video::presentFrames();
+#if !defined(GEA_EMBEDDED_NETWORK_SERVICES_DISABLED) || !GEA_EMBEDDED_NETWORK_SERVICES_DISABLED
+	applicationFramePhaseSet(ApplicationFramePhase::HttpRequests);
 	gea::host::http::runRequests();
+#endif
 	recordFramePhase(ApplicationFramePhase::AnimationFrameCallbacks, phaseClockUs() - startUs);
 
 	// Apply the coalesced style recompute for everything changed above, so layout

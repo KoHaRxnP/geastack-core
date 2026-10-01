@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inlineJsonImports, transformGeaEmbeddedCompatSource } from './gea-embedded-compat-transform.mjs'
 import { normalizeEmbeddedJsxOptions, shouldIgnoreCompatStagingDirectory } from './gea-embedded-compat-staging.mjs'
 import { dotEnvDefines, inlineProcessEnv } from './dotenv-defines.mjs'
+import { collectWorkerModuleSources, writeWorkerRegistry, validateWorkletRegistrations } from './gea-worker-modules.mjs'
 import { resolveCompilerRuntimeEntry } from './gea-native-style-plugin.mjs'
 import {
   MODULE_HINT_SCOPE,
@@ -20,6 +21,8 @@ import {
   restoreModuleGraphElAnnotations,
 } from './gea-bundle-type-hints.mjs'
 
+const nativeModules = new Map()
+let nativeModuleSources = new Map()
 const args = process.argv.slice(2)
 const requireFromLib = createRequire(new URL('../package.json', import.meta.url))
 const coreRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -246,7 +249,11 @@ function copyCompatSourceTree(srcDir, dstDir, envDefines = {}) {
         // (the fully native store/record lowering path). Then bake in .env vars
         // (process.env.<KEY> -> literal) so the module-graph snapshots geatsc
         // compiles carry the value — Vite's `define` only rewrites the bundle.
-        fs.writeFileSync(dst, inlineProcessEnv(transformGeaEmbeddedCompatSource(inlineJsonImports(code, src), src), envDefines))
+        const native = nativeModuleSources.get(src) ?? { code, modules: [] }
+        for (const module of native.modules) {
+          nativeModules.set(`${module.kind}:${module.url}`, { ...module, stagedEntry: path.resolve(path.dirname(dst), path.relative(path.dirname(src), module.entry)) })
+        }
+        fs.writeFileSync(dst, inlineProcessEnv(transformGeaEmbeddedCompatSource(inlineJsonImports(native.code, src), src), envDefines))
       } else {
         fs.copyFileSync(src, dst)
         if (path.extname(entry.name) === '.css') copyCssUrlAssets(src, dst)
@@ -304,7 +311,7 @@ function linkCompatNodeModules(appDir, stagedAppDir, compatSrcDir) {
 // staging its containing directory wholesale (which also brings the css/asset
 // files discoverLocalImport skips).
 function escapedCompatImportDirs(appDir, entry) {
-  const escaped = collectReachableSourceFiles(appDir, entry).filter((file) => path.relative(appDir, file).startsWith('..'))
+  const escaped = [...new Set([...collectReachableSourceFiles(appDir, entry), ...nativeModuleSources.keys()])].filter((file) => path.relative(appDir, file).startsWith('..'))
   const dirs = [...new Set(escaped.map((file) => path.dirname(file)))].sort()
   return dirs.filter((dir, index) => !dirs.slice(0, index).some((outer) => outer !== dir && !path.relative(outer, dir).startsWith('..')))
 }
@@ -4393,6 +4400,8 @@ let stagedEntryFile = null
 let fontSourceDir = appDir
 
 if (geaEmbeddedCompat) {
+  nativeModuleSources = collectWorkerModuleSources(path.resolve(appDir, entry),
+    (file) => collectReachableSourceFiles(path.dirname(file), path.basename(file)))
   const compatSrcDir = path.join(outDir, 'gea-embedded-compat-src')
   fs.rmSync(compatSrcDir, { recursive: true, force: true })
   // Relative imports may escape the app dir (examples/shared components).
@@ -4587,7 +4596,46 @@ if (hasFlag('--gea-ir-backend') || hasFlag('--gea-replace-renderers')) {
 // measurement scripts are always run with this
 // limit; the build has to state the same one, not depend on the caller's
 // NODE_OPTIONS.
-run('node', ['--max-old-space-size=32768', ...geatscArgs])
+// Native interface call graphs can exceed V8's default ~1 MiB stack during
+// closure analysis; keep the compiler stack below the host's 8 MiB limit.
+run('node', ['--stack_size=8192', '--max-old-space-size=32768', ...geatscArgs])
+
+if (nativeModules.size) {
+  const nativeSources = []
+  for (const module of nativeModules.values()) {
+    if (!fs.existsSync(module.stagedEntry)) fail(`missing ${module.kind} module: ${module.entry}`)
+    if (module.kind === 'worklet') {
+      const implementation = path.join(coreRoot, 'runtime/audio-worklet.ts')
+      const bindings = `import { AudioWorkletProcessor, registerProcessor } from ${JSON.stringify(implementation)}\n`
+      const source = fs.readFileSync(module.stagedEntry, 'utf8')
+      fs.writeFileSync(module.stagedEntry, bindings + source)
+      const compilerRequire = createRequire(pathToFileURL(geatscBin))
+      validateWorkletRegistrations(compilerRequire('typescript'), module.stagedEntry, implementation)
+    }
+    const moduleOut = path.join(outDir, `${module.kind}-${module.id}`)
+    const moduleArgs = [
+      geatscBin, 'compile', module.stagedEntry, '--out-dir', moduleOut,
+      '--target', 'cpp', '--plugin', geaPluginSpecifier,
+      '--entry-symbol', module.symbol, '--isolate-symbols', '--realm-storage',
+      '--plugin-option', `gea.microtasks-namespace=gea::framework::app::generated::gea_${module.kind}_${module.id}`,
+    ]
+    if (cppBoard) moduleArgs.push('--cpp-board', cppBoard)
+    if (cxxStandard) moduleArgs.push('--cxx-standard', cxxStandard)
+    run('node', ['--stack_size=8192', '--max-old-space-size=32768', ...moduleArgs])
+    const list = fs.readFileSync(path.join(moduleOut, 'geatsc-sources.txt'), 'utf8').split(/\r?\n/).filter(Boolean)
+    nativeSources.push(...list.filter((source) => path.basename(source) !== 'gea_runtime_builtins.cpp'))
+  }
+  const listPath = path.join(outDir, 'geatsc-sources.txt')
+  const sources = fs.readFileSync(listPath, 'utf8').split(/\r?\n/).filter(Boolean)
+  const registry = path.join(outDir, 'gea_worker_modules.cpp')
+  writeWorkerRegistry([...nativeModules.values()], registry)
+  // The app entry and its native registrations must be in one archive member:
+  // constructor-only members are not extracted by ordinary static linking.
+  const nativeEntry = path.join(outDir, 'gea_native_entry.cpp')
+  fs.writeFileSync(nativeEntry, `#include ${JSON.stringify(sources[0])}\n#include ${JSON.stringify(registry)}\n`)
+  fs.writeFileSync(listPath, [nativeEntry, ...sources.slice(1), ...nativeSources].join('\n') + '\n')
+}
+
 
 process.stdout.write(`gea-vite-bundle=${bundlePath}\n`)
 if (moduleGraphOutDir) process.stdout.write(`module-graph=${path.join(moduleGraphOutDir, 'gea-module-graph.json')}\n`)

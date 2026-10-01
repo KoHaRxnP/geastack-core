@@ -17,6 +17,11 @@
 #include <cstdlib>
 #include <cstring>
 
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+#include "esp_timer.h"
+#include "esp_log.h"
+#endif
+
 #ifndef GEA_EMBEDDED_FLUSH_ANCHOR_LEFT_PARTIAL_RECTS
 #define GEA_EMBEDDED_FLUSH_ANCHOR_LEFT_PARTIAL_RECTS 1
 #endif
@@ -1846,6 +1851,9 @@ namespace gea::embedded::ui
 
 	void Tree::refresh(int root, int width, int height)
 	{
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto diagnosticStart = esp_timer_get_time();
+#endif
 		auto &state = treeState();
 		if (root < 0 || root >= state.nodeCount)
 			return;
@@ -2051,6 +2059,9 @@ namespace gea::embedded::ui
 		GEA_REFRESH_PERF(perf.treeLayoutUs += refreshPerfNowUs() - layoutStartUs);
 
 		const std::int64_t displayListStartUs = refreshPerfNowUs();
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto diagnosticLayoutEnd = esp_timer_get_time();
+#endif
 		const bool display_list_was_dirty = state.displayListDirty;
 		// Consume the structural flag for this frame's rebuild decision. A
 		// content-only rebuild (appearance change on existing nodes — partial
@@ -2726,6 +2737,9 @@ namespace gea::embedded::ui
 		g_broadDirtyBbox = false;
 
 		const std::int64_t dirtyCoalesceStartUs = refreshPerfNowUs();
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto diagnosticCollectEnd = esp_timer_get_time();
+#endif
 		if (!unifiedRectPath || GEA_EMBEDDED_REPLAY_COALESCE_DIRTY_REGIONS)
 			coalesceLowCostDirtyRegions(rects, &rect_count);
 		if (!preserveFlatTransformedReplayRects)
@@ -3067,6 +3081,9 @@ namespace gea::embedded::ui
 				staticBackdropEligible);
 
 		const std::int64_t flushRectsStartUs = refreshPerfNowUs();
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto diagnosticReplayEnd = esp_timer_get_time();
+#endif
 		if (!simpleUnifiedReplay && !interleavedUnifiedFlush)
 		{
 			for (int i = 0; i < flush_rect_count; i++)
@@ -3109,6 +3126,16 @@ namespace gea::embedded::ui
 			displayCanvas->resetDirty();
 #endif
 		GEA_REFRESH_PERF(perf.treeSnapshotUs += refreshPerfNowUs() - snapshotStartUs);
+#if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+		const auto diagnosticEnd = esp_timer_get_time();
+		if (diagnosticEnd - diagnosticStart > 30000)
+			ESP_LOGW("tree_phase", "layout_ms=%lld collect_ms=%lld replay_ms=%lld flush_ms=%lld rects=%d direct=%d commands=%d structural=%d",
+				(long long)((diagnosticLayoutEnd - diagnosticStart) / 1000),
+				(long long)((diagnosticCollectEnd - diagnosticLayoutEnd) / 1000),
+				(long long)((diagnosticReplayEnd - diagnosticCollectEnd) / 1000),
+				(long long)((diagnosticEnd - diagnosticReplayEnd) / 1000),
+				rect_count, direct_replay, DisplayList::instance().commandCount(), int(display_list_was_structural));
+#endif
 	}
 
 	void Tree::frame(int timestamp_ms)

@@ -716,6 +716,49 @@ test('authored animation store methods do not enable native animation storage', 
   for (const feature of ['css-animations', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients']) assert.ok(!features.includes(feature), feature)
 })
 
+test('a boolean animate flag does not enable unrelated renderer caches', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': 'const animate = !dragging; if (animate) { paint() }',
+  })).features
+  for (const feature of ['css-animations', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients']) assert.ok(!features.includes(feature), feature)
+})
+
+test('an opaque animate value still retains native animation storage', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': 'const animate = external.animate; animate()',
+  })).features
+  assert.ok(features.includes('css-animations'))
+})
+
+test('a local recursive animate frame callback does not enable unrelated renderer caches', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': 'function animate() { requestAnimationFrame(animate) }; requestAnimationFrame(animate)',
+  })).features
+  for (const feature of ['css-animations', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients']) assert.ok(!features.includes(feature), feature)
+})
+
+test('default-exported animation store instances do not enable unrelated renderer caches', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': "import carousel from './carousel.js'; carousel.animate(16)",
+    'carousel.js': "import { Store } from '@geastack/core'; class Carousel extends Store { offset = 0; animate(elapsed) { this.offset += elapsed } }; export default new Carousel()",
+  })).features
+  for (const feature of ['css-animations', 'renderer-transforms', 'renderer-linear-gradients', 'renderer-radial-gradients']) assert.ok(!features.includes(feature), feature)
+})
+
+test('a local animate function still retains styles used in its body', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': "function animate() { el.style.transform = 'rotate(10deg)' }; requestAnimationFrame(animate)",
+  })).features
+  assert.ok(features.includes('renderer-transforms'))
+})
+
+test('a reassigned animate function remains conservative', t => {
+  const features = analyzeAllFeatures(app(t, {
+    'index.tsx': 'function animate() {}; animate = externalAnimation; requestAnimationFrame(animate)',
+  })).features
+  assert.ok(features.includes('css-animations'))
+})
+
 test('authored animation method bodies still retain actual native style operations', t => {
   const features = analyzeAllFeatures(app(t, {
     'index.tsx': "class Agent { animate() { el.style.transform = 'rotate(10deg)' } }; const agent = new Agent(); agent.animate()",

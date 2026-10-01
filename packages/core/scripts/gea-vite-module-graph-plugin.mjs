@@ -1,3 +1,4 @@
+import { describeStaticAsset } from './gea-static-asset.mjs'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -424,20 +425,6 @@ function entryReachableModuleIds(pluginContext, rawIdsByNormalizedId, allIds) {
   return allIds.filter((id) => reachable.has(id))
 }
 
-function describeStaticAsset(source) {
-  const contents = fs.readFileSync(source)
-  const sha256 = crypto.createHash('sha256').update(contents).digest('hex')
-  // The hash makes the logical URL collision-safe and stable for unchanged
-  // bytes. The basename remains available to native bundle adapters, while the
-  // manifest is the authoritative URL -> source mapping.
-  const basename = encodeURIComponent(path.basename(source))
-  return {
-    source,
-    bytes: contents.length,
-    sha256,
-    url: `gea-asset://sha256/${sha256}/${basename}`,
-  }
-}
 
 async function captureResolvedImports(pluginContext, state, id, code) {
   const normalized = normalizeModuleId(id)

@@ -156,8 +156,16 @@ export function discoverLocalImport(source, srcId, localImports) {
   if (source.endsWith('.css')) return
   const base = resolveLocalImportBase(source, srcId)
   if (!base) return
+  // TypeScript's ESM imports name the emitted .js/.mjs/.cjs file while the
+  // source tree contains .ts/.mts/.cts. Follow those edges before staging.
+  const extension = path.extname(base)
+  const sourceExtensions = extension === '.js' ? ['.ts', '.tsx', '.d.ts']
+    : extension === '.mjs' ? ['.mts', '.d.mts']
+      : extension === '.cjs' ? ['.cts', '.d.cts'] : []
+  const stem = base.slice(0, base.length - extension.length)
   for (const candidate of [
     base,
+    ...sourceExtensions.map((extension) => stem + extension),
     base + '.tsx',
     base + '.ts',
     base + '.jsx',
@@ -177,7 +185,7 @@ export function discoverLocalImport(source, srcId, localImports) {
       // non-ASCII byte (`wOFF` header → "Unexpected character" at column 4).
       // Assets aren't parseable modules; skip them (the added-extension
       // candidates below are always JS/TS, so a genuine module still resolves).
-      if (!/\.(?:mjs|cjs|jsx?|tsx?)$/i.test(candidate)) break
+      if (!/\.(?:[cm]?[jt]s|jsx|tsx)$/i.test(candidate)) break
       localImports.push(candidate)
       break
     }

@@ -30,6 +30,12 @@ const char *applicationFramePhaseName(ApplicationFramePhase phase)
 		case ApplicationFramePhase::StyleRecompute: return "style_recompute";
 		case ApplicationFramePhase::DocumentFrame: return "document_frame";
 		case ApplicationFramePhase::RefreshMounted: return "refresh_mounted";
+		case ApplicationFramePhase::CycleCollection: return "cycle_collection";
+		case ApplicationFramePhase::CallbackMicrotasks: return "callback_microtasks";
+		case ApplicationFramePhase::WebSocketCallbacks: return "websocket_callbacks";
+		case ApplicationFramePhase::RtcCallbacks: return "rtc_callbacks";
+		case ApplicationFramePhase::VideoPresentation: return "video_presentation";
+		case ApplicationFramePhase::HttpRequests: return "http_requests";
 		case ApplicationFramePhase::Idle: return "idle";
 	}
 	return "idle";
@@ -59,6 +65,12 @@ void applicationFramePerfStatsAdd(ApplicationFramePerfStats &stats, ApplicationF
 		case ApplicationFramePhase::RefreshMounted:
 			stats.refreshMountedUs += durationUs;
 			break;
+		case ApplicationFramePhase::CycleCollection:
+		case ApplicationFramePhase::CallbackMicrotasks:
+		case ApplicationFramePhase::WebSocketCallbacks:
+		case ApplicationFramePhase::RtcCallbacks:
+		case ApplicationFramePhase::VideoPresentation:
+		case ApplicationFramePhase::HttpRequests:
 		case ApplicationFramePhase::Idle:
 			break;
 	}

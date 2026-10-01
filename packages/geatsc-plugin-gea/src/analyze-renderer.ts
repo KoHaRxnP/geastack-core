@@ -15,6 +15,7 @@ export function addUnknownRendererFeatures(features: Set<string>): void {
 // do not reserve shape, transform or gradient tables.
 export interface StyleUsageObserver {
   isSourceMethod?(node: ts.Expression): boolean
+  isBoolean?(node: ts.Expression): boolean
   selector?(css: string): void
   property(name: string | undefined, value: string | undefined, expression?: ts.Expression): void
   unknown(): void
@@ -244,7 +245,7 @@ export function addRendererFeatures(file: string, text: string, features: Set<st
     // references as well as calls so aliases cannot bypass the proof. Frame
     // scheduling (requestAnimationFrame) is independent and stays available.
     if (ts.isIdentifier(node) && /^(?:animate|KeyframeEffect|Animation|AnimationEngine|DeclarativeAnimations|Reflect)$/.test(node.text) &&
-        !(node.text === 'animate' && observer?.isSourceMethod?.(node))) allStyles()
+        !(node.text === 'animate' && (observer?.isSourceMethod?.(node) || observer?.isBoolean?.(node)))) allStyles()
     if (ts.isBindingElement(node) && /^(?:createElement|createElementNS|animate|setAttribute|insertRule|replaceSync)$/.test(node.propertyName?.getText(source).replace(/^['"]|['"]$/g, '') ?? node.name.getText(source))) allStyles()
     if (ts.isBindingElement(node) && node.propertyName && ts.isComputedPropertyName(node.propertyName) && literal(node.propertyName.expression) === undefined) allStyles()
     if (ts.isBindingElement(node) && node.propertyName && ts.isComputedPropertyName(node.propertyName) && /^fillTriangle\w*$/.test(literal(node.propertyName.expression) ?? '')) features.add('renderer-occlusion-triangles')

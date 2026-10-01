@@ -3938,7 +3938,7 @@ void Canvas::drawImage(
 			pixel::packed::writeUnpacked(packedRow(rowToPhysical(dy + sy)), dst_x, src_row, row_w);
 #else
 			pixel::native_t *dst_row = &pixels_[rowToPhysical(dy + sy) * stride_ + dst_x];
-			std::memcpy(dst_row, src_row, static_cast<std::size_t>(row_w) * sizeof(pixel::native_t));
+			pixel::copyNative(dst_row, src_row, row_w);
 #endif
 #if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
 			}
@@ -4253,6 +4253,30 @@ void Canvas::drawImage(
 			}
 			const int wx0 = 256 - fx;
 			const int wx1 = fx;
+#if GEA_EMBEDDED_PIXEL_FORMAT == GEA_PIXEL_RGB565
+			if (!alpha) {
+				// Opaque pixels have a constant alpha denominator. Keep bilinear
+				// filtering, but cancel that factor instead of doing four floating
+				// point alpha products and a reciprocal for every video pixel.
+				// Channel * combined weight sums fit in 24 bits (255 * 65536).
+				unsigned rSum = 0, gSum = 0, bSum = 0;
+				auto addOpaque = [&](int sx, int sy, unsigned weight) {
+					if (!weight) return;
+					int r = 0, g = 0, b = 0, unused = 0;
+					pixel::unpackNative8(src[sy * src_w + sx], &r, &g, &b, &unused);
+					rSum += static_cast<unsigned>(r) * weight;
+					gSum += static_cast<unsigned>(g) * weight;
+					bSum += static_cast<unsigned>(b) * weight;
+				};
+				addOpaque(sx0, sy0, wx0 * wy0);
+				addOpaque(sx1, sy0, wx1 * wy0);
+				addOpaque(sx0, sy1, wx0 * wy1);
+				addOpaque(sx1, sy1, wx1 * wy1);
+				writePixel(px, py, pixel::packNative8((rSum + 32768) >> 16,
+				           (gSum + 32768) >> 16, (bSum + 32768) >> 16, 255));
+				continue;
+			}
+#endif
 			// FLOAT accumulators (no int64 anywhere). The previous int64 version cost
 			// ~160ms for a 220x220 icon on this board: Xtensa LX7 has NO hardware
 			// 64-bit divide AND no hardware int64->float, so both int64 divides and

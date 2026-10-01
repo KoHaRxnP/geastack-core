@@ -367,6 +367,7 @@ public:
 	// one the CSS parser feeds), rather than duplicating property-name
 	// parsing here.
 	void setProperty(const std::string &property, const std::string &value) const;
+	bool setNumberProperty(const std::string &property, double value) const;
 	bool removeProperty(const std::string &property) const;
 
 private:

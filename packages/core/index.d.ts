@@ -1,5 +1,12 @@
 /// <reference path="./css.d.ts" />
 
+export type * from './workers'
+export type * from './audio-worklet'
+/** Gea-only hardware output cancellation; call from an AudioWorklet message handler. */
+export declare function flushAudioWorkletOutput(): void
+export type * from './typed-arrays'
+import type { AudioContextOptions, AudioWorklet, MediaStreamAudioSourceNode } from './audio-worklet'
+
 // Opt-in native 64-bit integer. Structurally a `number` (assign/read without
 // casts), but where a binding, parameter, field, or return is annotated `int`,
 // geatsc lowers it to a C++ `long long` and emits exact integer arithmetic
@@ -70,6 +77,7 @@ export interface GeaIntrinsicElements {
   h5: NativeViewProps
   h6: NativeViewProps
   audio: AudioProps
+  video: VideoProps
   button: NativeButtonProps
   img: ImageProps
   input: NativeInputElementProps
@@ -117,9 +125,13 @@ declare global {
   // (`double setTimeout(TimerCallback, double)`), so both the id and the delay
   // are `number`, and the callback takes no arguments (unlike the browser's,
   // which forwards extra `setTimeout` arguments to it).
+  /** @gea-host-no-property-writes */
   function setTimeout(callback: () => void, delayMs: number): number
+  /** @gea-host-no-property-writes */
   function clearTimeout(id: number): void
+  /** @gea-host-no-property-writes */
   function setInterval(callback: () => void, delayMs: number): number
+  /** @gea-host-no-property-writes */
   function clearInterval(id: number): void
 
   /**
@@ -364,6 +376,7 @@ export interface Document {
   querySelector(selector: string): Element | null
   querySelectorAll(selector: string): readonly Element[]
   createElement(tag: 'audio'): HTMLAudioElement
+  createElement(tag: 'video'): HTMLVideoElement
   createElement(tag: 'virtual-list'): VirtualListElement
   createElement(tag: string): Element
   createTextNode(text: string): Node
@@ -596,13 +609,28 @@ export interface AudioProps extends DataAttributes {
   autoplay?: boolean | string | number
   controls?: boolean | string | number
   loop?: boolean | string | number
-  ref?: HTMLAudioElement | null
+  ref?: HTMLAudioElement | (typeof globalThis extends { HTMLAudioElement: { prototype: infer E } } ? E : never) | null
+  autoPlay?: boolean
   children?: any
+}
+
+export interface VideoProps extends DataAttributes {
+  id?: string
+  class?: ClassValue
+  style?: Style
+  autoplay?: boolean
+  muted?: boolean
+  playsinline?: boolean
+  autoPlay?: boolean
+  playsInline?: boolean
+  ref?: HTMLVideoElement | (typeof globalThis extends { HTMLVideoElement: { prototype: infer E } } ? E : never) | null
 }
 
 export type ImageSource = string | ArrayBuffer | Uint8Array | GeaEmbeddedImage
 
 export interface ImageProps extends DataAttributes {
+  alt?: string
+  key?: string | number
   id?: string
   class?: ClassValue
   // Optional: a static template can leave this unset and apply the source
@@ -1300,15 +1328,26 @@ export interface OscillatorNode {
 }
 
 export interface AudioContext {
+  /** Conservative maximum software buffering delay, in seconds. */
+  readonly baseLatency: number
+  /** Device buffering estimate in seconds; zero when unavailable. */
+  readonly outputLatency: number
+  readonly sampleRate: number
+  readonly state: 'running' | 'suspended' | 'closed'
+  readonly audioWorklet: AudioWorklet
   readonly currentTime: number
   readonly destination: AudioDestinationNode
   createOscillator(): OscillatorNode
   createBufferSource(): AudioBufferSourceNode
   decodeAudioData(audioData: ArrayBuffer | Uint8Array | GeaAudioBlob): Promise<AudioBuffer>
+  createMediaStreamSource(stream: MediaStream): MediaStreamAudioSourceNode
+  resume(): Promise<void>
+  suspend(): Promise<void>
+  close(): Promise<void>
 }
 
 export interface AudioContextConstructor {
-  new (): AudioContext
+  new (options?: AudioContextOptions): AudioContext
 }
 
 export declare const audioContext: AudioContext
@@ -1531,6 +1570,7 @@ export interface ButtonProps {
 }
 
 export interface NativeButtonProps extends NativeEventAttributes {
+  disabled?: boolean
   key?: string | number
   class?: ClassValue
   style?: Style
@@ -1653,9 +1693,13 @@ export interface FetchResponse {
   bytes(): Uint8Array
 }
 
+/** @gea-host-no-property-writes */
 export declare function fetchAsync(url: string, init?: FetchRequestInit): number
+/** @gea-host-no-property-writes */
 export declare function fetchReady(id: number): boolean
+/** @gea-host-no-property-writes */
 export declare function fetchResult(id: number): FetchResponse
+/** @gea-host-no-property-writes */
 export declare function fetchRelease(id: number): void
 
 /**
@@ -1692,6 +1736,7 @@ export declare function fetchUploadTotal(id: number): number
 
 declare global {
   function fetch(url: string, init?: FetchRequestInit): FetchResponse
+  /** @gea-host-no-property-writes */
   function fetchAsync(url: string, init?: FetchRequestInit): number
   function fetchUploadFileAsync(
     url: string,
@@ -1705,8 +1750,11 @@ declare global {
   function fetchUploadProgress(id: number): number
   function fetchUploadSent(id: number): number
   function fetchUploadTotal(id: number): number
+  /** @gea-host-no-property-writes */
   function fetchReady(id: number): boolean
+  /** @gea-host-no-property-writes */
   function fetchResult(id: number): FetchResponse
+  /** @gea-host-no-property-writes */
   function fetchRelease(id: number): void
   function atob(data: string): string
   function btoa(data: string | ArrayBuffer | Uint8Array): string
@@ -1727,18 +1775,20 @@ export interface WebSocketErrorEvent {
 }
 
 export interface WebSocketInstance {
+  readonly bufferedAmount: number
   readonly url: string
   readonly readyState: number
   onopen: (() => void) | null
   onmessage: ((event: WebSocketMessageEvent) => void) | null
   onclose: ((event: WebSocketCloseEvent) => void) | null
   onerror: ((event: WebSocketErrorEvent) => void) | null
+  /** @gea-host-no-property-writes */
   send(data: string): void
   close(code?: number, reason?: string): void
 }
 
 export interface WebSocketConstructor {
-  new (url: string): WebSocketInstance
+  new (url: string, protocols?: string | string[]): WebSocketInstance
   readonly CONNECTING: 0
   readonly OPEN: 1
   readonly CLOSING: 2
@@ -1805,7 +1855,7 @@ export declare const http: HttpModule
 
 export interface MediaStreamTrack {
   readonly id: string
-  readonly kind: 'audio'
+  readonly kind: string
   enabled: boolean
   readonly readyState: 'live' | 'ended'
   stop(): void
@@ -1813,12 +1863,19 @@ export interface MediaStreamTrack {
 
 export interface MediaStream {
   readonly id: string
+  readonly active: boolean
   getAudioTracks(): MediaStreamTrack[]
+  getVideoTracks(): MediaStreamTrack[]
   getTracks(): MediaStreamTrack[]
+  getTrackById(id: string): MediaStreamTrack | null
+  addTrack(track: MediaStreamTrack): void
+  removeTrack(track: MediaStreamTrack): void
 }
 
 export interface MediaStreamConstructor {
   new (): MediaStream
+  new (stream: MediaStream): MediaStream
+  new (tracks: MediaStreamTrack[]): MediaStream
 }
 
 export interface MediaStreamConstraints {
@@ -1863,10 +1920,34 @@ export interface MediaRecorderConstructor {
 
 export interface HTMLAudioElement extends Element {
   src: string
+  srcObject: MediaStream | null
+  autoplay: boolean
+  readonly paused: boolean
   currentTime: number
   volume: number
   loop: boolean
-  play(): void
+  play(): Promise<void>
+  pause(): void
+  /** Freeze the current PCM queue endpoint; later RTP silence is excluded. */
+  beginDrain(): void
+  /** Discard queued speech while keeping the live output clock running. */
+  clearBufferedAudio(): void
+  /** Queued PCM has reached the output driver. Hardware DMA drains on capture handoff. */
+  readonly drained: boolean
+  /** RMS of PCM being pulled for playback, normalized to 0–1. */
+  readonly audioLevel: number
+}
+
+export interface HTMLVideoElement extends Element {
+  /** Native HTTP multipart JPEG streaming; decoded on native network/video workers. */
+  src: string
+  srcObject: MediaStream | null
+  autoplay: boolean
+  readonly paused: boolean
+  readonly videoWidth: number
+  readonly videoHeight: number
+  onplaying: (() => void) | null
+  play(): Promise<void>
   pause(): void
 }
 
@@ -1875,6 +1956,13 @@ export interface AudioConstructor {
 }
 
 declare global {
+  interface HTMLAudioElement {
+    beginDrain(): void
+    clearBufferedAudio(): void
+    readonly drained: boolean
+    /** RMS of PCM being pulled for playback, normalized to 0–1. */
+    readonly audioLevel: number
+  }
   interface Blob {
     readonly path: string
   }
@@ -1907,10 +1995,54 @@ export interface RTCSessionDescriptionInit {
   sdp?: string
 }
 
+export interface RTCSessionDescription {
+  readonly type: RTCSessionDescriptionInit['type']
+  readonly sdp: string
+  toJSON(): RTCSessionDescriptionInit
+}
+export interface RTCSessionDescriptionConstructor {
+  new (init: RTCSessionDescriptionInit): RTCSessionDescription
+}
+declare global {
+  const RTCSessionDescription: RTCSessionDescriptionConstructor
+}
+
 export interface RTCIceCandidateInit {
-  candidate: string
+  candidate?: string
   sdpMid?: string | null
   sdpMLineIndex?: number | null
+  usernameFragment?: string | null
+}
+
+export interface RTCLocalIceCandidateInit extends RTCIceCandidateInit {
+  relayProtocol?: 'udp' | 'tcp' | 'tls' | null
+  url?: string | null
+}
+
+export interface RTCIceCandidate {
+  readonly candidate: string
+  readonly sdpMid: string | null
+  readonly sdpMLineIndex: number | null
+  readonly foundation: string | null
+  readonly component: 'rtp' | 'rtcp' | null
+  readonly priority: number | null
+  readonly address: string | null
+  readonly protocol: 'udp' | 'tcp' | null
+  readonly port: number | null
+  readonly type: 'host' | 'srflx' | 'prflx' | 'relay' | null
+  readonly tcpType: 'active' | 'passive' | 'so' | null
+  readonly relatedAddress: string | null
+  readonly relatedPort: number | null
+  readonly usernameFragment: string | null
+  readonly relayProtocol: 'udp' | 'tcp' | 'tls' | null
+  readonly url: string | null
+  toJSON(): RTCIceCandidateInit
+}
+export interface RTCIceCandidateConstructor {
+  new (init?: RTCLocalIceCandidateInit): RTCIceCandidate
+}
+declare global {
+  const RTCIceCandidate: RTCIceCandidateConstructor
 }
 
 export interface RTCIceServer {
@@ -1921,15 +2053,61 @@ export interface RTCIceServer {
 
 export interface RTCConfiguration {
   iceServers?: RTCIceServer[]
+  iceTransportPolicy?: 'all' | 'relay'
 }
 
 export interface RTCPeerConnectionIceEvent {
-  readonly candidate: RTCIceCandidateInit | null
+  readonly candidate: RTCIceCandidate | null
 }
 
 export interface RTCTrackEvent {
   readonly track: MediaStreamTrack
   readonly streams: readonly MediaStream[]
+  readonly receiver: RTCRtpReceiver
+  readonly transceiver: RTCRtpTransceiver
+}
+
+export interface RTCDataChannelInit {
+  ordered?: boolean
+  maxPacketLifeTime?: number
+  maxRetransmits?: number
+  protocol?: string
+  negotiated?: boolean
+  id?: number
+}
+export interface RTCDataChannelMessageEvent { readonly data: string | ArrayBuffer }
+export interface RTCDataChannel {
+  readonly label: string
+  readonly protocol: string
+  readonly ordered: boolean
+  readonly id: number | null
+  readonly maxPacketLifeTime: number | null
+  readonly maxRetransmits: number | null
+  readonly readyState: 'connecting' | 'open' | 'closing' | 'closed'
+  binaryType: 'arraybuffer'
+  readonly bufferedAmount: number
+  bufferedAmountLowThreshold: number
+  onopen: (() => void) | null
+  onclose: (() => void) | null
+  onmessage: ((event: RTCDataChannelMessageEvent) => void) | null
+  onbufferedamountlow: (() => void) | null
+  send(data: string | ArrayBuffer | Uint8Array): void
+  close(): void
+}
+export interface RTCRtpSender {
+  readonly track: MediaStreamTrack | null
+  replaceTrack(track: MediaStreamTrack | null): Promise<void>
+}
+export interface RTCRtpReceiver { readonly track: MediaStreamTrack | null }
+export interface RTCRtpTransceiverInit { direction?: 'sendrecv' | 'sendonly' | 'recvonly' | 'inactive' }
+export interface RTCRtpTransceiver {
+  readonly sender: RTCRtpSender
+  readonly receiver: RTCRtpReceiver
+  readonly mid: string | null
+  direction: 'sendrecv' | 'sendonly' | 'recvonly' | 'inactive'
+  readonly currentDirection: 'sendrecv' | 'sendonly' | 'recvonly' | 'inactive' | null
+  readonly stopped: boolean
+  stop(): void
 }
 
 export interface RTCPeerConnectionInstance {
@@ -1941,7 +2119,19 @@ export interface RTCPeerConnectionInstance {
   onconnectionstatechange: (() => void) | null
   oniceconnectionstatechange: (() => void) | null
 
-  addTrack(track: MediaStreamTrack, stream: MediaStream): void
+  readonly signalingState: 'stable' | 'have-local-offer' | 'have-remote-offer' | 'closed'
+  readonly localDescription: RTCSessionDescription | null
+  readonly remoteDescription: RTCSessionDescription | null
+  onsignalingstatechange: (() => void) | null
+  onnegotiationneeded: (() => void) | null
+  ondatachannel: ((event: { channel: RTCDataChannel }) => void) | null
+  addTrack(track: MediaStreamTrack, stream?: MediaStream): RTCRtpSender
+  removeTrack(sender: RTCRtpSender): void
+  addTransceiver(trackOrKind: MediaStreamTrack | 'audio', init?: RTCRtpTransceiverInit): RTCRtpTransceiver
+  getTransceivers(): RTCRtpTransceiver[]
+  getSenders(): RTCRtpSender[]
+  getReceivers(): RTCRtpReceiver[]
+  createDataChannel(label: string, init?: RTCDataChannelInit): RTCDataChannel
   createOffer(): Promise<RTCSessionDescriptionInit>
   createAnswer(): Promise<RTCSessionDescriptionInit>
   setLocalDescription(desc: RTCSessionDescriptionInit): Promise<void>
@@ -1957,4 +2147,34 @@ export interface RTCPeerConnectionConstructor {
 declare global {
   const RTCPeerConnection: RTCPeerConnectionConstructor
   function Image(props: ImageProps): GeaJsxElement
+}
+
+
+/** Streaming mono signed PCM16, little endian, carried as base64 text. */
+export interface PcmAudioStream {
+  setInput(stream: MediaStream): void
+  /** Capture and upload on the native socket worker, independently of UI callbacks. */
+  pipeTo(socket: WebSocketInstance, prefix: string, suffix: string): void
+  /** Decode matching PCM packets on the native receive worker; control messages still reach JS. */
+  receiveFrom(socket: WebSocketInstance, prefix: string, suffix: string): void
+  /** Read the next 40ms capture block, or an empty string if not ready. */
+  readBase64(): string
+  writeBase64(data: string): void
+  resetPlayback(interrupted?: boolean): void
+  close(): void
+  readonly queuedMs: number
+  /** Conservative audible duration, excluding mixer and device DMA latency. */
+  readonly playedMs: number
+  readonly drained: boolean
+  readonly audioLevel: number
+  readonly capturePendingMs: number
+  readonly captureDroppedSamples: number
+  readonly capturePackets: number
+}
+export interface PcmAudioStreamConstructor {
+  new (sampleRate: number): PcmAudioStream
+}
+
+declare global {
+  const PcmAudioStream: PcmAudioStreamConstructor
 }

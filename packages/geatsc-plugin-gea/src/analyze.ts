@@ -43,6 +43,7 @@ export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPat
   const ranges = cssRangeObserver(features)
   const observer = {
     isSourceMethod: literals.isSourceMethod,
+    isBoolean: literals.isBoolean,
     selector(value: string): void { css.selector?.(value); ranges.selector?.(value); if (cssUsesNodeAttributes(value)) features.add('node-attributes') },
     property(name: string | undefined, value: string | undefined, expression?: ts.Expression): void { css.property(name, value, expression); ranges.property(name, value); variables.property(name, value) },
     unknown(): void { features.add('renderer-occlusion-triangles'); classUnknown = true; css.unknown(); ranges.unknown(); variables.unknown(); addUnknownNodeFeatures(features); addUnknownNodeAux(features) },
