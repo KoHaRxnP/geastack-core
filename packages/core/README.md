@@ -57,6 +57,21 @@ target integration in `geastack/simulator`. Contributions should include a
 reproduction and target-specific validation. Lifecycle and representation
 changes need to preserve the shared component and native-type contracts.
 
+## Native WebSocket connection headers
+
+`@geastack/core` 0.1.41 and `@geastack/host` 0.1.16 add an optional third
+WebSocket constructor argument for connection headers on ESP32 native hosts:
+
+```ts
+const socket = new WebSocket('wss://api.openai.com/v1/live/sessions', '', {
+  headers: [{ name: 'Authorization', value: `Bearer ${process.env.OPENAI_API_KEY}` }],
+})
+```
+
+Use these paired versions or newer when a service requires bearer authentication
+in the WebSocket handshake. Header names and values are validated before the
+connection starts. This native option is unavailable in browser WebSockets.
+
 ## Related packages
 
 - `@geastack/engine` renders the element tree, `@geastack/host` supplies the

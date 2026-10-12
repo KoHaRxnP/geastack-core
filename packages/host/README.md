@@ -20,6 +20,12 @@ headers it cannot satisfy with the portable sources.
 
 There is no JavaScript entry point; the package exists to be compiled.
 
+Version 0.1.16 adds native ESP32 WebSocket connection headers, paired with the
+public constructor options in `@geastack/core` 0.1.41. Headers are applied to both
+the ESP-IDF WebSocket client and its owned transport, so bearer authentication
+works on the actual HTTP upgrade request. Existing URL and subprotocol-only
+connections retain their defaults.
+
 ## License
 
 Apache-2.0. See `LICENSE`.
