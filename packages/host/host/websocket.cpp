@@ -97,7 +97,7 @@ std::unordered_map<NativeWebSocketHandle, CallbackTable> &callbackTable() {
 }
 
 #if defined(ESP_PLATFORM) && !defined(GEA_EMBEDDED_WIFI_DISABLED)
-void platform_open(NativeWebSocketHandle, const std::string &, const std::string &);
+void platform_open(NativeWebSocketHandle, const std::string &, const std::string &, const std::string &);
 std::size_t platform_buffered(NativeWebSocketHandle);
 void platform_send(NativeWebSocketHandle, const std::string &);
 void platform_close(NativeWebSocketHandle);
@@ -105,7 +105,7 @@ void platform_destroy(NativeWebSocketHandle);
 void platform_reap();
 void platform_set_producer(NativeWebSocketHandle, TextProducer);
 #else
-__attribute__((weak)) void platform_open(NativeWebSocketHandle, const std::string &, const std::string &) {}
+__attribute__((weak)) void platform_open(NativeWebSocketHandle, const std::string &, const std::string &, const std::string &) {}
 __attribute__((weak)) std::size_t platform_buffered(NativeWebSocketHandle) { return 0; }
 __attribute__((weak)) void platform_send(NativeWebSocketHandle, const std::string &) {}
 __attribute__((weak)) void platform_close(NativeWebSocketHandle) {}
@@ -128,7 +128,7 @@ void setTextConsumer(NativeWebSocketHandle handle, TextConsumer consumer) {
   it->second.consumer = std::move(consumer);
 }
 
-NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols) {
+NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols, const std::string &headers) {
   auto handle = nextHandle()++;
   {
     std::lock_guard<std::mutex> lock(instancesMutex());
@@ -138,7 +138,7 @@ NativeWebSocketHandle create_handle(const std::string &url, const std::string &p
   (void)callbackTable();
   { std::lock_guard lock(ownerMutex); owners[handle] = owner; }
   if (!owner->isMain()) owner->addCleanup([handle] { destroy_handle(handle); });
-  platform_open(handle, url, protocols);
+  platform_open(handle, url, protocols, headers);
   return handle;
 }
 
@@ -679,11 +679,12 @@ void sendWorker(void *arg) {
   // The scope below is provided by the task trampoline in platform_open.
 }
 
-void platform_open(NativeWebSocketHandle handle, const std::string &url, const std::string &protocols) {
+void platform_open(NativeWebSocketHandle handle, const std::string &url, const std::string &protocols, const std::string &headers) {
   std::lock_guard platformLock(platformMutex);
   esp_websocket_client_config_t config = {};
   config.uri = url.c_str();
   config.subprotocol = protocols.empty() ? nullptr : protocols.c_str();
+  config.headers = headers.empty() ? nullptr : headers.c_str();
   config.task_stack = 8192;
   config.buffer_size = 4096;
   config.disable_auto_reconnect = true;
@@ -727,6 +728,7 @@ void platform_open(NativeWebSocketHandle handle, const std::string &url, const s
   esp_transport_ws_config_t transportConfig{};
   transportConfig.ws_path = path.c_str();
   transportConfig.sub_protocol = config.subprotocol;
+  transportConfig.headers = config.headers;
   transportConfig.propagate_control_frames = true;
   if (esp_transport_ws_set_config(state->transport, &transportConfig) != ESP_OK) {
     enqueue(PendingEvent{handle, EventKind::Error, "WebSocket transport configuration failed", 0});

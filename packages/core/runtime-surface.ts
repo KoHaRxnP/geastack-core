@@ -182,6 +182,7 @@ export type {
   VirtualListElement,
   WebSocketCloseEvent,
   WebSocketConstructor,
+  WebSocketOptions,
   WebSocketErrorEvent,
   WebSocketInstance,
   WebSocketMessageEvent,

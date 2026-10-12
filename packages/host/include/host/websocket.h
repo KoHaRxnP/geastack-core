@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -95,15 +97,53 @@ struct CallbackTable {
 
 std::unordered_map<NativeWebSocketHandle, CallbackTable> &callbackTable();
 
-NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols = {});
+NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols = {},
+                                   const std::string &headers = {});
+// Typed records and arrays may be native values or identity-preserving Refs.
+template <typename T>
+decltype(auto) connectionValue(const T &value) {
+  if constexpr (requires { value.operator->(); }) return *value;
+  else return (value);
+}
+template <typename Options>
+NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols,
+                                   const Options &options) {
+  std::string headers;
+  const auto &entries = connectionValue(connectionValue(options).headers);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    const auto &header = connectionValue(entries.at(i));
+    if (header.name.empty() || header.name.find_first_not_of(
+            "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") != std::string::npos ||
+        header.value.find_first_of("\r\n") != std::string::npos ||
+        header.value.find('\0') != std::string::npos) {
+      throw std::invalid_argument("Invalid WebSocket connection header");
+    }
+    headers += header.name + ": " + header.value + "\r\n";
+  }
+  return create_handle(url, protocols, headers);
+}
 template <typename Protocols>
+  requires (!std::is_convertible_v<Protocols, std::string>)
 NativeWebSocketHandle create_handle(const std::string &url, const Protocols &protocols) {
   std::string joined;
-  for (std::size_t i = 0; i < protocols.size(); ++i) {
+  const auto &entries = connectionValue(protocols);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
     if (i) joined += ",";
-    joined += protocols.at(i);
+    joined += entries.at(i);
   }
   return create_handle(url, joined);
+}
+template <typename Protocols, typename Options>
+  requires (!std::is_convertible_v<Protocols, std::string>)
+NativeWebSocketHandle create_handle(const std::string &url, const Protocols &protocols,
+                                   const Options &options) {
+  std::string joined;
+  const auto &entries = connectionValue(protocols);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    if (i) joined += ",";
+    joined += entries.at(i);
+  }
+  return create_handle(url, joined, options);
 }
 void destroy_handle(NativeWebSocketHandle handle);
 

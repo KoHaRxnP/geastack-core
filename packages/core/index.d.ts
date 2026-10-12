@@ -1971,11 +1971,16 @@ export interface WebSocketInstance {
 }
 
 export interface WebSocketConstructor {
-  new (url: string, protocols?: string | string[]): WebSocketInstance
+  new (url: string, protocols?: string | string[], options?: WebSocketOptions): WebSocketInstance
   readonly CONNECTING: 0
   readonly OPEN: 1
   readonly CLOSING: 2
   readonly CLOSED: 3
+}
+
+/** Native connection headers. Browser WebSockets do not support this option. */
+export interface WebSocketOptions {
+  headers: { name: string; value: string }[]
 }
 
 declare global {
