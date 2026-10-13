@@ -150,6 +150,7 @@ NodeHandle Document::createElement(const char *tag) const
 	NodeHandle node;
 	if (lowered == "button") node = createButton();
 	else if (lowered == "canvas") node = createCanvas();
+	else if (lowered == "camera") node = createCamera();
 	else if (lowered == "audio") node = createAudio();
 	else if (lowered == "img" || lowered == "image" || lowered == "video") node = createImage();
 	else if (lowered == "virtual-list") node = createVirtualList();

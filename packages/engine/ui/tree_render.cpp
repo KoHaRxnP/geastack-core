@@ -3614,6 +3614,9 @@ namespace gea::embedded::ui
 				}
 				n->render.dirty = 1;
 				n->render.layout_dirty = 1;
+				// record() copies the latest camera pixels into the retained surface.
+				// A repaint alone can replay the cached blit without refreshing it.
+				markNodeDisplayCommandsDirty(i);
 #if GEA_CSS_SCROLLING
 				n->render.non_scroll_dirty = 1;
 #endif
