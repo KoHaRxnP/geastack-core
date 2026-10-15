@@ -14,11 +14,10 @@ cd "$(dirname "$0")/../../.."
 out="$PWD/packages/geatsc-plugin-gea/dist"
 test -d "$out"
 export TMPDIR="$out"
-link_gc=-Wl,--gc-sections
-if [[ "$(uname -s)" == Darwin ]]; then link_gc=-Wl,-dead_strip; fi
+source packages/core/test/native-host.sh
 flags=(-O2)
 if [[ "${SANITIZE:-0}" == 1 ]]; then flags=(-O1 -fsanitize=address,undefined); fi
-"${CXX:-clang++}" -std=c++20 "${flags[@]}" -pthread -fsized-deallocation -ffunction-sections "$link_gc" \
+"${CXX:-clang++}" -std=c++20 "${flags[@]}" -pthread -fsized-deallocation -ffunction-sections "${GEA_HOST_LINK_GC[@]}" ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"} \
   -DGEA_RUNTIME_REALMS=1 -DGEA_RUNTIME_SINGLE_THREADED=1 -DGEA_RUNTIME_COMPACT_ALLOCATION=1 \
   "-DGEA_COMPILED_WORKLET=\"$module\"" "-DGEA_COMPILED_WORKLET_ENTRY=$entry" \
   -I"$(dirname "$module")" -Ipackages/host/include -Ipackages/core/include \

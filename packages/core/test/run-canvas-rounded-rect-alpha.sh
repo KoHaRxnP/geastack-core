@@ -4,8 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BUILD_DIR="$ROOT/packages/core/test/.build/canvas-rounded-rect-alpha"
 CXX_BIN="${CXX:-clang++}"
-link_gc=-Wl,--gc-sections
-if [[ "$(uname -s)" == Darwin ]]; then link_gc=-Wl,-dead_strip; fi
+source "$ROOT/packages/core/test/native-host.sh"
 
 mkdir -p "$BUILD_DIR"
 
@@ -19,7 +18,7 @@ mkdir -p "$BUILD_DIR"
   -I "$ROOT/packages/core/include" \
   "$ROOT/packages/engine/canvas.cpp" \
   "$ROOT/packages/core/test/test_canvas_rounded_rect_alpha_main.cpp" \
-  "$link_gc" \
+  "${GEA_HOST_LINK_GC[@]}" ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"} \
   -o "$BUILD_DIR/canvas-rounded-rect-alpha-test"
 
 "$BUILD_DIR/canvas-rounded-rect-alpha-test"

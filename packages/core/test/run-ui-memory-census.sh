@@ -6,8 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BUILD_DIR="$ROOT/packages/core/test/.build/ui-memory-census"
 mkdir -p "$BUILD_DIR"
 CXX_BIN="${CXX:-clang++}"
-link_gc=-Wl,--gc-sections
-if [[ "$(uname -s)" == Darwin ]]; then link_gc=-Wl,-dead_strip; fi
+source "$ROOT/packages/core/test/native-host.sh"
 export TMPDIR="$BUILD_DIR"
 export GEA_NATIVE_JOBS="${GEA_NATIVE_JOBS:-2}"
 source "$ROOT/packages/core/test/native-test-common.sh"
@@ -65,7 +64,7 @@ PYTHON
 # The display harness is RGB565. Exercise the store independently for both
 # full-color formats, including the high/sign bit of each cached value.
 for format in 1 2; do
-  "$CXX_BIN" -std=c++20 -O2 -ffunction-sections -fdata-sections "$link_gc" \
+  "$CXX_BIN" -std=c++20 -O2 -ffunction-sections -fdata-sections "${GEA_HOST_LINK_GC[@]}" ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"} \
     -DGEA_STORE_TEST_ONLY=1 -DGEA_EMBEDDED_PIXEL_FORMAT="$format" \
     -I"$ROOT/packages/core/include" -I"$GEA_CENSUS_CANDIDATE_ENGINE" -I"$ROOT/packages/host/include" \
     "$ROOT/packages/core/test/test_custom_property_storage_main.cpp" \

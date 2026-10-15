@@ -58,15 +58,21 @@ if [[ "$enabled" != "$pruned" ]]; then
 fi
 
 symbols='CanvasMath::instance.*::math|cachedNodeTransform.*::cache|averageDepth.*::cache|transformCorners.*::(cache|prevCache)|GradientDrawer::replay.*::(lutSlots|lutStorage|lutKey|cache|transCache|bgKey|bgLastKey|rowColor|rowAlpha|rowPermille)|slotsByBank|slotRRByBank|slotConstAlphaByBank|drawProjectedText.*::cacheBanks|pieFgCore|pieA5Core|s_occlBits'
-if nm -C "$BUILD_DIR/renderer-features-pruned" | grep -E "$symbols"; then
+# The same statics as Microsoft spells them: `Owner::function()::name` is
+# `?name@?<n>??function@Owner@...` (native-host.sh's gea_native_symbols).
+if [[ "$GEA_HOST_MANGLING" == microsoft ]]; then
+  local_static='@\?[0-9]+\?\?'
+  symbols="\\?math${local_static}instance@CanvasMath@|\\?cache${local_static}cachedNodeTransform@|\\?cache${local_static}averageDepth@|\\?(cache|prevCache)${local_static}transformCorners@|\\?(lutSlots|lutStorage|lutKey|cache|transCache|bgKey|bgLastKey|rowColor|rowAlpha|rowPermille)${local_static}replay@GradientDrawer@|slotsByBank|slotRRByBank|slotConstAlphaByBank|\\?cacheBanks${local_static}drawProjectedText@|pieFgCore|pieA5Core|s_occlBits"
+fi
+if gea_native_symbols "$BUILD_DIR/renderer-features-pruned" | grep -E "$symbols"; then
   echo 'FAIL: pruned renderer retained cache storage symbols' >&2
   exit 1
 fi
-if ! nm -C "$BUILD_DIR/renderer-features-enabled" | grep 's_occlBits' > /dev/null; then
+if ! gea_native_symbols "$BUILD_DIR/renderer-features-enabled" | grep 's_occlBits' > /dev/null; then
   echo 'FAIL: enabled renderer did not retain triangle occlusion scratch' >&2
   exit 1
 fi
-if ! nm -C "$BUILD_DIR/renderer-features-enabled" | grep -E "$symbols" > /dev/null; then
+if ! gea_native_symbols "$BUILD_DIR/renderer-features-enabled" | grep -E "$symbols" > /dev/null; then
   echo 'FAIL: enabled renderer did not exercise cache storage' >&2
   exit 1
 fi

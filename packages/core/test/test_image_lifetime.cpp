@@ -19,8 +19,15 @@
 #include <vector>
 
 // This fixture mounts runtime files and has no build-embedded asset table.
-// Production builds provide this function through generated assets.
+// Production builds provide this function through generated assets. On
+// Windows (COFF) a weak definition collides with the weak reference
+// host/image.cpp makes ("duplicate symbol"); nothing else defines it in this
+// program, so there it is an ordinary definition.
+#if defined(_WIN32)
+extern "C" bool
+#else
 extern "C" __attribute__((weak)) bool
+#endif
 gea_embedded_asset_lookup(const char *, const unsigned char **, unsigned long *) {
   return false;
 }

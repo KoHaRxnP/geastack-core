@@ -42,6 +42,9 @@ class gea_cpp_value;
 #include <vector>
 
 #include <unistd.h>
+#if defined(_WIN32)
+#include <malloc.h> // _aligned_malloc, _aligned_realloc, _aligned_free
+#endif
 
 namespace gea::framework::app::generated {
 void drainMicrotasks();
@@ -749,10 +752,8 @@ void DisplayBackend::updateAutoRotation(double acceleration_x, double accelerati
 }
 }  // namespace gea::framework::display
 
-namespace gea::platform::display {
-void applyOrientation(gea::framework::display::DisplayOrientation /*orientation*/) {}
-bool autoRotateAllowed() { return true; }
-}  // namespace gea::platform::display
+// gea::platform::display::applyOrientation and autoRotateAllowed are defined in
+// native_test_platform_display.cpp; see there for why not here.
 
 namespace gea::framework::services {
 EventQueue FrameScheduler::createEventQueue() { return EventQueue(); }
@@ -808,6 +809,26 @@ void StorageService::saveKv(const std::string &blob)
 }  // namespace gea::framework::services
 
 namespace gea::framework::memory {
+#if defined(_WIN32)
+// The Windows CRT has no posix_memalign, and memory from its _aligned_malloc
+// must go back through _aligned_free, so on Windows every allocation here is
+// an aligned one and all three operations use the aligned family.
+void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment)
+{
+	if (size == 0) size = 1;
+	return _aligned_malloc(size, alignment < alignof(std::max_align_t) ? alignof(std::max_align_t) : alignment);
+}
+
+void *Allocator::reallocatePreferSpiram(void *ptr, std::size_t size)
+{
+	return _aligned_realloc(ptr, size, alignof(std::max_align_t));
+}
+
+void Allocator::free(void *ptr) noexcept
+{
+	_aligned_free(ptr);
+}
+#else
 void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment)
 {
 	if (size == 0) size = 1;
@@ -825,6 +846,7 @@ void Allocator::free(void *ptr) noexcept
 {
 	std::free(ptr);
 }
+#endif
 
 double MemoryBackend::internalFree() { return 1024.0 * 1024.0; }
 double MemoryBackend::internalLargestFreeBlock() { return 512.0 * 1024.0; }

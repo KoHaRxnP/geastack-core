@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Whole-process heap census for the memory-census tests, on both hosts.
+// Whole-process heap census for the memory-census tests, on every host.
 //
 // macOS reports bytes and blocks in use across every allocator zone. glibc has
 // no in-use block count, so on Linux the bytes come from mallinfo2() and the
@@ -68,6 +68,32 @@ void operator delete(void *block) noexcept { heapCensusRelease(block); }
 void operator delete[](void *block) noexcept { heapCensusRelease(block); }
 void operator delete(void *block, std::size_t) noexcept { heapCensusRelease(block); }
 void operator delete[](void *block, std::size_t) noexcept { heapCensusRelease(block); }
+
+#elif defined(_WIN32)
+#include <malloc.h>
+
+struct HeapCensus {
+	std::size_t size_in_use = 0;
+	unsigned blocks_in_use = 0;
+};
+
+// The Windows CRT allocates from one process heap, and _heapwalk visits every
+// block of it, so bytes and blocks in use are counted directly -- the same
+// whole-heap figures macOS's zone statistics report.
+inline void captureHeapCensus(HeapCensus *census)
+{
+	_HEAPINFO entry{};
+	entry._pentry = nullptr;
+	std::size_t bytes = 0;
+	unsigned blocks = 0;
+	while (_heapwalk(&entry) == _HEAPOK) {
+		if (entry._useflag != _USEDENTRY) continue;
+		bytes += entry._size;
+		++blocks;
+	}
+	census->size_in_use = bytes;
+	census->blocks_in_use = blocks;
+}
 
 #else
 #error "heap_census.h: no heap statistics for this host"

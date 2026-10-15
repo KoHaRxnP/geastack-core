@@ -19,9 +19,8 @@ JS
 GEATSC2_GEA_PLUGIN="$out/host-shims" node ../compiler/dist/cli.js compile \
   packages/core/test/test_audio_worklet_compiled.ts --out-dir "$out" \
   --plugin "$out/index.js" --realm-storage --entry-symbol gea_worklet_probe_entry
-link_gc=-Wl,--gc-sections
-if [[ "$(uname -s)" == Darwin ]]; then link_gc=-Wl,-dead_strip; fi
-"${CXX:-clang++}" -std=c++20 -O1 -fsanitize=address,undefined -fsized-deallocation -ffunction-sections "$link_gc" \
+source packages/core/test/native-host.sh
+"${CXX:-clang++}" -std=c++20 -O1 -fsanitize=address,undefined -fsized-deallocation -ffunction-sections "${GEA_HOST_LINK_GC[@]}" ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"} \
   -DGEA_RUNTIME_REALMS=1 -DGEA_RUNTIME_COMPACT_ALLOCATION=1 \
   -I"$out" -Ipackages/host/include -Ipackages/core/include -Ipackages/engine -Ipackages/engine/ui -Ipackages/elements/ui \
   packages/core/test/test_audio_worklet_registration.cpp -o "$out/test_audio_worklet_registration"

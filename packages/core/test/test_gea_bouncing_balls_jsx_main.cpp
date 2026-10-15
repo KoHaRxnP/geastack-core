@@ -8,6 +8,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
 #include <cstring>
 #include <string>
 #include <vector>
@@ -486,6 +489,23 @@ int FrameScheduler::nowMs() { return 0; }
 }  // namespace gea::framework::services
 
 namespace gea::framework::memory {
+#if defined(_WIN32)
+// The Windows CRT has no posix_memalign, and memory from its _aligned_malloc
+// must go back through _aligned_free, so on Windows every allocation here is
+// an aligned one and all three operations use the aligned family.
+void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment) {
+  if (size == 0) size = 1;
+  return _aligned_malloc(size, alignment < alignof(std::max_align_t) ? alignof(std::max_align_t) : alignment);
+}
+
+void *Allocator::reallocatePreferSpiram(void *ptr, std::size_t size) {
+  return _aligned_realloc(ptr, size, alignof(std::max_align_t));
+}
+
+void Allocator::free(void *ptr) noexcept {
+  _aligned_free(ptr);
+}
+#else
 void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment) {
   if (size == 0) size = 1;
   if (alignment <= alignof(std::max_align_t)) return std::malloc(size);
@@ -500,6 +520,7 @@ void *Allocator::reallocatePreferSpiram(void *ptr, std::size_t size) {
 void Allocator::free(void *ptr) noexcept {
   std::free(ptr);
 }
+#endif
 }  // namespace gea::framework::memory
 
 bool gea::platform::display::Display::init() { return true; }

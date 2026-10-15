@@ -125,6 +125,7 @@ gea_read_geatsc_sources() {
 }
 
 source "$ROOT/packages/core/scripts/native-object-cache.sh"
+source "$ROOT/packages/core/test/native-host.sh"
 
 gea_build_native_test() {
   local build_dir="$1"
@@ -187,8 +188,15 @@ gea_build_native_test() {
   # compiler emits those wrappers as part of the module's object graph. See the
   # note at the top of native_host_backends.cpp.
   local -a test_host_sources=("$ROOT/packages/core/test/native_host_backends.cpp")
+  # The display hooks' strong definitions, linked FIRST: every unit that
+  # includes host/display_orientation.h references them weakly, and on Windows
+  # lld-link takes a second such unit's weak reference for a duplicate
+  # definition unless the strong one has been seen before it (see
+  # native_test_platform_display.cpp). Order does not matter elsewhere.
+  local -a platform_display_sources=()
   if [[ "${GEA_NATIVE_TEST_INCLUDE_HOST:-1}" != "0" ]]; then
     test_host_sources+=("$ROOT/packages/core/test/native_test_host.cpp")
+    platform_display_sources+=("$ROOT/packages/core/test/native_test_platform_display.cpp")
     # Host camera bridge; backed by the null platform camera stub in
     # native_test_host.cpp (camera apps link CameraBackend from generated code).
     test_host_sources+=("$ROOT/packages/core/test/native_camera_bridge.cpp")
@@ -288,6 +296,7 @@ gea_build_native_test() {
     ${extra_c_sources[@]+"${extra_c_sources[@]}"}
   )
   GEA_NATIVE_CXX_SOURCES=(
+    ${platform_display_sources[@]+"${platform_display_sources[@]}"}
     ${generated_sources[@]+"${generated_sources[@]}"}
     ${native_sources[@]+"${native_sources[@]}"}
     ${test_host_sources[@]+"${test_host_sources[@]}"}
@@ -301,22 +310,25 @@ gea_build_native_test() {
   GEA_NATIVE_CFLAGS=(
     -DGEA_EMBEDDED_GIF_C_API
     -I "$engine_vendor/AnimatedGIF"
+    ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"}
     ${extra_compile_flags[@]+"${extra_compile_flags[@]}"}
   )
   GEA_NATIVE_CXXFLAGS=(
     ${common_cxx_flags[@]+"${common_cxx_flags[@]}"}
+    ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"}
     ${extra_compile_flags[@]+"${extra_compile_flags[@]}"}
   )
   GEA_NATIVE_MMFLAGS=(
     ${common_cxx_flags[@]+"${common_cxx_flags[@]}"}
     ${extra_compile_flags[@]+"${extra_compile_flags[@]}"}
   )
-  # Section GC at link time: ld64 spells it -dead_strip, GNU/LLVM ld --gc-sections.
-  local link_gc=-Wl,--gc-sections
-  if [[ "$(uname -s)" == Darwin ]]; then link_gc=-Wl,-dead_strip; fi
+  # Section GC at link time, in this host's spelling (native-host.sh).
+  local -a symbol_map_flags=()
+  mapfile -t symbol_map_flags < <(gea_native_symbol_map_flags "$output_bin")
   GEA_NATIVE_LINK_FLAGS=(
     ${extra_link_flags[@]+"${extra_link_flags[@]}"}
-    "$link_gc"
+    ${GEA_HOST_LINK_GC[@]+"${GEA_HOST_LINK_GC[@]}"}
+    ${symbol_map_flags[@]+"${symbol_map_flags[@]}"}
   )
   gea_native_compile_and_link
 }
