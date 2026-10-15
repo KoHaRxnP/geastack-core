@@ -14,9 +14,12 @@ function analyzeSourceHostBindings(entry) {
 function app(t, files) {
   const root = path.resolve('/virtual-gea-plugin-analyze')
   const sources = new Map(Object.entries(files).map(([name, text]) => [path.join(root, name), text]))
-  t.mock.method(fs, 'existsSync', (file) => sources.has(file))
+  // TypeScript asks for `C:/x/index.tsx` where path.join wrote `C:\x\index.tsx`;
+  // the file system takes either, so the mock must too.
+  const key = (file) => path.resolve(String(file))
+  t.mock.method(fs, 'existsSync', (file) => sources.has(key(file)))
   t.mock.method(fs, 'statSync', () => ({ isFile: () => true }))
-  t.mock.method(fs, 'readFileSync', (file) => sources.get(file))
+  t.mock.method(fs, 'readFileSync', (file) => sources.get(key(file)))
   return path.join(root, 'index.tsx')
 }
 
