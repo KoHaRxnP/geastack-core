@@ -211,7 +211,29 @@ function copyCssUrlAssets(srcCss, dstCss) {
     const dstAsset = path.resolve(dstDir, clean)
     if (dstAsset === srcAsset) continue
     fs.mkdirSync(path.dirname(dstAsset), { recursive: true })
-    fs.copyFileSync(srcAsset, dstAsset)
+    copyAssetAtomically(srcAsset, dstAsset)
+  }
+}
+
+// A url() that climbs out of the app lands outside this build's own directory
+// (`../../../assets/fonts/x.ttf` staged under `<build>/<app>/` is
+// `<build>/assets/fonts/x.ttf`), where other builds sharing the parent stage
+// the same file at the same time -- core's app pipelines all do. copyFileSync
+// truncates and rewrites in place, so a concurrent reader saw a partial font
+// ("Offset is outside the bounds of the DataView"). Identical bytes are left
+// alone, and new bytes appear in one rename, never half-written.
+function copyAssetAtomically(srcAsset, dstAsset) {
+  const bytes = fs.readFileSync(srcAsset)
+  if (fs.existsSync(dstAsset) && fs.readFileSync(dstAsset).equals(bytes)) return
+  const staged = `${dstAsset}.${process.pid}.tmp`
+  fs.writeFileSync(staged, bytes)
+  try {
+    fs.renameSync(staged, dstAsset)
+  } catch (error) {
+    // Windows refuses to replace a file another process has open; that
+    // process staged it first, so the bytes it holds are these bytes.
+    fs.rmSync(staged, { force: true })
+    if (!(fs.existsSync(dstAsset) && fs.readFileSync(dstAsset).equals(bytes))) throw error
   }
 }
 
