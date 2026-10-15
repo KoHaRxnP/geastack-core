@@ -26,6 +26,9 @@
 #include <cstdio>
 #include <cstring>
 #include <sys/stat.h>
+#if defined(_WIN32)
+#include <direct.h> // _mkdir: the Windows CRT has no POSIX mkdir(path, mode)
+#endif
 #include <unordered_map>
 #include <vector>
 
@@ -86,8 +89,13 @@ void makeParentDirs(const std::string &path) {
     if (path[i] != '/')
       continue;
     const std::string dir = path.substr(0, i);
-    if (!dir.empty())
+    if (!dir.empty()) {
+#if defined(_WIN32)
+      ::_mkdir(dir.c_str());
+#else
       ::mkdir(dir.c_str(), 0777);
+#endif
+    }
   }
 }
 
