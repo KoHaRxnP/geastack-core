@@ -15,7 +15,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')
+// A Windows checkout (core.autocrlf) has CRLF line endings; the patterns below spell LF.
+const source = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 const memoryHeader = source('include/memory.h')
 const runtimeHeader = source('include/runtime.h')

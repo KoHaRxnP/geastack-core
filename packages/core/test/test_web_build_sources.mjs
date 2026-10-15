@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // The repo split scattered this test's inputs across sibling repos, and
 // it also moved the framework source list out of the build script entirely:
@@ -16,7 +17,14 @@ import { join, resolve } from 'node:path'
 // asserts against the manifest -- by EXECUTING it, which measures the real
 // linked set rather than grepping for paths no longer written anywhere -- and
 // the target half still asserts against build-web.sh.
-const coreRoot = new URL('../../..', import.meta.url).pathname
+// fileURLToPath, not `.pathname`: on Windows the latter is "/C:/...".
+const coreRoot = fileURLToPath(new URL('../../..', import.meta.url))
+// On Windows, Git for Windows' bash (GEA_BASH overrides it): the `bash` on PATH
+// there is usually System32's, WSL's launcher, which runs the script inside a
+// Linux distribution rather than on this host.
+const bash = process.platform === 'win32'
+  ? process.env.GEA_BASH || join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe')
+  : 'bash'
 const workspaceRoot = join(coreRoot, '..')
 const simulatorRoot = join(workspaceRoot, 'simulator')
 
@@ -24,7 +32,7 @@ const buildScript = readFileSync(join(simulatorRoot, 'targets', 'web', 'build-we
 const fetchHost = readFileSync(join(coreRoot, 'packages', 'host', 'host', 'fetch.cpp'), 'utf8')
 
 const manifestSources = execFileSync(
-  'bash',
+  bash,
   ['-c', '. "$1"; gea_fw_cxx_sources', 'bash', join(coreRoot, 'packages', 'core', 'gea_sources.sh')],
   {
     encoding: 'utf8',

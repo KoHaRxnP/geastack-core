@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, statSync, utimesSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
+const windows = process.platform === 'win32'
+// On Windows, Git for Windows' bash (GEA_BASH overrides it): the `bash` on PATH
+// there is usually System32's, WSL's launcher, which runs the script inside a
+// Linux distribution rather than on this host.
+const bash = windows ? process.env.GEA_BASH || join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe') : 'bash'
 const root = resolve(import.meta.dirname, '../../..')
 const buildDir = resolve(root, 'packages/core/test/.build')
 const source = resolve(buildDir, 'native-object-cache-test.cpp')
 const header = resolve(buildDir, 'native-object-cache-test.h')
-const output = resolve(buildDir, 'native-object-cache-test')
+// The linker names a Windows executable with its suffix; the cache checks this exact path.
+const output = resolve(buildDir, `native-object-cache-test${windows ? '.exe' : ''}`)
 
 test('native object cache detects source, header and object changes within one second', () => {
   mkdirSync(buildDir, { recursive: true })
@@ -16,7 +22,7 @@ test('native object cache detects source, header and object changes within one s
   writeFileSync(source, '#include "native-object-cache-test.h"\nint main() { return CACHE_TEST_RESULT; }\n')
 
   function build() {
-    const result = spawnSync('bash', ['-c', `
+    const result = spawnSync(bash, ['-c', `
       set -euo pipefail
       source "$1/packages/core/scripts/native-object-cache.sh"
       export TMPDIR="$2"

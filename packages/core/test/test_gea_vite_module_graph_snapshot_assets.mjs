@@ -72,6 +72,8 @@ test('Vite preserves a native asset binding consumed before Rollup loads its mod
   const writes = new Map()
   const originals = { rmSync: fs.rmSync, mkdirSync: fs.mkdirSync, writeFileSync: fs.writeFileSync }
   const output = (name) => assert.ok(name === outDir || name.startsWith(outDir + path.sep))
+  // Vite spells module ids with forward slashes on Windows too (a no-op on POSIX).
+  const isEntry = (id) => path.normalize(id) === entry
   try {
     fs.rmSync = output
     fs.mkdirSync = output
@@ -79,9 +81,9 @@ test('Vite preserves a native asset binding consumed before Rollup loads its mod
     await build({
       root, configFile: false, logLevel: 'silent',
       plugins: [
-        { name: 'snapshot-fixture-source', load: (id) => id === entry ? "import image from './fixtures/native-jpeg.jpg'\nexport const result = image\n" : null },
+        { name: 'snapshot-fixture-source', load: (id) => isEntry(id) ? "import image from './fixtures/native-jpeg.jpg'\nexport const result = image\n" : null },
         graphPlugins[0], graphPlugins[1],
-        { name: 'framework-consumes-asset', enforce: 'pre', transform: (_code, id) => id === entry ? 'export const result = 1\n' : null },
+        { name: 'framework-consumes-asset', enforce: 'pre', transform: (_code, id) => isEntry(id) ? 'export const result = 1\n' : null },
         graphPlugins[2],
       ],
       build: { write: false, lib: { entry, formats: ['es'] }, outDir, emptyOutDir: false },

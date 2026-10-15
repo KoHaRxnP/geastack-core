@@ -2,12 +2,15 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 // The renderer's `ui/` tree moved from `packages/core/ui/` to
 // `packages/engine/ui/` in the repo split. `repoRoot` (three levels up) is
 // still correct -- only the package name changed -- but the stale paths made
 // every run die in `readFileSync` with ENOENT before a single assertion ran.
-const repoRoot = resolve(new URL("../../..", import.meta.url).pathname)
+// fileURLToPath, not `.pathname`: on Windows the latter is "/C:/..." and
+// resolves to "C:\C:\...".
+const repoRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)))
 const renderSource = readFileSync(resolve(repoRoot, "packages/engine/ui/render.cpp"), "utf8")
 const internalHeader = readFileSync(resolve(repoRoot, "packages/engine/ui/internal.h"), "utf8")
 const treeNodesSource = readFileSync(resolve(repoRoot, "packages/engine/ui/tree_nodes.cpp"), "utf8")

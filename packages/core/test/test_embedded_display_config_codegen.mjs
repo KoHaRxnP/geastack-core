@@ -17,7 +17,8 @@ assert.match(embeddedBuildScript, /GEA_EMBEDDED_DISPLAY_BACKGROUND_CACHE_IN_SRAM
 // definitions (see any target's main/CMakeLists.txt). This header must take
 // them rather than hardcode a size, or every board but the default renders
 // at the wrong geometry.
-const displayHeader = readFileSync(new URL('../include/display.h', import.meta.url), 'utf8')
+// A Windows checkout (core.autocrlf) has CRLF line endings; the pattern spells LF.
+const displayHeader = readFileSync(new URL('../include/display.h', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 for (const macro of ['GEA_EMBEDDED_DISPLAY_WIDTH', 'GEA_EMBEDDED_DISPLAY_HEIGHT']) {
   assert.match(displayHeader, new RegExp(`#ifndef ${macro}\\n#define ${macro} `),
     `${macro} must be overridable by the board, not hardcoded`)

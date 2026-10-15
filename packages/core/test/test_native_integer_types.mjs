@@ -40,10 +40,10 @@ const inspect = (specifier, native) => {
   const program = ts.createProgram({ rootNames: [entry], options, host })
   const file = program.getSourceFile(entry)
   assert.ok(file)
-  assert.equal(
-    ts.resolveModuleName(specifier, entry, options, host).resolvedModule?.resolvedFileName,
-    native ? runtime : declaration
-  )
+  // TypeScript answers with forward slashes on every host; resolve() puts the
+  // name back in this host's spelling (a no-op on POSIX).
+  const resolvedFileName = ts.resolveModuleName(specifier, entry, options, host).resolvedModule?.resolvedFileName
+  assert.equal(resolvedFileName && resolve(resolvedFileName), native ? runtime : declaration)
   assert.ok(program.getSourceFile(declaration), 'integer aliases must come from the package declarations')
   const diagnostics = [
     ...program.getOptionsDiagnostics(),
