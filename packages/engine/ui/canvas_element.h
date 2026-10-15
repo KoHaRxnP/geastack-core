@@ -8,7 +8,7 @@
 
 #include "canvas.h"
 #include <image.h>
-#include "display.h"
+#include <display.h>
 #include "node.h"
 
 #include <cstdint>

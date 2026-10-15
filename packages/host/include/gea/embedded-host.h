@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "display.h"
+#include <display.h>
 #include "host/backends.h"
 #include "host/fetch.h"
 #include "geolocation.h"
@@ -29,7 +29,7 @@
 #include "host/battery.h"
 #include "host/notify.h"
 #include "host/device_control.h"
-#include "input.h"
+#include <input.h>
 #include "host/audio.h"
 #include "host/video.h"
 #include "host/display.h"
