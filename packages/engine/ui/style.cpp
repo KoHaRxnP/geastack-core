@@ -17616,19 +17616,28 @@ BackgroundPlacement StyleValues::backgroundPlacement(const ComputedStyle &style,
 	if (const auto *v = entry(r.bg_attachment_list)) out.attachment = v->a;
 	if (const auto *v = entry(r.bg_origin_list)) out.origin = v->a;
 	if (const auto *v = entry(r.bg_repeat_list)) { out.repeatX = v->a; out.repeatY = v->b; }
-	const Node &node = treeState().nodes[nodeId];
+	// nodeId comes from ViewGeometry::nodeIndex(), which is -1 for a box that is
+	// not a slot of the tree (a Node recorded straight from the stack, as the
+	// renderer tests do). Indexing nodes[-1] read whatever sits before the heap
+	// TreeState and handed its garbage rare_style handle to rstyle(), so the
+	// result -- and whether the process segfaulted -- depended on the address
+	// layout. Such a box has no scroll state, and its own style is the only
+	// border/padding there is to inset by.
+	const auto &state = treeState();
+	const Node *node = nodeId >= 0 && nodeId < state.nodeCount ? &state.nodes[nodeId] : nullptr;
+	const ComputedStyle &box = node ? node->computedStyle() : style;
 	if (out.attachment == 1) {
-		x = y = 0; width = treeState().mountedWidth; height = treeState().mountedHeight;
+		x = y = 0; width = state.mountedWidth; height = state.mountedHeight;
 	} else {
-		if (out.attachment == 2) {
-			width = std::max<int>(width, node.layout.scroll_content_width);
-			height = std::max<int>(height, node.layout.scroll_content_height);
-			x -= node.layout.scroll_x; y -= node.layout.scroll_y;
+		if (out.attachment == 2 && node) {
+			width = std::max<int>(width, node->layout.scroll_content_width);
+			height = std::max<int>(height, node->layout.scroll_content_height);
+			x -= node->layout.scroll_x; y -= node->layout.scroll_y;
 		}
 		if (out.origin != 0) {
 			int inset[4];
-			for (int i = 0; i < 4; ++i) inset[i] = computedBorderWidth(node.computedStyle(), i) +
-			    (out.origin == 2 ? std::max<int>(0, node.computedStyle().padding[i]) : 0);
+			for (int i = 0; i < 4; ++i) inset[i] = computedBorderWidth(box, i) +
+			    (out.origin == 2 ? std::max<int>(0, box.padding[i]) : 0);
 			x += inset[3]; y += inset[0]; width -= inset[1]+inset[3]; height -= inset[0]+inset[2];
 		}
 	}
