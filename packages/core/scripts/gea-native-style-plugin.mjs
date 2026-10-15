@@ -35,7 +35,9 @@ export function geaNativeStylePlugin({ runtimeEntry }) {
       return [path.join(sourceRoot, `${name}.ts`), path.join(sourceRoot, name, 'index.ts')].find(entry => fs.existsSync(entry)) || null
     },
     load(id) {
-      if (id.split('?')[0] !== serializer) return null
+      // Vite spells module ids with forward slashes on Windows too; normalize
+      // before comparing with the native path (a no-op on POSIX).
+      if (path.normalize(id.split('?')[0]) !== serializer) return null
       // This module is the browser serialization boundary, not the JSX IR.
       // Replacing it here preserves numeric values in the native IR and prevents
       // browser px defaults from reaching native runtime-backed components/h().
