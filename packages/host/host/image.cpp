@@ -82,6 +82,22 @@ gea::framework::graphics::ImageStore &store() {
 
 int integer(double value) { return static_cast<int>(value); }
 
+// An absolute filesystem path: `/...`, and on Windows also a drive path
+// (`C:/...`, `C:\...`) or a UNC path (`\\server\...`), which is how an
+// absolute path is spelled there.
+bool isAbsoluteFilePath(const char *path) {
+  if (path[0] == '/')
+    return true;
+#if defined(_WIN32)
+  if (path[0] == '\\' && path[1] == '\\')
+    return true;
+  const bool drive = (path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z');
+  return drive && path[1] == ':' && (path[2] == '/' || path[2] == '\\');
+#else
+  return false;
+#endif
+}
+
 // mkdir -p of the parent directories in `path` (FAT/VFS); existing dirs are
 // fine.
 void makeParentDirs(const std::string &path) {
@@ -198,7 +214,7 @@ double ImageService::loadAssetPath(const char *path) const {
   // Fallback: an absolute filesystem path (e.g. an EPUB cover extracted to the
   // SD card). Lets `<img src="/sdcard/...">` show runtime images through the
   // framework's own decode/render path instead of only bundled assets.
-  if (path[0] == '/')
+  if (isAbsoluteFilePath(path))
     return loadFile(std::string(path));
   return -1.0;
 }
@@ -424,7 +440,7 @@ extern "C" double gea_host_image_acquire_asset_path(const char *path, bool *owne
     if (gea::host::gea_embedded_asset_lookup(path, &data, &length))
       return gea::host::image.loadBytesPtr(data, length);
   }
-  if (path[0] != '/') return -1.0;
+  if (!gea::host::isAbsoluteFilePath(path)) return -1.0;
   const int id = static_cast<int>(gea::host::image.loadFile(path));
   auto &images = gea::framework::graphics::ImageStore::instance();
   if (id >= 0 && images.retain(id)) {
