@@ -195,7 +195,7 @@ function addBindingsForEmbeddedHostNames(text: string, bindings: Set<string>): v
 // (core/scripts/build-gea-vite-geatsc.mjs: resolveAppModuleAliases and
 // resolveGeaThreeAliasModules, applied by gea-vite-module-graph-plugin.mjs).
 // The scan must walk the program the build compiles: an app that opts into
-// the port (`"gea": { "geaThreejs": true }`, as skytail does) compiles its
+// the port (`"gea": { "geaThreejs": true }`, as a three.js game may) compiles its
 // `three/src/*.js` imports against @geastack/gea-threejs, and
 // scanning upstream three's loaders instead read their `fetch(` as a network
 // binding and linked the whole Wi-Fi/WebRTC stack into a game with no network.

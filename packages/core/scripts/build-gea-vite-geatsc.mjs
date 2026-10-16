@@ -490,9 +490,9 @@ function resolveAppleNativeAliasModules(appDir) {
 // another target replaces with its own implementation.
 // Each replacement names the app's STAGED copy when there is one: the compat
 // build compiles the staged tree, so an alias into the app directory itself
-// pulled a second copy of every module the replacement imports (skytail's
-// mosaico kit index brought its own kit-types.ts, and the two KitCategory
-// records refused to convert).
+// pulled a second copy of every module the replacement imports (a game's
+// board-specific index brought its own copy of a shared types module, and the
+// two copies of one record type refused to convert).
 function resolveAppModuleAliases(appDir, stagedAppDir = appDir) {
   let manifest = {}
   try {
@@ -578,7 +578,7 @@ function writeCompatViteConfig({ configPath, compatSrcDir, appDir, stagedAppDir,
   // disambiguate, and — with all types erased — geatsc is forced to lower the
   // whole reactive runtime dynamically (gea_cpp_value, ill-formed auto-vectors,
   // proxy derefs). From source, everything is typed and lowers natively, exactly
-  // like three.js/hono/mongodb. The env var still wins when explicitly set;
+  // like the third-party libraries an app imports. The env var still wins when explicitly set;
   // otherwise follow ordinary package resolution, including hoisted installs.
   const compilerRuntimeEntry = process.env.GEA_COMPILER_RUNTIME_SOURCE || resolveCompilerRuntimeEntry([appDir, coreRoot])
   const compilerRuntimeAlias = compilerRuntimeEntry && fs.existsSync(compilerRuntimeEntry)
