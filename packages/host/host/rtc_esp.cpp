@@ -852,7 +852,12 @@ EspPeerState *ensurePeer(EspPeerState* state, bool answer = false) {
   // audio on CPU1: moving both overloaded CPU0 and delayed microphone encoding.
   // On CPU0 transport must stay below capture/send (24/5), above UI (3).
   // Other peers retain their established scheduling.
+#if GEA_RTC_HAS_VIDEO
   const bool separateVideoTransport = state->vp8_video && state->packet_wake;
+#else
+  // A build without video has no VP8 transport to separate.
+  const bool separateVideoTransport = false;
+#endif
   if (xTaskCreatePinnedToCoreWithCaps(main_loop_trampoline, "gea_rtc_loop", kPeerStackBytes, state,
                                    separateVideoTransport ? 4 : 7, &state->main_loop_task,
                                    separateVideoTransport ? 0 : 1,
