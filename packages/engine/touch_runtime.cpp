@@ -9,6 +9,9 @@
 #include "ui/tree_internal.h"
 #include "ui/virtual_keyboard.h"
 #include "ui/debugger_picker.h"
+#include "ui/input_retirement.h"
+#include <stdexcept>
+#include <exception>
 
 #include <cstring>
 
@@ -89,6 +92,7 @@ public:
 
 	void resetGesture()
 	{
+		++primaryTicket_;primaryOwner_={};primaryQuarantined_=false;primaryEnding_=false;
 		wasActive_ = false;
 		lastX_ = 0;
 		lastY_ = 0;
@@ -97,7 +101,7 @@ public:
 		dragged_ = false;
 		activeDefaultPrevented_ = false;
 		activeTargetId_ = -1;
-		for (Secondary &s : secondary_) s = Secondary{};
+		for (Secondary &s : secondary_) {const auto next=s.ticket+1;s=Secondary{};s.ticket=next;}
 	}
 
 	// Returns true if this event may have changed on-screen state (a real
@@ -134,6 +138,13 @@ public:
 			return dispatchSecondary(event);
 		}
 
+		if (retireInvalidPrimary(!event.touching && event.touchPhase == TouchPhase::Up)) return false;
+		if(primaryQuarantined_){
+			if(event.touchPhase==TouchPhase::Move) gea::platform::touch::Touchscreen::consumeLatestMove(nullptr,nullptr);
+			if(!event.touching && event.touchPhase==TouchPhase::Up)primaryQuarantined_=false;
+			return false;
+		}
+		auto dispatchTicket=primaryTicket_;bool primaryBegan=false;
 		bool changed = false;
 
 		int tx = event.x;
@@ -151,19 +162,22 @@ public:
 
 		if (touching && !wasActive_) {
 			changed = true;
-			startX_ = tx;
-			startY_ = ty;
+			startX_ = lastX_ = tx;
+			startY_ = lastY_ = ty;
 			dragged_ = false;
 			activeDefaultPrevented_ = false;
 			gea::embedded::ui::Tree::instance().pointerDown(tx, ty);
 			const int targetId = gea::embedded::ui::Tree::instance().hitTestNode(tx, ty);
 			if (targetId >= 0) {
-				activeTargetId_ = targetId;
-				activeDefaultPrevented_ = dispatchPointer(PointerEventType::TouchStart, targetId, tx, ty, true);
+				activeTargetId_ = targetId;primaryOwner_=gea::embedded::ui::NodeHandle(targetId);
+				wasActive_=true;primaryBegan=true;primaryEnding_=false;dispatchTicket=++primaryTicket_;
+				const bool prevented = dispatchPointer(PointerEventType::TouchStart, targetId, tx, ty, true);
+				if(dispatchTicket!=primaryTicket_ || retireInvalidPrimary(primaryEnding_))return true;
+				activeDefaultPrevented_ = prevented;
 			}
 		}
 
-		if (touching && wasActive_ && (tx != lastX_ || ty != lastY_)) {
+		if (touching && wasActive_ && !primaryBegan && (tx != lastX_ || ty != lastY_)) {
 			changed = true;
 			if (!dragged_) {
 				int dx = tx - startX_;
@@ -181,12 +195,13 @@ public:
 			bool defaultPrevented = activeDefaultPrevented_;
 			if (activeTargetId_ >= 0) {
 				defaultPrevented = dispatchPointer(PointerEventType::TouchMove, activeTargetId_, tx, ty, true) || defaultPrevented;
+				if(dispatchTicket!=primaryTicket_ || retireInvalidPrimary(primaryEnding_))return true;
 			}
 			if (!defaultPrevented) gea::embedded::ui::Tree::instance().pointerMove(tx, ty);
 		}
 
 		if (!touching && wasActive_) {
-			changed = true;
+			changed = true;primaryEnding_=true;
 			// Captured BEFORE any click handler runs: if a handler
 			// programmatically focuses an input (element.focus()), the
 			// focus-management default below must not clear it.
@@ -208,9 +223,11 @@ public:
 				gea::embedded::ui::VirtualKeyboard::instance().sync();
 			} else if (activeTargetId_ >= 0) {
 				dispatchPointer(PointerEventType::TouchEnd, activeTargetId_, lastX_, lastY_, false);
+				if(dispatchTicket!=primaryTicket_ || retireInvalidPrimary(primaryEnding_))return true;
 			}
 			if (!dragged_ && !activeDefaultPrevented_ && activeTargetId_ >= 0) {
 				if (!keyboardDismissTap) dispatchPointer(PointerEventType::Click, activeTargetId_, lastX_, lastY_, false);
+				if(dispatchTicket!=primaryTicket_ || retireInvalidPrimary(primaryEnding_))return true;
 				// Focus management — set the active input if the tap
 				// landed on one (or the closest input ancestor); clear
 				// focus on taps outside any input.
@@ -238,7 +255,8 @@ public:
 					gea::embedded::ui::VirtualKeyboard::instance().sync();
 				}
 			}
-			activeTargetId_ = -1;
+			if(dispatchTicket!=primaryTicket_ || retireInvalidPrimary(primaryEnding_))return true;
+			activeTargetId_ = -1;primaryOwner_={};primaryEnding_=false;
 			activeDefaultPrevented_ = false;
 		}
 
@@ -249,6 +267,44 @@ public:
 		}
 		if (changed) lastActivityMs_ = gea::framework::services::FrameScheduler::nowMs();
 		return changed;
+	}
+
+	// A raw allocation index is never a gesture lease. Destructive removal
+	// invalidates the captured birth owner, even if that index is reused.
+	bool retireInvalidPrimary(bool physicalUp)
+	{
+		if (!wasActive_ || activeTargetId_ < 0 || primaryOwner_.valid()) return false;
+		primaryQuarantined_ = !physicalUp;primaryEnding_=false;++primaryTicket_;
+		primaryOwner_={};activeTargetId_=-1;wasActive_=false;activeDefaultPrevented_=false;
+		gea::embedded::ui::cancelPrimaryPointerInput();
+		return true;
+	}
+
+	void retireSubtrees(const gea::embedded::ui::InputRetirementRoots &removed,const gea::embedded::ui::InputRetirementRoots &retained)
+	{
+		using namespace gea::embedded::ui;
+		struct Cancel {NodeHandle owner;int x,y,pointer;bool primary,emit;};
+		std::vector<Cancel> cancelled;cancelled.reserve(1+kMaxSecondaryPointers);
+		if(inputOwnerLeaving(primaryOwner_,removed,retained)){
+			cancelled.push_back({primaryOwner_,lastX_,lastY_,1,true,!primaryEnding_});
+			primaryQuarantined_=!primaryEnding_;primaryEnding_=false;++primaryTicket_;
+			primaryOwner_={};activeTargetId_=-1;wasActive_=false;activeDefaultPrevented_=false;
+			cancelPrimaryPointerInput();
+		}
+		for(int i=0;i<kMaxSecondaryPointers;++i){auto &slot=secondary_[i];
+			if(!inputOwnerLeaving(slot.owner,removed,retained))continue;
+			cancelled.push_back({slot.owner,slot.lastX,slot.lastY,i+2,false,!slot.ending});
+			slot.quarantined=!slot.ending;slot.ending=false;++slot.ticket;slot.active=false;slot.targetId=-1;slot.owner={};
+		}
+		// All admitted leases are closed before the first user cancellation callback.
+		std::exception_ptr failure;
+		for(const auto &entry:cancelled)if(entry.emit&&entry.owner.valid()) {
+			try {dispatchPointer(PointerEventType::PointerCancel,entry.owner.id(),entry.x,entry.y,false,entry.pointer,entry.primary);}
+			catch(...) {if(!failure)failure=std::current_exception();}
+		}
+		if(failure)std::rethrow_exception(failure);
+		if(inputOwnerLeaving(primaryOwner_,removed,retained))throw std::runtime_error("primary gesture revived during retirement");
+		for(const auto &slot:secondary_)if(inputOwnerLeaving(slot.owner,removed,retained))throw std::runtime_error("secondary gesture revived during retirement");
 	}
 
 	// Finger down now AND a down/move/up fired within the last windowMs. Used by
@@ -285,65 +341,43 @@ private:
   // owned by the primary pointer (pointerId 0).
   bool dispatchSecondary(const Event &event)
   {
-	  const int slot = event.pointerId - 1;
-	  if (slot < 0 || slot >= kMaxSecondaryPointers)
-		  return false;
-	  Secondary &s = secondary_[slot];
-	  const int tx = event.x;
-	  const int ty = event.y;
-	  const bool touching = event.touching || event.touchPhase == TouchPhase::Move;
-	  // Web convention: pointerId 1 is the primary pointer, so extra fingers
-	  // are numbered from 2 upward.
-	  const int webPointerId = event.pointerId + 1;
-
-	  if (touching && !s.active) {
-		  s.active = true;
-		  s.startX = tx;
-		  s.startY = ty;
-		  s.lastX = tx;
-		  s.lastY = ty;
-		  s.dragged = false;
-		  s.defaultPrevented = false;
-		  s.targetId = gea::embedded::ui::Tree::instance().hitTestNode(tx, ty);
-		  if (s.targetId >= 0) {
-			  s.defaultPrevented =
-				  dispatchPointer(PointerEventType::TouchStart, s.targetId, tx, ty, true, webPointerId, false);
-		  }
-		  return true;
-	  }
-
-	  if (touching && s.active) {
-		  const bool moved = tx != s.lastX || ty != s.lastY;
-		  if (moved) {
-			  if (!s.dragged) {
-				  const int dx = tx - s.startX;
-				  const int dy = ty - s.startY;
-				  if (dx > 16 || dx < -16 || dy > 16 || dy < -16)
-					  s.dragged = true;
-			  }
-			  if (s.targetId >= 0) {
-				  dispatchPointer(PointerEventType::TouchMove, s.targetId, tx, ty, true, webPointerId, false);
-			  }
-			  s.lastX = tx;
-			  s.lastY = ty;
-		  }
-		  return moved;
-	  }
-
-	  if (!touching && s.active) {
-		  if (s.targetId >= 0) {
-			  dispatchPointer(PointerEventType::TouchEnd, s.targetId, s.lastX, s.lastY, false, webPointerId, false);
-			  if (!s.dragged && !s.defaultPrevented) {
-				  dispatchPointer(PointerEventType::Click, s.targetId, s.lastX, s.lastY, false, webPointerId, false);
-			  }
-		  }
-		  s.active = false;
-		  s.targetId = -1;
-		  s.dragged = false;
-		  s.defaultPrevented = false;
-		  return true;
-	  }
-	  return false;
+    const int index=event.pointerId-1;
+    if(index<0||index>=kMaxSecondaryPointers)return false;
+    auto &slot=secondary_[index];const int x=event.x,y=event.y;
+    const bool touching=event.touching||event.touchPhase==TouchPhase::Move;
+    const int pointer=event.pointerId+1;
+    auto retireInvalid=[&](){
+      if(!slot.active || slot.targetId<0 || slot.owner.valid())return false;
+      slot.quarantined=touching;slot.ending=false;++slot.ticket;slot.active=false;
+      slot.targetId=-1;slot.owner={};slot.dragged=false;slot.defaultPrevented=false;return true;
+    };
+    if(retireInvalid())return false;
+    if(slot.quarantined){if(!touching&&event.touchPhase==TouchPhase::Up)slot.quarantined=false;return false;}
+    if(touching&&!slot.active){
+      slot.active=true;slot.ending=false;const auto ticket=++slot.ticket;
+      slot.startX=slot.lastX=x;slot.startY=slot.lastY=y;slot.dragged=false;slot.defaultPrevented=false;
+      slot.targetId=gea::embedded::ui::Tree::instance().hitTestNode(x,y);
+      slot.owner=gea::embedded::ui::NodeHandle(slot.targetId);
+      if(slot.targetId>=0){const bool prevented=dispatchPointer(PointerEventType::TouchStart,slot.targetId,x,y,true,pointer,false);if(ticket!=slot.ticket || retireInvalid())return true;slot.defaultPrevented=prevented;}
+      return true;
+    }
+    const auto ticket=slot.ticket;
+    if(touching&&slot.active){
+      const bool moved=x!=slot.lastX||y!=slot.lastY;
+      if(moved){if(!slot.dragged){const int dx=x-slot.startX,dy=y-slot.startY;slot.dragged=dx>16||dx< -16||dy>16||dy< -16;}
+        if(slot.targetId>=0)dispatchPointer(PointerEventType::TouchMove,slot.targetId,x,y,true,pointer,false);
+        if(ticket!=slot.ticket || retireInvalid())return true;slot.lastX=x;slot.lastY=y;
+      }return moved;
+    }
+    if(!touching&&slot.active){
+      slot.ending=true;
+      if(slot.targetId>=0){dispatchPointer(PointerEventType::TouchEnd,slot.targetId,slot.lastX,slot.lastY,false,pointer,false);
+        if(ticket!=slot.ticket || retireInvalid())return true;
+        if(!slot.dragged&&!slot.defaultPrevented)dispatchPointer(PointerEventType::Click,slot.targetId,slot.lastX,slot.lastY,false,pointer,false);
+        if(ticket!=slot.ticket || retireInvalid())return true;
+      }
+      slot.active=false;slot.ending=false;slot.targetId=-1;slot.owner={};slot.dragged=false;slot.defaultPrevented=false;return true;
+    }return false;
   }
 
   // Immediate-mode (no UI tree) path: synthesize the pointer event from the raw
@@ -367,6 +401,8 @@ private:
 	  }
 	  PointerEvent pe{};
 	  pe.type = type;
+	  pe.button = type == PointerEventType::TouchMove ? -1 : 0;
+	  pe.buttons = event.touching ? 1u : 0u;
 	  pe.targetId = -1;
 	  // Match the mounted-tree path and the public TypeScript surface:
 	  // web-facing pointer ids start at 1, while internal touch slots start at 0.
@@ -395,6 +431,8 @@ private:
   {
 	  PointerEvent event{};
 	  event.type = type;
+	  event.button = (type == PointerEventType::TouchStart || type == PointerEventType::TouchEnd || type == PointerEventType::Click) ? 0 : -1;
+	  event.buttons = activeTouch ? 1u : 0u;
 	  // Skip entirely when no node listens for this type — don't build the
 	  // event payload or walk the tree. Apps that bind only touch* never pay
 	  // for the paired pointer* dispatch (and vice versa).
@@ -455,9 +493,15 @@ private:
   int startY_ = 0;
   bool dragged_ = false;
   int activeTargetId_ = -1;
+  gea::embedded::ui::NodeHandle primaryOwner_;
+  unsigned int primaryTicket_=0;
+  bool primaryQuarantined_=false,primaryEnding_=false;
 
   // Per-pointer state for non-primary (pointerId >= 1) simultaneous fingers.
   struct Secondary {
+    gea::embedded::ui::NodeHandle owner;
+    unsigned int ticket=0;
+    bool quarantined=false,ending=false;
 	  bool active = false;
 	  bool dragged = false;
 	  bool defaultPrevented = false;
@@ -473,6 +517,13 @@ private:
 
 }  // namespace
 
+} // namespace gea::framework::events
+namespace gea::embedded::ui {
+void retireTouchInputForSubtrees(const InputRetirementRoots &removed,const InputRetirementRoots &retained)
+{gea::framework::events::TouchEventDispatcher::instance().retireSubtrees(removed,retained);}
+}
+
+namespace gea::framework::events {
 // Touch controllers report PANEL-NATIVE coordinates; the UI hit-tests in
 // LOGICAL (orientation-rotated) space. Inverse of the display's
 // panelForSourcePixel mapping. Applied to QUEUED events AND to the raw

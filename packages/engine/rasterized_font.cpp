@@ -5,11 +5,23 @@
 #define GEA_EMBEDDED_TTF_RUNTIME_FONTS 0
 #endif
 
+#ifndef GEA_EMBEDDED_TTF_FREETYPE
+#define GEA_EMBEDDED_TTF_FREETYPE 0
+#endif
+#if GEA_EMBEDDED_TTF_FREETYPE && !GEA_EMBEDDED_TTF_RUNTIME_FONTS
+#error "FreeType requires runtime TTF fonts"
+#endif
 #if GEA_EMBEDDED_TTF_RUNTIME_FONTS
 #include "memory.h"
+#if GEA_EMBEDDED_TTF_FREETYPE
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_MULTIPLE_MASTERS_H
+#endif
 
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
@@ -112,18 +124,37 @@ void runtimeTtfTrace(const char *, ...) {}
 constexpr int kRuntimeAsciiFirst = 0x20;
 constexpr int kRuntimeAsciiLast = 0x7e;
 constexpr int kRuntimeAsciiCount = kRuntimeAsciiLast - kRuntimeAsciiFirst + 1;
+#if GEA_EMBEDDED_TTF_FREETYPE
+constexpr int kRuntimeExtraCodepoints[] = {0x00b0,0x00b5,0x00d7,0x2013,0x2014,0x2018,0x2019,0x201c,0x201d,0x2022,0x2026,0x2190,0x2191,0x2192,0x2193,0x2212};
+constexpr int kRuntimeExtraGlyphs = sizeof(kRuntimeExtraCodepoints)/sizeof(int);
+#else
 constexpr int kRuntimeExtraGlyphs = 1;
+#endif
 constexpr int kRuntimeGlyphCapacity = kRuntimeAsciiCount + kRuntimeExtraGlyphs;
 constexpr int kRuntimeFontCacheSlots = 64;
+#if GEA_EMBEDDED_TTF_FREETYPE
+constexpr int kRuntimeMaxAtlasWidth = 4096;
+constexpr int kRuntimeMaxFontPx = 2048;
+#else
 constexpr int kRuntimeMaxAtlasWidth = 256;
-constexpr int kRuntimeAtlasPadding = 1;
 constexpr int kRuntimeMaxFontPx = 192;
+#endif
+constexpr int kRuntimeAtlasPadding = 1;
 
 struct RuntimeRasterizedFontSlot {
 	bool built = false;
 	bool ready = false;
 	int familyId = -1;
 	int requestedSizePx = 0;
+	#if GEA_EMBEDDED_TTF_FREETYPE
+ int weight = 400;
+ int stretch = 1000;
+#else
+ static constexpr int weight=400,stretch=1000;
+#endif
+#if GEA_EMBEDDED_TTF_FREETYPE
+	FT_Face face = nullptr;
+#endif
 	unsigned long usedAt = 0;
 	const std::uint8_t *fontBytes = nullptr;
 	unsigned long fontLength = 0;
@@ -142,7 +173,11 @@ struct RuntimeRasterizedFontSlot {
 int runtimeCodepointAt(int index)
 {
 	if (index >= 0 && index < kRuntimeAsciiCount) return kRuntimeAsciiFirst + index;
+	#if GEA_EMBEDDED_TTF_FREETYPE
+	if (index>=kRuntimeAsciiCount && index<kRuntimeGlyphCapacity) return kRuntimeExtraCodepoints[index-kRuntimeAsciiCount];
+#else
 	if (index == kRuntimeAsciiCount) return 0x00b0;
+#endif
 	return -1;
 }
 
@@ -179,22 +214,57 @@ unsigned long nextRuntimeFontClock()
 void releaseRuntimeFontSlot(RuntimeRasterizedFontSlot &slot)
 {
 	if (slot.atlas) memory::Allocator::free(slot.atlas);
+#if GEA_EMBEDDED_TTF_FREETYPE
+	if(slot.face)FT_Done_Face(slot.face);
+#endif
 	slot = RuntimeRasterizedFontSlot{};
 }
 
-bool buildRuntimeFontSlot(RuntimeRasterizedFontSlot &slot, int familyId, int sizePx)
+bool buildRuntimeFontSlot(RuntimeRasterizedFontSlot &slot, int familyId, int sizePx, int weight, int stretch)
 {
 	runtimeTtfTrace("slot.begin family=%d size=%d", familyId, sizePx);
 	releaseRuntimeFontSlot(slot);
 	slot.built = true;
 	slot.familyId = familyId;
 	slot.requestedSizePx = sizePx;
+	#if GEA_EMBEDDED_TTF_FREETYPE
+	slot.weight=weight;slot.stretch=stretch;
+#else
+ (void)weight;(void)stretch;
+#endif
 
 	unsigned long fontLength = 0;
 	const std::uint8_t *fontBytes = generated::lookupRuntimeTtfFontForFamily(familyId, &fontLength);
 	runtimeTtfTrace("slot.lookup family=%d bytes=%p len=%lu", familyId, static_cast<const void *>(fontBytes), fontLength);
 	if (!fontBytes || fontLength == 0) return false;
 
+#if GEA_EMBEDDED_TTF_FREETYPE
+ static FT_Library library=[](){FT_Library value=nullptr;return FT_Init_FreeType(&value)==0?value:nullptr;}();
+ if(!library || fontLength>static_cast<unsigned long>(LONG_MAX) || FT_New_Memory_Face(library,fontBytes,static_cast<FT_Long>(fontLength),0,&slot.face))return false;
+ FT_MM_Var *axes=nullptr;
+ bool hasWidth=false;
+ if(!FT_Get_MM_Var(slot.face,&axes)) {
+   FT_Fixed coords[32]{};
+   if(axes->num_axis>32){FT_Done_MM_Var(library,axes);return false;}
+   for(FT_UInt i=0;i<axes->num_axis;i++){
+     const auto &axis=axes->axis[i];double value=axis.def/65536.0;
+     if(axis.tag==FT_MAKE_TAG('w','g','h','t'))value=weight;
+     if(axis.tag==FT_MAKE_TAG('w','d','t','h')){value=stretch/10.0;hasWidth=true;}
+     coords[i]=static_cast<FT_Fixed>(std::clamp(value,axis.minimum/65536.0,axis.maximum/65536.0)*65536.0);
+   }
+   const auto error=FT_Set_Var_Design_Coordinates(slot.face,axes->num_axis,coords);
+   FT_Done_MM_Var(library,axes);if(error)return false;
+ }
+ const int clampedSizePx=std::clamp(sizePx>0?sizePx:16,1,kRuntimeMaxFontPx);
+ if(FT_Set_Pixel_Sizes(slot.face,0,clampedSizePx))return false;
+ // CSS stretch also applies to faces with no width axis, without altering weight.
+ FT_Matrix transform{hasWidth?65536:static_cast<FT_Fixed>(stretch*65536LL/1000),0,0,65536};
+ FT_Set_Transform(slot.face,&transform,nullptr);
+ slot.fontBytes=fontBytes;slot.fontLength=fontLength;
+ const int ascender=static_cast<int>((slot.face->size->metrics.ascender+63)/64);
+ const int descender=static_cast<int>((-slot.face->size->metrics.descender+63)/64);
+ const int lineHeight=std::max(1,ascender+descender);
+#else
 	const int offset = stbtt_GetFontOffsetForIndex(fontBytes, 0);
 	runtimeTtfTrace("slot.offset family=%d offset=%d", familyId, offset);
 	if (offset < 0 || !stbtt_InitFont(&slot.fontInfo, fontBytes, offset)) return false;
@@ -214,6 +284,8 @@ bool buildRuntimeFontSlot(RuntimeRasterizedFontSlot &slot, int familyId, int siz
 	const int ascender = ceilToInt(static_cast<float>(ascent) * scale);
 	const int descender = ceilToInt(static_cast<float>(-descent) * scale);
 	const int lineHeight = std::max(1, ascender + descender);
+
+#endif
 
 	int glyphCount = 0;
 	for (int i = 0; i < kRuntimeGlyphCapacity; i++) {
@@ -236,7 +308,12 @@ bool buildRuntimeFontSlot(RuntimeRasterizedFontSlot &slot, int familyId, int siz
 	if (!slot.atlas) return false;
 	slot.atlas[0] = 0;
 
-	slot.data.id = 0x70000000 + familyId * 1000 + clampedSizePx;
+	#if GEA_EMBEDDED_TTF_FREETYPE
+ static std::uint64_t nextGeneration=0;
+ if(nextGeneration==UINT64_MAX)return false;
+ slot.data.generation=++nextGeneration;
+#endif
+ slot.data.id = 0x70000000 + familyId * 1000 + clampedSizePx;
 	slot.data.sizePx = clampedSizePx;
 	slot.data.lineHeight = lineHeight;
 	slot.data.ascender = ascender;
@@ -291,6 +368,9 @@ bool reserveRuntimeAtlasRows(RuntimeRasterizedFontSlot &slot, int requiredHeight
 	    slot.atlasCapacityHeight,
 	    newHeight);
 	const std::size_t newBytes = static_cast<std::size_t>(kRuntimeMaxAtlasWidth) * static_cast<std::size_t>(newHeight);
+	#if GEA_EMBEDDED_TTF_FREETYPE
+ if(newBytes>16u*1024u*1024u)return false;
+#endif
 	std::uint8_t *next = static_cast<std::uint8_t *>(memory::Allocator::allocatePreferSpiram(newBytes, alignof(std::uint8_t)));
 	if (!next) return false;
 	std::memset(next, 0, newBytes);
@@ -323,6 +403,15 @@ void ensureRuntimeGlyphMetrics(const RasterizedFontData *data, int codepoint)
 	}
 	Glyph &glyph = slot->glyphs[index];
 	slot->metricReady[index] = 1;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ if(!slot->face || !FT_Get_Char_Index(slot->face,codepoint) || FT_Load_Char(slot->face,codepoint,FT_LOAD_RENDER|FT_LOAD_TARGET_NORMAL))return;
+ const auto &bitmap=slot->face->glyph->bitmap;
+ glyph.width=bitmap.width;glyph.height=bitmap.rows;
+ glyph.advance=static_cast<int>((slot->face->glyph->advance.x+32)/64);
+ glyph.advance16=static_cast<int>((slot->face->glyph->advance.x+2)/4);
+ glyph.bearingX=slot->face->glyph->bitmap_left;glyph.bearingY=slot->face->glyph->bitmap_top;
+ if(glyph.width>kRuntimeMaxAtlasWidth){glyph.width=0;glyph.height=0;return;}
+#else
 	if (codepoint != '?' && codepoint != ' ' && stbtt_FindGlyphIndex(&slot->fontInfo, codepoint) == 0) return;
 
 	const float scale = stbtt_ScaleForMappingEmToPixels(&slot->fontInfo, static_cast<float>(slot->data.sizePx));
@@ -343,6 +432,7 @@ void ensureRuntimeGlyphMetrics(const RasterizedFontData *data, int codepoint)
 	glyph.advance = std::max(1, roundToInt(static_cast<float>(advanceWidth) * scale));
 	glyph.bearingX = x0;
 	glyph.bearingY = -y0;
+#endif
 	if (glyph.width <= 0 || glyph.height <= 0) return;
 
 	if (slot->atlasCursorX > 0 && slot->atlasCursorX + glyph.width + kRuntimeAtlasPadding > kRuntimeMaxAtlasWidth) {
@@ -398,6 +488,15 @@ void ensureRuntimeGlyphCoverage(const RasterizedFontData *data, const Glyph &gly
 		    slotGlyph.height);
 		rasterTraceCount++;
 	}
+#if GEA_EMBEDDED_TTF_FREETYPE
+ if(FT_Load_Char(slot->face,slotGlyph.codepoint,FT_LOAD_RENDER|FT_LOAD_TARGET_NORMAL))return;
+ const auto &bitmap=slot->face->glyph->bitmap;
+ if(bitmap.pixel_mode!=FT_PIXEL_MODE_GRAY || static_cast<int>(bitmap.width)!=slotGlyph.width || static_cast<int>(bitmap.rows)!=slotGlyph.height)return;
+ for(int row=0;row<slotGlyph.height;row++) {
+   const auto *source=bitmap.buffer+(bitmap.pitch>=0?row:slotGlyph.height-1-row)*std::abs(bitmap.pitch);
+   std::memcpy(slot->atlas+(slotGlyph.sourceY+row)*data->atlasWidth+slotGlyph.sourceX,source,slotGlyph.width);
+ }
+#else
 	const float scale = stbtt_ScaleForMappingEmToPixels(&slot->fontInfo, static_cast<float>(slot->data.sizePx));
 	if (scale <= 0.0f) return;
 	stbtt_MakeCodepointBitmap(&slot->fontInfo,
@@ -408,11 +507,18 @@ void ensureRuntimeGlyphCoverage(const RasterizedFontData *data, const Glyph &gly
 	    scale,
 	    scale,
 	    slotGlyph.codepoint);
+#endif
 }
 
-const RasterizedFontData *runtimeTtfFontForFamily(int familyId, int sizePx)
+const RasterizedFontData *runtimeTtfFontForFamily(int familyId, int sizePx, int weight, int stretch)
 {
 	if (familyId < 0) return nullptr;
+	#if GEA_EMBEDDED_TTF_FREETYPE
+ weight=std::clamp(weight>0?weight:400,1,1000);stretch=std::clamp(stretch>0?stretch:1000,1,32767);
+#else
+ // Existing stb backend does not vary axes; preserve its prior two-tuple cache.
+ weight=400;stretch=1000;
+#endif
 	const int requestedSizePx = std::clamp(sizePx > 0 ? sizePx : 16, 1, kRuntimeMaxFontPx);
 	RuntimeRasterizedFontSlot *slots = runtimeFontSlots();
 	if (!slots) return nullptr;
@@ -422,7 +528,7 @@ const RasterizedFontData *runtimeTtfFontForFamily(int familyId, int sizePx)
 
 	for (int i = 0; i < kRuntimeFontCacheSlots; i++) {
 		RuntimeRasterizedFontSlot &slot = slots[i];
-		if (slot.built && slot.familyId == familyId && slot.requestedSizePx == requestedSizePx) {
+		if (slot.built && slot.familyId == familyId && slot.requestedSizePx == requestedSizePx && slot.weight==weight && slot.stretch==stretch) {
 			slot.usedAt = now;
 			return slot.ready ? &slot.data : nullptr;
 		}
@@ -431,7 +537,7 @@ const RasterizedFontData *runtimeTtfFontForFamily(int familyId, int sizePx)
 	}
 
 	RuntimeRasterizedFontSlot *slot = empty ? empty : lru;
-	const bool ready = buildRuntimeFontSlot(*slot, familyId, requestedSizePx);
+	const bool ready = buildRuntimeFontSlot(*slot, familyId, requestedSizePx, weight, stretch);
 	slot->usedAt = now;
 	return ready ? &slot->data : nullptr;
 }
@@ -545,9 +651,14 @@ RasterizedFont FontRegistry::rasterized(int fontId)
 
 RasterizedFont FontRegistry::rasterizedFamily(int familyId, int sizePx)
 {
+ return rasterizedFamily(familyId,sizePx,400,1000);
+}
+
+RasterizedFont FontRegistry::rasterizedFamily(int familyId, int sizePx,int weight,int stretch)
+{
 	ensureGeneratedFontsLinked();
 #if GEA_EMBEDDED_TTF_RUNTIME_FONTS
-	if (const RasterizedFontData *data = runtimeTtfFontForFamily(familyId, sizePx)) {
+	if (const RasterizedFontData *data = runtimeTtfFontForFamily(familyId, sizePx,weight,stretch)) {
 		return RasterizedFont(data);
 	}
 #endif

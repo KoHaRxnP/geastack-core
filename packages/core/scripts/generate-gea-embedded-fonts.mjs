@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { fileAssetBundle, fileAssetLoader } from "./gea-file-asset-bundle.mjs";
 
 const args = process.argv.slice(2);
 
@@ -1060,6 +1061,7 @@ function generatedCpp(fonts, families) {
   // this TU too (a weak symbol can't be defined twice in one TU); `font_data`
   // points at the shared symbol either way.
   const atlasSymbols = new Map();
+  const atlasEntries = [];
   for (const font of fonts) {
     const hash = createHash("sha1")
       .update(Buffer.from(font.atlasData))
@@ -1069,14 +1071,23 @@ function generatedCpp(fonts, families) {
     font.atlasSymbol = symbol;
     if (atlasSymbols.has(hash)) continue;
     atlasSymbols.set(hash, symbol);
+    atlasEntries.push({ symbol, data: font.atlasData });
+  }
+  const bundle = fileAssetBundle(appDir, outCpp, 'fonts', atlasEntries);
+  if (bundle) lines.unshift('#include "platform/asset_bundle.h"');
+  for (const { symbol, data } of atlasEntries) {
+    if (bundle) {
+      lines.push(`__attribute__((weak)) GEA_FILE_ASSET_BUFFER std::uint8_t ${symbol}[${Math.max(1, data.length)}];`);
+      continue;
+    }
     // `extern` + initializer: a namespace-scope `const` is internal by default,
     // and `weak` requires external linkage ("weak declaration must be public").
     lines.push(
-      `extern __attribute__((weak)) const std::uint8_t ${symbol}[${font.atlasData.length}] = {`,
+      `extern __attribute__((weak)) const std::uint8_t ${symbol}[${data.length}] = {`,
     );
-    for (let i = 0; i < font.atlasData.length; i += 32) {
+    for (let i = 0; i < data.length; i += 32) {
       const chunk = Array.from(
-        font.atlasData.slice(i, Math.min(i + 32, font.atlasData.length)),
+        data.slice(i, Math.min(i + 32, data.length)),
       );
       lines.push(
         `    ${chunk.map((byte) => `0x${byte.toString(16).padStart(2, "0")}`).join(", ")},`,
@@ -1085,6 +1096,7 @@ function generatedCpp(fonts, families) {
     lines.push("};");
     lines.push("");
   }
+  if (bundle) lines.push(...fileAssetLoader(bundle, 'prepareFontAssets'));
 
   for (const font of fonts) {
     // `atlasBits` defaults to 8 in RasterizedFontData, so an 8-bit atlas leaves
@@ -1144,12 +1156,14 @@ function generatedCpp(fonts, families) {
   lines.push("");
   lines.push(`void ${names.ensureLinked}()`);
   lines.push("{");
+  if (bundle) lines.push('    (void)prepareFontAssets();');
   lines.push("}");
   lines.push("");
   lines.push(
     `const gea::framework::graphics::RasterizedFontData *${names.lookupFont}(int fontId)`,
   );
   lines.push("{");
+  if (bundle) lines.push('    if (!prepareFontAssets()) return nullptr;');
   lines.push("    for (const auto &entry : generated_fonts) {");
   lines.push(
     "        if (entry.font && entry.font->id == fontId) return entry.font;",
@@ -1162,6 +1176,7 @@ function generatedCpp(fonts, families) {
     `const gea::framework::graphics::RasterizedFontData *${names.lookupFontForFamily}(int familyId, int sizePx)`,
   );
   lines.push("{");
+  if (bundle) lines.push('    if (!prepareFontAssets()) return nullptr;');
   lines.push("    const RasterizedFontData *best = nullptr;");
   lines.push("    int bestDiff = 2147483647;");
   lines.push("    for (const auto &entry : generated_fonts) {");
@@ -1510,7 +1525,13 @@ function writeFileIfChanged(filePath, contents) {
 function writeGeneratedFonts() {
   const fontFaces = collectSourceFontFaces();
   const tuples = collectUsedFontTuples(fontFaces);
-  const familyNames = [...new Set(tuples.map((tuple) => tuple.family))].sort();
+  // Runtime fonts are selected at actual layout time, including CSS variables
+  // and programmatic styles with no statically discoverable family/size tuple.
+  // Keep every explicitly declared local face; raster-only builds retain their
+  // existing tuple-pruned size/charset policy.
+  const familyNames = runtimeTtfFonts
+    ? [...fontFaces.keys()].sort()
+    : [...new Set(tuples.map((tuple) => tuple.family))].sort();
   const families = familyNames.map((name, id) => ({ id, name }));
   const familyIds = new Map(families.map((family) => [family.name, family.id]));
 

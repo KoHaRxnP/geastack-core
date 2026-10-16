@@ -23,6 +23,7 @@ export interface HostShimDefinitions {
     }
   >;
   nativeTypes?: Record<string, string>;
+  nativeReferenceIdentities?: string[];
   /** Identity-preserving views: destination carrier -> source carrier -> {value} template. */
   nativeViews?: Record<string, Record<string, string>>;
   /**

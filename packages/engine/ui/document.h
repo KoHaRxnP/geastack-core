@@ -2,6 +2,10 @@
 #pragma once
 
 #include "events.h"
+#include "event_listener_options.h"
+#include "tree_events.h"
+#include <type_traits>
+#include <cstdlib>
 #include "image.h"
 #include "canvas_element.h"
 #include "camera_element.h"
@@ -12,6 +16,8 @@
 #include <string>
 #include <vector>
 
+namespace gea { template <typename Signature> struct CallableObject; }
+
 namespace gea::embedded::ui {
 
 class Document {
@@ -19,6 +25,8 @@ public:
 	static Document &instance();
 
 	ViewElement body() const;
+	// No guessed body fallback: null handle when no actual connected focus.
+	NodeHandle activeElement() const;
 	ViewElement createView() const;
 	ViewElement createButton() const;
 	TextElement createText(const char *text = "") const;
@@ -35,10 +43,9 @@ public:
 	int mountedCanvasNode() const;
 	CameraElement createCamera() const;
 	NodeHandle createAudio() const;
-	// A DocumentFragment for the compiled-component runtime (batched list /
-	// conditional children). The embedded tree has no fragment node kind, so this
-	// returns a detached container node -- children append to it and it is then
-	// appended to the real parent. Not a dissolving fragment, but functional.
+	NodeHandle createComment(const char *text = "") const;
+	NodeHandle createComment(const std::string &text) const { return createComment(text.c_str()); }
+	// A detached structural owner whose children move into an insertion parent.
 	NodeHandle createDocumentFragment() const;
 	ViewElement createVirtualList() const;
 	// Generic tag-string factory (the DOM document.createElement shape): maps
@@ -60,9 +67,9 @@ public:
 	// adapt it.
 	NodeHandle getElementById(const std::string &id) const { return getElementById(id.c_str()); }
 	NodeHandle querySelector(const char *selector) const;
-	NodeHandle querySelector(const std::string &selector) const { return querySelector(selector.c_str()); }
+	NodeHandle querySelector(const std::string &selector) const { return querySelector(NodeHandle::selectorText(selector)); }
 	std::vector<NodeHandle> querySelectorAll(const char *selector) const;
-	std::vector<NodeHandle> querySelectorAll(const std::string &selector) const { return querySelectorAll(selector.c_str()); }
+	std::vector<NodeHandle> querySelectorAll(const std::string &selector) const { return querySelectorAll(NodeHandle::selectorText(selector)); }
 	ViewElement ensureAppRoot(const char *id = "app") const;
 
 	// Platforms set this before Application::init to control the size of
@@ -81,6 +88,54 @@ public:
 	void refreshMountedIfDirty() const;
 	void frame(int timestampMs) const;
 	void addEventListener(const char *type, gea::framework::events::EventListener listener) const;
+ // Exact typed literal overload prevents a cross-conversion ambiguity with
+ // the legacy const-char*/std::function C++ entry point.
+ template <typename Handler> requires requires(const Handler &handler) { handler.functionObjectIdentity(); }
+ void addEventListener(const char *type, const Handler &handler, bool capture=false, bool once=false) const {
+  addEventListener(std::string(type?type:""),handler,capture,once);
+ }
+ template <typename Result, typename Argument>
+ void addEventListener(const std::string &type,
+                       const gea::CallableObject<Result(Argument)> &handler,
+                       bool capture = false, bool once = false) const {
+  if (documentEventListenersRetiring()) return;
+  static_assert(std::is_constructible_v<std::decay_t<Argument>,
+                const gea::framework::events::PointerEvent &>,
+                "native document listener needs an installed event carrier");
+  const auto held = handler;
+  if (!addDocumentEventListener(type.c_str(), handler.functionObjectIdentity().get(),
+      gea::framework::events::explicitEventCallback([](auto& held, gea::framework::events::PointerEvent &event) {
+        held.call(static_cast<std::decay_t<Argument>>(event));
+      }, held), capture, once)) std::abort();
+ }
+ template <typename Result>
+ void addEventListener(const std::string &type,
+                       const gea::CallableObject<Result()> &handler,
+                       bool capture = false, bool once = false) const {
+  if (documentEventListenersRetiring()) return;
+  const auto held = handler;
+  if (!addDocumentEventListener(type.c_str(), handler.functionObjectIdentity().get(),
+      gea::framework::events::explicitEventCallback([](auto& held, gea::framework::events::PointerEvent &) { held.call(); }, held), capture, once)) std::abort();
+ }
+ template <typename Handler>
+ void removeEventListener(const std::string &type, const Handler &handler,
+                          bool capture = false) const {
+  removeDocumentEventListener(type.c_str(), handler.functionObjectIdentity().get(), capture);
+ }
+
+ template <typename Handler, typename Options>
+  requires (!std::is_same_v<std::decay_t<Options>,bool>)
+ void addEventListener(const std::string &type, const Handler &handler, const Options &options) const {
+  const auto parsed=gea::framework::events::listenerOptions(options);
+  addEventListener(type,handler,parsed.capture,parsed.once);
+ }
+ template <typename Handler, typename Options>
+  requires (!std::is_same_v<std::decay_t<Options>,bool>)
+ void removeEventListener(const std::string &type, const Handler &handler, const Options &options) const {
+  const auto parsed=gea::framework::events::listenerOptions(options);
+  removeEventListener(type,handler,parsed.capture);
+ }
+
 
 private:
 	Document() = default;

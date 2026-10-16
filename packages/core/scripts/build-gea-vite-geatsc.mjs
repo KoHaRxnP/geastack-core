@@ -5,6 +5,7 @@ import process from 'node:process'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { resolveAppGeaVitePlugin } from './gea-vite-plugin-resolution.mjs'
 import { inlineJsonImports, transformGeaEmbeddedCompatSource } from './gea-embedded-compat-transform.mjs'
 import { normalizeEmbeddedJsxOptions, shouldIgnoreCompatStagingDirectory } from './gea-embedded-compat-staging.mjs'
 import { dotEnvDefines, inlineProcessEnv } from './dotenv-defines.mjs'
@@ -74,7 +75,6 @@ function readPackageName(dir) {
 // `paths` entry, so both consumers of the staged tree agree.
 const runtimePath = path.join(coreRoot, 'runtime.ts')
 const tryResolve = (m) => { try { return requireFromLib.resolve(m) } catch { return '' } }
-const geaPluginResolved = fileURLToPath(import.meta.resolve('@geajs/vite-plugin'))
 const { parse } = requireFromLib('@babel/parser')
 const traverseModule = requireFromLib('@babel/traverse')
 const t = requireFromLib('@babel/types')
@@ -550,6 +550,7 @@ function resolveGeaThreeAliasModules(appDir) {
 }
 
 function writeCompatViteConfig({ configPath, compatSrcDir, appDir, stagedAppDir, entry, viteOutDir, geaIrPath, appleNative, moduleGraphOutDir, envDefines }) {
+  const geaPluginResolved = resolveAppGeaVitePlugin(appDir, new URL('../package.json', import.meta.url))
   const engineComponentsPath = path.join(engineRoot, 'components/index.ts')
   const engineComponentSubpath = path.join(engineRoot, 'components/$1')
   const elementsPath = path.join(elementsRoot, 'components/index.ts')

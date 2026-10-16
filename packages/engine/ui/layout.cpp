@@ -121,7 +121,7 @@ bool suppressAnonymousWhitespace(const Node *nodes, int parent, int child)
 	// Whitespace at a line boundary or between block boxes creates no line.
 	// Preserve the text node itself and spaces between inline siblings.
 	auto adjacentInline = [&](int sibling, bool forward) {
-		while (sibling >= 0 && (isDisplayNone(nodes[sibling].computedStyle()) || isOutOfFlowPosition(nodes[sibling].computedStyle().position) ||
+		while (sibling >= 0 && (isLayoutExcluded(nodes[sibling]) || isOutOfFlowPosition(nodes[sibling].computedStyle().position) ||
 		       (isAnonymousTextNode(nodes[sibling]) && (nodes[sibling].computedStyle().white_space == 0 || nodes[sibling].computedStyle().white_space == 1) &&
 		        nodes[sibling].text.find_first_not_of(" \t\r\n\f") == std::string::npos)))
 			sibling = forward ? nodes[sibling].next_sibling : nodes[sibling].prev_sibling;
@@ -139,7 +139,7 @@ bool startsFormattingLine(const Node *nodes, int id)
 	while (LayoutEngine::isCssInlineLevelBox(nodes[id]) && LayoutEngine::isInlineLevelNode(nodes[id])) {
 		for (int sibling = nodes[id].prev_sibling; sibling >= 0; sibling = nodes[sibling].prev_sibling) {
 			const Node &previous = nodes[sibling];
-			if (isDisplayNone(previous.computedStyle()) || isOutOfFlowPosition(previous.computedStyle().position) || previous.computedStyle().float_side)
+			if (isLayoutExcluded(previous) || isOutOfFlowPosition(previous.computedStyle().position) || previous.computedStyle().float_side)
 				continue;
 			if (isAnonymousTextNode(previous) &&
 			    (previous.computedStyle().white_space == 0 || previous.computedStyle().white_space == 1 || previous.computedStyle().white_space == 4) &&
@@ -788,7 +788,7 @@ public:
 				bool firstInFlow = true;
 				for (int sibling = nodes[parent].first_child; sibling >= 0 && sibling != ancestor;
 				     sibling = nodes[sibling].next_sibling) {
-					if (!isDisplayNone(nodes[sibling].computedStyle()) &&
+					if (!isLayoutExcluded(nodes[sibling]) &&
 					    !isOutOfFlowPosition(nodes[sibling].computedStyle().position) &&
 					    !nodes[sibling].computedStyle().float_side &&
 					    !suppressAnonymousWhitespace(nodes, parent, sibling)) {
@@ -815,7 +815,7 @@ public:
 		std::vector<std::pair<int, int>> staticBoundaries;
 		int flowIndex = 0;
 		for (int child = node_.first_child; child >= 0; child = nodes[child].next_sibling) {
-			if (isDisplayNone(nodes[child].computedStyle()) || suppressAnonymousWhitespace(nodes, parentId, child)) continue;
+			if (isLayoutExcluded(nodes[child]) || suppressAnonymousWhitespace(nodes, parentId, child)) continue;
 			if (isOutOfFlowPosition(nodes[child].computedStyle().position)) {
 				if (auto *rare = rareDataFor(child)) rare->inlineStaticPosition.valid = false;
 				if (LayoutEngine::isCssInlineLevelBox(nodes[child], true))
@@ -1196,7 +1196,7 @@ public:
 		int run = -1;
 		for (int c = wrapper.first_child; c >= 0; c = nodes[c].next_sibling) {
 			const Node &child = nodes[c];
-			if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position)) continue;
+			if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position)) continue;
 			if (run >= 0) return -1;  // more than one in-flow child
 			if (child.type != NodeType::Text) return -1;
 			if (child.computedStyle().margin[0] || child.computedStyle().margin[1] || child.computedStyle().margin[2] ||
@@ -1768,7 +1768,7 @@ private:
 		int extent = 0;
 		for (int c = childNode.first_child; c >= 0; c = nodes[c].next_sibling) {
 			const Node &grand = nodes[c];
-			if (isDisplayNone(grand.computedStyle()) || isOutOfFlowPosition(grand.computedStyle().position)) continue;
+			if (isLayoutExcluded(grand) || isOutOfFlowPosition(grand.computedStyle().position)) continue;
 			// layout.{x,y} are still parent-relative here: resolveAbsoluteCoords runs
 			// after the whole layout pass.
 			const int end = isRow_
@@ -2056,7 +2056,7 @@ private:
 			const Node *nodes = Tree::instance().nodes();
 			for (int c = last ? childNode.last_child : childNode.first_child; c >= 0; c = last ? nodes[c].prev_sibling : nodes[c].next_sibling) {
 				const Node &inner = nodes[c];
-				if (isDisplayNone(inner.computedStyle()) || isOutOfFlowPosition(inner.computedStyle().position)) continue;
+				if (isLayoutExcluded(inner) || isOutOfFlowPosition(inner.computedStyle().position)) continue;
 				return inner.layout.y + childBaseline(inner, last);
 			}
 		}
@@ -2132,7 +2132,7 @@ bool splitInlineWrapper(const Node *nodes, int id)
 	bool containsBlock = false;
 	for (int c = n.first_child; c >= 0; c = nodes[c].next_sibling) {
 		const Node &child = nodes[c];
-		if (isDisplayNone(child.computedStyle())) continue;
+		if (isLayoutExcluded(child)) continue;
 		if (isOutOfFlowPosition(child.computedStyle().position)) return false;
 		if (child.computedStyle().float_side) continue;
 		if (child.type == NodeType::View && (child.computedStyle().display_explicit || !isInlineLevelTag(tagFromId(child.tag_id)))) containsBlock = true;
@@ -2146,7 +2146,7 @@ int formattingEdgeNode(const Node *nodes, int id, bool last)
 	if (!splitInlineWrapper(nodes, id)) return id;
 	for (int c = last ? nodes[id].last_child : nodes[id].first_child; c >= 0; c = last ? nodes[c].prev_sibling : nodes[c].next_sibling) {
 		const Node &child = nodes[c];
-		if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position) || child.computedStyle().float_side) continue;
+		if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position) || child.computedStyle().float_side) continue;
 		if (isAnonymousTextNode(child) && (child.computedStyle().white_space == 0 || child.computedStyle().white_space == 1) &&
 		    child.text.find_first_not_of(" \t\r\n\f") == std::string::npos) continue;
 		return formattingEdgeNode(nodes, c, last);
@@ -2177,7 +2177,7 @@ public:
 #if GEA_CSS_FIRST_LINE
 		if (NodeRareData *rare = rareDataFor(id_)) rare->firstLineBackground.lineValid = false;
 #endif
-		if (isDisplayNone(node_.computedStyle())) return;
+		if (isLayoutExcluded(node_)) return;
 		prepareOwnSize();
 
 		if (isLineBreak(node_) && LayoutEngine::isInlineLevelNode(node_) &&
@@ -2353,7 +2353,7 @@ private:
 		auto collect = [&](auto &&self, int parent) -> void {
 			for (int c = nodes_[parent].first_child; c >= 0; c = nodes_[c].next_sibling) {
 				Node &child = nodes_[c];
-				if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position) || suppressAnonymousWhitespace(nodes_, parent, c)) continue;
+				if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position) || suppressAnonymousWhitespace(nodes_, parent, c)) continue;
 				if (splitInlineWrapper(nodes_, c)) {
 					splitInlineChildren_ = true;
 					child.layout.x = child.layout.y = child.layout.width = child.layout.height = 0;
@@ -2391,13 +2391,13 @@ private:
 
 	bool blockBox(const Node &n) const
 	{
-		return n.type == NodeType::View && !isDisplayNone(n.computedStyle()) &&
+		return n.type == NodeType::View && !isLayoutExcluded(n) &&
 		    (n.computedStyle().display_explicit || !isInlineLevelTag(tagFromId(n.tag_id)));
 	}
 
 	bool flowChild(int parent, int child) const
 	{
-		return !isDisplayNone(nodes_[child].computedStyle()) && !isOutOfFlowPosition(nodes_[child].computedStyle().position) &&
+		return !isLayoutExcluded(nodes_[child]) && !isOutOfFlowPosition(nodes_[child].computedStyle().position) &&
 		    !nodes_[child].computedStyle().float_side && !suppressAnonymousWhitespace(nodes_, parent, child);
 	}
 
@@ -2422,7 +2422,7 @@ private:
 		auto visit = [&](auto &&self, int parent, int y) -> void {
 			for (int id = nodes_[parent].first_child; id >= 0; id = nodes_[id].next_sibling) {
 				const Node &child = nodes_[id];
-				if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position)) continue;
+				if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position)) continue;
 				int top = y + child.layout.y;
 				if (parent != id_ && child.computedStyle().position == 2) {
 					LayoutNodePass owner(engine_, parent, 0, 0);
@@ -2644,7 +2644,7 @@ private:
 		auto containsFloat = [&](auto &&self, int parent) -> bool {
 			for (int c = nodes_[parent].first_child; c >= 0; c = nodes_[c].next_sibling) {
 				const Node &child = nodes_[c];
-				if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position)) continue;
+				if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position)) continue;
 				if (child.computedStyle().float_side || (!establishesBlockContext(child) && self(self, c))) return true;
 			}
 			return false;
@@ -3366,7 +3366,7 @@ private:
 		int contentHeight = node_.layout.height;
 		visitFormattingChildren(nodes_, id_, [&](int child) {
 			Node &childNode = nodes_[child];
-			if (isCollapsedFlexItem(childNode) || isDisplayNone(childNode.computedStyle()) || isOutOfFlowPosition(childNode.computedStyle().position)) return;
+			if (isCollapsedFlexItem(childNode) || isLayoutExcluded(childNode) || isOutOfFlowPosition(childNode.computedStyle().position)) return;
 			// A visible axis contributes descendant overflow; a clipping axis
 			// traps it at this child's border box independently of the other axis.
 			const int width = overflowX(childNode.computedStyle()) == 0 ? std::max<int>(childNode.layout.width, childNode.layout.scroll_content_width) : childNode.layout.width;
@@ -3411,7 +3411,7 @@ private:
 		if (node_.type != NodeType::VirtualList) return;
 		int rowHeight = 0;
 		for (int child = node_.first_child; child >= 0; child = nodes_[child].next_sibling) {
-			if (isDisplayNone(nodes_[child].computedStyle())) continue;
+			if (isLayoutExcluded(nodes_[child])) continue;
 			rowHeight = nodes_[child].layout.height;
 			break;
 		}
@@ -3432,7 +3432,7 @@ private:
 	void captureBlockStaticPositions()
 	{
 		for (int c = node_.first_child; c >= 0; c = nodes_[c].next_sibling)
-			if (isOutOfFlowPosition(nodes_[c].computedStyle().position)) layoutState(c).static_block_axis = 0;
+			if (!isLayoutExcluded(nodes_[c]) && isOutOfFlowPosition(nodes_[c].computedStyle().position)) layoutState(c).static_block_axis = 0;
 		if (node_.computedStyle().display != kDisplayBlock || node_.computedStyle().flex_direction_explicit ||
 		    (LayoutEngine::isInlineLevelNode(node_) && !isOutOfFlowPosition(node_.computedStyle().position))) return;
 		const bool vertical = writingMode(node_) != 0;
@@ -3442,7 +3442,7 @@ private:
 		CollapsedMargin pending;
 		visitFormattingChildren(nodes_, id_, [&](int id) {
 			Node &child = nodes_[id];
-			if (isDisplayNone(child.computedStyle())) return;
+			if (isLayoutExcluded(child)) return;
 			if (isOutOfFlowPosition(child.computedStyle().position)) {
 				if (child.parent != id_ || !blockBox(child)) return;
 				const int edge = cursor + (first && collapsesWithChildren(id_, false) ? 0 : pending.value());
@@ -3469,7 +3469,7 @@ private:
 		captureBlockStaticPositions();
 		for (int child = node_.first_child; child >= 0; child = nodes_[child].next_sibling) {
 			Node &childNode = nodes_[child];
-			if (isDisplayNone(childNode.computedStyle()) || !isOutOfFlowPosition(childNode.computedStyle().position)) continue;
+			if (isLayoutExcluded(childNode) || !isOutOfFlowPosition(childNode.computedStyle().position)) continue;
 
 			int childAvailWidth, childAvailHeight;
 			int areaX, areaY;
@@ -3534,6 +3534,7 @@ private:
 		auto apply = [&](auto &&self, int parent) -> void {
 			for (int child = nodes_[parent].first_child; child >= 0; child = nodes_[child].next_sibling) {
 				Node &childNode = nodes_[child];
+				if (isLayoutExcluded(childNode)) continue;
 				if (splitInlineChildren_ && splitInlineWrapper(nodes_, child)) self(self, child);
 				if (childNode.computedStyle().position != 2) continue;
 				if (hasPositionOffset<0>(childNode))
@@ -3732,6 +3733,7 @@ void layoutAbsoluteNode(int node, int containing, int areaX, int areaWidth, int 
 void positionAbsoluteNodeInContainingBlock(int node, int containing, Node *nodes)
 {
 	Node &absolute = nodes[node];
+	if (isLayoutExcluded(absolute)) return;
 	const Node &containingNode = nodes[containing];
 	const int parent = absolute.parent;
 	if (parent < 0) return;
@@ -3792,7 +3794,7 @@ void positionAbsoluteNodeInContainingBlock(int node, int containing, Node *nodes
 void resolvePositionedDescendants(int node, int root, Node *nodes)
 {
 	for (int child = nodes[node].first_child; child >= 0; child = nodes[child].next_sibling) {
-		if (isDisplayNone(nodes[child].computedStyle())) continue;
+		if (isLayoutExcluded(nodes[child])) continue;
 		if (isOutOfFlowPosition(nodes[child].computedStyle().position))
 			positionAbsoluteNodeInContainingBlock(child, containingBlockForAbsoluteNode(child, root, nodes), nodes);
 		resolvePositionedDescendants(child, root, nodes);
@@ -3823,13 +3825,14 @@ int LayoutEngine::fixedContainingBlock(const Node &node)
 
 bool LayoutEngine::isViewportFixed(const Node &node)
 {
-	return node.computedStyle().position == kPositionFixed && fixedContainingBlock(node) < 0;
+	return !isLayoutExcluded(node) && node.computedStyle().position == kPositionFixed && fixedContainingBlock(node) < 0;
 }
 
 bool LayoutEngine::containsViewportFixed(int node)
 {
 	if (!treeState().fixedPositionUsed) return false;
 	const Node *nodes = Tree::instance().nodes();
+	if (isLayoutExcluded(nodes[node])) return false;
 	if (isViewportFixed(nodes[node])) return true;
 	for (int child = nodes[node].first_child; child >= 0; child = nodes[child].next_sibling)
 		if (containsViewportFixed(child)) return true;
@@ -4088,7 +4091,8 @@ int LayoutEngine::collectChildren(int parent, int *out, int max, bool skipAbs) c
 	int n = 0;
 	Node *nodes = Tree::instance().nodes();
 	for (int child = nodes[parent].first_child; child >= 0; child = nodes[child].next_sibling) {
-		if (isDisplayNone(nodes[child].computedStyle())) continue;
+		if (isStructuralNodeType(nodes[child].type)) continue;
+		if (isLayoutExcluded(nodes[child])) continue;
 		if (suppressAnonymousWhitespace(nodes, parent, child)) continue;
 		if (skipAbs && isOutOfFlowPosition(nodes[child].computedStyle().position)) continue;
 		if (n < max) out[n++] = child;
@@ -4249,6 +4253,7 @@ std::size_t LayoutEngine::memoPeakHeapBytes()
 void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBoxEdges)
 {
 	Node &node = Tree::instance().nodes()[id];
+	if (isStructuralNodeType(node.type)) return;
 	auto &persistent = layoutState(id);
 	const Node *parent = node.parent >= 0 ? &Tree::instance().nodes()[node.parent] : nullptr;
 	// Horizontal non-replaced floats use the same min/max-content measurement
@@ -4414,7 +4419,7 @@ bool LayoutEngine::layoutNodeScoped(int scope, int treeRoot)
 	for (int i = 0; i < nodeCount; ++i) {
 		const Node &n = nodes[i];
 		if (i == scope) continue;
-		if (n.parent < 0 || !isOutOfFlowPosition(n.computedStyle().position) || isDisplayNone(n.computedStyle())) continue;
+		if (n.parent < 0 || !isOutOfFlowPosition(n.computedStyle().position) || isLayoutExcluded(n)) continue;
 		if (!inScope(i)) continue;
 		const int containing = containingBlockForAbsoluteNode(i, treeRoot, nodes);
 		if (containing >= 0 && !inScope(containing)) {
@@ -4478,7 +4483,7 @@ bool LayoutEngine::layoutNodeScoped(int scope, int treeRoot)
 	// Scoped equivalent of the root containing-block pass (both the node and
 	// its containing block are inside the scope, in the same relative space).
 	for (int i = 0; i < nodeCount; ++i) {
-		if (isDisplayNone(nodes[i].computedStyle()) || !isOutOfFlowPosition(nodes[i].computedStyle().position) || nodes[i].parent < 0) continue;
+		if (isLayoutExcluded(nodes[i]) || !isOutOfFlowPosition(nodes[i].computedStyle().position) || nodes[i].parent < 0) continue;
 		if (!inScope(i) || i == scope) continue;
 		const int containing = containingBlockForAbsoluteNode(i, scope, nodes);
 		if (containing < 0) continue;
@@ -4501,6 +4506,7 @@ void LayoutEngine::resolveAbsoluteCoords(int id, int parent_x, int parent_y)
 {
 	Node *nodes = Tree::instance().nodes();
 	Node *node = &nodes[id];
+	if (isLayoutExcluded(*node)) return;
 	if (node->parent < 0) resolveAbsoluteContainingBlocks(id);
 	if (!isViewportFixed(*node)) {
 		node->layout.x += parent_x;

@@ -11,6 +11,10 @@
 
 namespace gea::host::workers {
 
+// Application-thread process termination only. Permanently closes the main
+// Context and releases its pending captures; does not join dedicated workers.
+void retireMainContext();
+
 // Native execution realms. Only native ownership-safe messages may cross realms;
 // generated Ref objects and callbacks remain local to their creating realm.
 class Context : public std::enable_shared_from_this<Context> {
@@ -45,6 +49,7 @@ class Context : public std::enable_shared_from_this<Context> {
   void loop(std::function<void()> entry);
   std::unique_ptr<State> state_;
   friend class ContextScope;
+  friend void retireMainContext();
 };
 
 class ContextScope {

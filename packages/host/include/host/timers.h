@@ -33,6 +33,10 @@ double requestAnimationFrame(AnimationFrameCallback callback);
 void runAnimationFrameCallbacks(AnimationFrameTimestamp timestampMs);
 const char *animationFrameCallbackStage();
 void resetAnimationFrameCallbacks();
+// Process-terminal, idempotent, called on the application thread before native
+// realm/static teardown. Permanently rejects new timers/RAF (returning 0),
+// including reentrant capture destructors; never use for an app remount.
+void retireScheduledCallbacks();
 void animationFramePerfStatsReset();
 AnimationFramePerfStats animationFramePerfStatsRead();
 

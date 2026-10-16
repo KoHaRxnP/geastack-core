@@ -96,6 +96,14 @@ struct CallbackTable {
 };
 
 std::unordered_map<NativeWebSocketHandle, CallbackTable> &callbackTable();
+// Owner-thread callback admission; closed process realms and destroyed handles refuse.
+bool callbackAdmissionOpen(NativeWebSocketHandle handle);
+// Owner-thread setters refuse retired handles and release replaced captures after mutation.
+void set_open_callback(NativeWebSocketHandle handle, std::function<void()> cb);
+void set_message_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb);
+void set_close_callback(NativeWebSocketHandle handle, std::function<void(int, const std::string &)> cb);
+void set_error_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb);
+
 
 NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols = {},
                                    const std::string &headers = {});
@@ -172,40 +180,43 @@ void test_set_error_callback(NativeWebSocketHandle handle, std::function<void(co
 #ifdef GEA_CPP_VALUE_AVAILABLE
 
 inline const WebSocketOnOpenProperty &WebSocketOnOpenProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_open = nullptr;
+    websocket::set_open_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_open = [callable]() {
+  websocket::set_open_callback(handle, [callable]() {
     (*callable)(std::vector<gea_cpp_value>{});
-  };
+  });
   return *this;
 }
 
 inline const WebSocketOnMessageProperty &WebSocketOnMessageProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_message = nullptr;
+    websocket::set_message_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_message = [callable](const std::string &data) {
+  websocket::set_message_callback(handle, [callable](const std::string &data) {
     gea_cpp_value event;
     event.kind = gea_cpp_value::kind_t::record;
     event.entries = std::make_shared<std::vector<std::pair<std::string, gea_cpp_value>>>();
     event.record_set_literal("data", gea_cpp_value(data));
     (*callable)(std::vector<gea_cpp_value>{event});
-  };
+  });
   return *this;
 }
 
 inline const WebSocketOnCloseProperty &WebSocketOnCloseProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_close = nullptr;
+    websocket::set_close_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_close = [callable](int code, const std::string &reason) {
+  websocket::set_close_callback(handle, [callable](int code, const std::string &reason) {
     gea_cpp_value event;
     event.kind = gea_cpp_value::kind_t::record;
     event.entries = std::make_shared<std::vector<std::pair<std::string, gea_cpp_value>>>();
@@ -213,23 +224,24 @@ inline const WebSocketOnCloseProperty &WebSocketOnCloseProperty::operator=(gea_c
     event.record_set_literal("reason", gea_cpp_value(reason));
     event.record_set_literal("wasClean", gea_cpp_value(code == 1000));
     (*callable)(std::vector<gea_cpp_value>{event});
-  };
+  });
   return *this;
 }
 
 inline const WebSocketOnErrorProperty &WebSocketOnErrorProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_error = nullptr;
+    websocket::set_error_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_error = [callable](const std::string &message) {
+  websocket::set_error_callback(handle, [callable](const std::string &message) {
     gea_cpp_value event;
     event.kind = gea_cpp_value::kind_t::record;
     event.entries = std::make_shared<std::vector<std::pair<std::string, gea_cpp_value>>>();
     event.record_set_literal("message", gea_cpp_value(message));
     (*callable)(std::vector<gea_cpp_value>{event});
-  };
+  });
   return *this;
 }
 

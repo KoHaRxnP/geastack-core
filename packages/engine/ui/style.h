@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "native_identity.h"
 #include <cstdint>
 #include <initializer_list>
 #include <string>
@@ -212,6 +213,7 @@ enum class Property : int {
 	BorderBottomRelief,
 	BorderLeftRelief,
 	BorderRelief,
+	FontStretch,
 	Count
 };
 
@@ -346,14 +348,16 @@ enum class StyleDeclaration : std::uint8_t {
 	BackgroundOrigin,
 	MarginTrim,
 	Transition,
-	AnimationPlayState
+	AnimationPlayState,
+	FontStretch
 };
 
 class Style {
 public:
-	explicit Style(int nodeId = -1) : nodeId_(nodeId) {}
+	explicit Style(int nodeId = -1)
+	  : nodeId_(nodeId), identity_(gea::framework::identity::node(nodeId)) {}
 
-	int nodeId() const { return nodeId_; }
+	int nodeId() const { return gea::framework::identity::current(nodeId_, identity_) ? nodeId_ : -1; }
 	void set(Property property, int value) const;
 
 	void width(int value) const { set(Property::Width, value); }
@@ -387,6 +391,7 @@ public:
 
 private:
 	int nodeId_;
+	gea::framework::identity::Owner identity_;
 };
 
 class NodeHandle;

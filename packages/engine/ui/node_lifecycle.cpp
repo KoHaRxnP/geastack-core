@@ -191,6 +191,9 @@ constexpr ComputedStyle makeDefaultStyle()
 #endif
 	// transform / perspective / filter / box-shadow moved to RareStyle; a fresh
 	// node (rare_style = -1) reads their correct defaults from the zero entry.
+#if GEA_CSS_FONT_STRETCH
+	style.font_stretch = 1000;
+#endif
 	style.font_id = -1;
 	style.font_size = 0;
 #if GEA_CSS_FONT_WEIGHT

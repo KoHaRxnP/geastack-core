@@ -32,6 +32,8 @@ const NODE_HANDLE_RECEIVER_TYPES = [
   "GeaCanvasElement",
   "GeaCameraElement",
   "VirtualListElement",
+  "ButtonElement",
+  "InputElement",
 ];
 
 // Receiver type names for the event a listener is handed. One native struct
@@ -299,6 +301,12 @@ export function createGeaHostShims(): HostShimDefinitions {
         // gea runtime is written against all lower to that one concrete handle, so
         // component templates flow as `NodeHandle` end-to-end with no `gea_cpp_value`
         // record bridge.
+        nativeReferenceIdentities: [
+          "gea::embedded::ui::NodeHandle",
+          "gea::embedded::ui::ChildNodeList",
+          "gea::framework::events::EventTarget",
+          "gea::framework::events::PointerEvent",
+        ],
         nativeTypes: {
           // The ambient DOM global `document` (lib.dom.d.ts's `Document`) — a
           // singleton, not a tree node, so it gets its own storage rather than
@@ -317,6 +325,7 @@ export function createGeaHostShims(): HostShimDefinitions {
           // property-access callee resolve SOME carrier.
           Document: "gea::embedded::ui::Document",
           Node: "gea::embedded::ui::NodeHandle",
+          NodeList: "gea::embedded::ui::ChildNodeList",
           ChildNode: "gea::embedded::ui::NodeHandle",
           ParentNode: "gea::embedded::ui::NodeHandle",
           Element: "gea::embedded::ui::NodeHandle",
@@ -377,6 +386,7 @@ export function createGeaHostShims(): HostShimDefinitions {
           // attribute). v1 emitted exactly this:
           // `event.currentTarget.getAttribute("value")`.
           InputEventTarget: "gea::framework::events::EventTarget",
+          GeaWindow: "gea::host::WindowFacade",
           PressEventTarget: "gea::framework::events::EventTarget",
           // gea-embedded's own element interfaces (index.d.ts) — without these a
           // `Component<GeaCanvasElement>`'s `this.el` lowers to a record-alias struct
@@ -392,6 +402,8 @@ export function createGeaHostShims(): HostShimDefinitions {
           // `VirtualListElement | null` field is not a node at all, and its
           // `rowHeight`/`scrollTop` reads fall to the dynamic path.
           VirtualListElement: "gea::embedded::ui::NodeHandle",
+          ButtonElement: "gea::embedded::ui::NodeHandle",
+          InputElement: "gea::embedded::ui::NodeHandle",
           // The result of `fetch(...)` flows as the concrete C++ struct (which carries
           // `ok`/`status`/`body` data members plus `text()`/`bytes()`/`arrayBuffer()`
           // methods), not a `gea_cpp_value` record — so `await fetch(url).arrayBuffer()`
@@ -545,10 +557,7 @@ export function createGeaHostShims(): HostShimDefinitions {
         },
         hostNamespaces: {
           navigator: "gea::host::navigator",
-          // The viewport globals. `gea::host::window` is a real facade object
-          // (packages/host/include/host/window.h) whose `innerWidth`/`innerHeight`
-          // are METHODS, which is why they are listed as accessors below --
-          // `navigator`'s siblings are plain fields and are not.
+          // Fixed singleton member paths are native host calls, alongside its value carrier.
           window: "gea::host::window",
           image: "image",
           // Async tile/image loader (second-core worker: SD read -> HTTP fetch ->
@@ -591,6 +600,9 @@ export function createGeaHostShims(): HostShimDefinitions {
           __gea_Memory: "gea::host::Memory",
           __gea_Input: "gea::host::Input",
           __gea_Gpio: "gea::host::Gpio",
+          __gea_EspNow: "gea::host::EspNow",
+          __gea_Magnetometer: "gea::host::Magnetometer",
+          __gea_Uart: "gea::host::Uart",
           __gea_Led: "gea::host::Led",
           __gea_Clock: "gea::host::Clock",
           __gea_Haptics: "gea::host::Haptics",
@@ -613,6 +625,10 @@ export function createGeaHostShims(): HostShimDefinitions {
           Display: { moduleSpecifier: "/", exportName: "Display" },
         },
         hostNamespaceMethods: {
+          window: {
+            addEventListener: "gea::host::window.addEventListener",
+            removeEventListener: "gea::host::window.removeEventListener",
+          },
           // Free functions in `gea::host::console` (geatsc's `gea_runtime.h`
           // declares them unconditionally, outside any `GEA_HOST_DECLARED` guard,
           // so they are reachable from a gea build too). `warn`/`info`/`debug` are
@@ -1388,6 +1404,32 @@ export function createGeaHostShims(): HostShimDefinitions {
             write: "gea::host::Gpio.write",
             read: "gea::host::Gpio.read",
           },
+          __gea_Magnetometer: {
+            open: "gea::host::Magnetometer.open",
+            close: "gea::host::Magnetometer.close",
+            count: "gea::host::Magnetometer.count",
+            read: "gea::host::Magnetometer.read",
+          },
+          __gea_EspNow: {
+            open: "gea::host::EspNow.open",
+            isOpen: "gea::host::EspNow.isOpen",
+            canSend: "gea::host::EspNow.canSend",
+            setMaxTxPower: "gea::host::EspNow.setMaxTxPower",
+            getMaxTxPower: "gea::host::EspNow.getMaxTxPower",
+            close: "gea::host::EspNow.close",
+            addPeer: "gea::host::EspNow.addPeer",
+            send: "gea::host::EspNow.send",
+            receive: "gea::host::EspNow.receive",
+          },
+          __gea_Uart: {
+            open: "gea::host::Uart.open",
+            isOpen: "gea::host::Uart.isOpen",
+            close: "gea::host::Uart.close",
+            read: "gea::host::Uart.read",
+            write: "gea::host::Uart.write",
+            available: "gea::host::Uart.available",
+            writable: "gea::host::Uart.writable",
+          },
           Led: {
             set: "gea::host::Led.set",
             off: "gea::host::Led.off",
@@ -1468,6 +1510,9 @@ export function createGeaHostShims(): HostShimDefinitions {
           __gea_Input: ["consumeBackButton"],
           Gpio: ["configureOutput", "configureInput", "write", "read"],
           __gea_Gpio: ["configureOutput", "configureInput", "write", "read"],
+          __gea_EspNow: ["open", "isOpen", "canSend", "setMaxTxPower", "getMaxTxPower", "close"],
+          __gea_Magnetometer: ["open", "close", "count"],
+          __gea_Uart: ["open", "isOpen", "close", "available", "writable"],
           Led: ["set", "off", "attach", "setPixel", "show", "detach"],
           __gea_Led: ["set", "off", "attach", "setPixel", "show", "detach"],
           Clock: ["epochMs"],
@@ -1703,15 +1748,10 @@ export function createGeaHostShims(): HostShimDefinitions {
             emit: "gea::embedded::ui::Document::instance().createDocumentFragment()",
             returnType: "gea::embedded::ui::NodeHandle",
           },
-          // The embedded UI has no comment node, and does not need one: every use of
-          // `createComment` in the framework is a SENTINEL — a non-rendering node
-          // parked in the tree so a later `insertBefore` has a stable anchor
-          // (`conditional-truthy.ts`'s `sentinel`, the keyed-list row anchors). An
-          // empty text node is exactly that on this target: it occupies a position,
-          // renders nothing, and is a real `NodeHandle`. Without a binding here the
-          // call had no plan at all and took its whole function out of the program.
+          // Structural comments retain their data and insertion identity without
+          // becoming text, layout boxes, paint commands or pointer targets.
           createComment: {
-            emit: "gea::embedded::ui::Document::instance().createText(({arg0}))",
+            emit: "gea::embedded::ui::Document::instance().createComment(({arg0}))",
             returnType: "gea::embedded::ui::NodeHandle",
           },
         },
@@ -1732,6 +1772,11 @@ export function createGeaHostShims(): HostShimDefinitions {
           // `document.body.appendChild(node)` refused at emission ("Document.body
           // is claimed by no host member table"), which is the fail-closed guard
           // correctly naming the missing statement.
+          activeElement: [{
+            emit: "gea::embedded::ui::Document::instance().activeElement()",
+            returnType: "gea::embedded::ui::NodeHandle",
+            receiverTypes: ["gea::embedded::ui::Document", "Document"],
+          }],
           body: [
             {
               emit: "gea::embedded::ui::Document::instance().body()",
@@ -1760,6 +1805,8 @@ export function createGeaHostShims(): HostShimDefinitions {
               receiverTypes: EVENT_RECEIVER_TYPES,
             },
           ],
+          button: [{ emit: "static_cast<double>(({receiver}).button)", returnType: "double", receiverTypes: EVENT_RECEIVER_TYPES }],
+          buttons: [{ emit: "static_cast<double>(({receiver}).buttons)", returnType: "double", receiverTypes: EVENT_RECEIVER_TYPES }],
           pointerId: [
             {
               emit: "static_cast<double>(({receiver}).pointerId)",
@@ -1795,6 +1842,71 @@ export function createGeaHostShims(): HostShimDefinitions {
             {
               emit: "static_cast<double>(({receiver}).keyCode)",
               returnType: "double",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          defaultPrevented: [
+            {
+              emit: "static_cast<bool>(({receiver}).defaultPrevented)",
+              returnType: "bool",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          // Typed native keyboard carrier fields, populated by the host. No
+          // reconstructed browser records or permissive synthetic defaults.
+          key: [
+            {
+              emit: "(({receiver}).key)",
+              returnType: "std::string",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          code: [
+            {
+              emit: "(({receiver}).code)",
+              returnType: "std::string",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          altKey: [
+            {
+              emit: "(({receiver}).altKey)",
+              returnType: "bool",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          ctrlKey: [
+            {
+              emit: "(({receiver}).ctrlKey)",
+              returnType: "bool",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          metaKey: [
+            {
+              emit: "(({receiver}).metaKey)",
+              returnType: "bool",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          shiftKey: [
+            {
+              emit: "(({receiver}).shiftKey)",
+              returnType: "bool",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          repeat: [
+            {
+              emit: "(({receiver}).repeat)",
+              returnType: "bool",
+              receiverTypes: EVENT_RECEIVER_TYPES,
+            },
+          ],
+          isComposing: [
+            {
+              emit: "(({receiver}).isComposing)",
+              returnType: "bool",
               receiverTypes: EVENT_RECEIVER_TYPES,
             },
           ],
@@ -2027,17 +2139,37 @@ export function createGeaHostShims(): HostShimDefinitions {
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
             },
           ],
+          disabled: [{ emit: "gea::embedded::ui::NodeHandle({receiver}).disabled()", returnType: "bool", receiverTypes: [...NODE_HANDLE_RECEIVER_TYPES, ...EVENT_TARGET_RECEIVER_TYPES] }],
+          isConnected: [
+            {
+              emit: "gea::embedded::ui::NodeHandle({receiver}).isConnected()",
+              returnType: "bool",
+              receiverTypes: EVENT_TARGET_RECEIVER_TYPES,
+            },
+            {
+              emit: "({receiver}).isConnected()",
+              returnType: "bool",
+              receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
+            },
+          ],
           nodeType: [
             {
-              emit: "gea_ir::domNodeType({receiver})",
+              emit: "static_cast<double>(static_cast<int>(({receiver}).nodeType))",
               returnType: "double",
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
             },
           ],
           parentNode: [
             {
-              emit: "gea_ir::domParentNode({receiver})",
-              returnType: "gea_cpp_value",
+              emit: "({receiver}).parentHandle()",
+              returnType: "gea::embedded::ui::NodeHandle",
+              receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
+            },
+          ],
+          lastElementChild: [
+            {
+              emit: "({receiver}).lastElementChildHandle()",
+              returnType: "gea::embedded::ui::NodeHandle",
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
             },
           ],
@@ -2069,8 +2201,8 @@ export function createGeaHostShims(): HostShimDefinitions {
           ],
           firstChild: [
             {
-              emit: "gea_ir::domFirstChild({receiver})",
-              returnType: "gea_cpp_value",
+              emit: "({receiver}).firstChildHandle()",
+              returnType: "gea::embedded::ui::NodeHandle",
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
             },
           ],
@@ -2087,14 +2219,14 @@ export function createGeaHostShims(): HostShimDefinitions {
           ],
           childNodes: [
             {
-              emit: "gea_ir::domChildNodes({receiver})",
-              returnType: "gea_cpp_value",
+              emit: "({receiver}).childNodesHandle()",
+              returnType: "gea::embedded::ui::ChildNodeList",
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
             },
           ],
           children: [
             {
-              emit: "gea_ir::domChildren({receiver})",
+              emit: "({receiver}).elementChildren()",
               returnType: "std::vector<gea::embedded::ui::NodeHandle>",
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
             },
@@ -2266,6 +2398,7 @@ export function createGeaHostShims(): HostShimDefinitions {
             },
           ],
           length: [
+            { emit: "static_cast<double>(({receiver}).length())", returnType: "double", receiverTypes: ["gea::embedded::ui::ChildNodeList", "NodeList"] },
             {
               emit: "({receiver}).getLength()",
               returnType: "double",
@@ -2367,6 +2500,7 @@ export function createGeaHostShims(): HostShimDefinitions {
           // The write half of the two scroll offsets above. `setScrollTop` narrows
           // to the engine's `int`, exactly as the dynamic path already does before
           // calling the same setter.
+          disabled: [{ emit: "gea::embedded::ui::NodeHandle({receiver}).setDisabled({value})", returnType: "void", receiverTypes: [...NODE_HANDLE_RECEIVER_TYPES, ...EVENT_TARGET_RECEIVER_TYPES] }],
           scrollTop: [
             {
               emit: "gea::embedded::ui::Tree::instance().setScrollTop(({receiver}).id(), static_cast<int>({value}))",
@@ -2440,6 +2574,13 @@ export function createGeaHostShims(): HostShimDefinitions {
             {
               emit: "({receiver}).value = {value}",
               receiverTypes: ["gea::host::AudioParam", "AudioParam"],
+            },
+            // ButtonElement.value reflects the actual node attribute; it is not
+            // a label mutation or an event. NodeHandle guards allocation lifetime.
+            {
+              emit: 'gea::embedded::ui::NodeHandle({receiver}).setAttribute(std::string("value"), {value})',
+              receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
+              returnType: "void",
             },
           ],
           // The recorder's two callbacks. `MediaRecorder.ondataavailable` and
@@ -2635,6 +2776,8 @@ export function createGeaHostShims(): HostShimDefinitions {
           // setTimeout"). Naming the spelling makes the call
           // `gea::host::setTimeout(cb, ms)`, which is the function the engine
           // actually exports.
+          // Promise jobs and author microtasks share one FIFO, not a zero-delay timer.
+          queueMicrotask: "gea::detail::queuePromiseJob",
           setTimeout: "gea::host::setTimeout",
           clearTimeout: "gea::host::clearTimeout",
           setInterval: "gea::host::setInterval",
@@ -2903,6 +3046,12 @@ export function createGeaHostShims(): HostShimDefinitions {
         // returnType-only bindings (no `emit`) keep the normal direct method-call
         // emit; receiverTypes bound the match to FetchResponse.
         nativeMemberMethods: {
+          item: [{ emit: "({receiver}).item({arg0})", returnType: "gea::embedded::ui::NodeHandle", receiverTypes: ["gea::embedded::ui::ChildNodeList", "NodeList"] }],
+          matches: [{ receiverTypes: [...NODE_HANDLE_RECEIVER_TYPES, ...EVENT_TARGET_RECEIVER_TYPES], emit: "gea::embedded::ui::NodeHandle({receiver}).matches({arg0})", returnType: "bool" }],
+          closest: [{ receiverTypes: [...NODE_HANDLE_RECEIVER_TYPES, ...EVENT_TARGET_RECEIVER_TYPES], emit: "gea::embedded::ui::NodeHandle({receiver}).closest({arg0})", returnType: "gea::embedded::ui::NodeHandle" }],
+          querySelector: [{ receiverTypes: [...NODE_HANDLE_RECEIVER_TYPES, ...EVENT_TARGET_RECEIVER_TYPES], emit: "gea::embedded::ui::NodeHandle({receiver}).querySelector({arg0})", returnType: "gea::embedded::ui::NodeHandle" }],
+          querySelectorAll: [{ receiverTypes: [...NODE_HANDLE_RECEIVER_TYPES, ...EVENT_TARGET_RECEIVER_TYPES], emit: "gea::embedded::ui::NodeHandle({receiver}).querySelectorAll({arg0})", returnType: "std::vector<gea::embedded::ui::NodeHandle>" }],
+
           // `Event.preventDefault()` / `.stopPropagation()` (index.d.ts:269-270),
           // which every event interface inherits. Both are real methods on the
           // engine's own event struct -- `PointerEvent::preventDefault` /
@@ -2961,31 +3110,7 @@ export function createGeaHostShims(): HostShimDefinitions {
           // `document` identifier. The receiver carrier and operation role are
           // authenticated by host-runtime-v1 before this physical symbol is used.
           addEventListener: [
-            {
-              receiverTypes: ["gea::embedded::ui::Document"],
-              emit: "gea::runtime::host::geaDocumentAddEventListener({receiver}, {arg0}, {arg1})",
-              returnType: "gea_cpp_value",
-              dynamicRecordSchemas: [
-                {
-                  protocolId: "gea.pointer-event-record-v1",
-                  fields: [{ key: "target", value: "checker-carrier" }],
-                },
-              ],
-              argumentRoles: [
-                "dynamic-value",
-                {
-                  kind: "callback",
-                  parameters: [
-                    {
-                      kind: "dynamic-record",
-                      protocolId: "gea.pointer-event-record-v1",
-                    },
-                  ],
-                  result: "void",
-                  lifetime: "retained",
-                },
-              ],
-            },
+            { receiverTypes: ["gea::embedded::ui::Document"], emit: "gea::embedded::ui::Document::instance().addEventListener({args})", returnType: "void" },
             // The same member on a NODE, which is a different receiver carrier and
             // therefore a different physical symbol -- `el.addEventListener('touchstart',
             // handler)` written imperatively on a `Component<GeaCanvasElement>`'s `this.el`,
@@ -3018,38 +3143,32 @@ export function createGeaHostShims(): HostShimDefinitions {
               returnType: "void",
             },
           ],
+          // Options are ordinary configuration properties; callback and event carriers stay typed.
+          removeEventListener: [
+            { receiverTypes: ["gea::embedded::ui::Document"], emit: "gea::embedded::ui::Document::instance().removeEventListener({args})", returnType: "void" },
+          ],
           appendChild: [
             {
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
               emit: "gea_ir::domAppendChild({receiver}, {arg0})",
             },
           ],
-          // `Node.insertBefore(newNode, referenceNode)` — argument order maps
-          // straight onto `domInsertBefore(parent, child, reference)`
-          // (`compiler/packages/geatsc/src/targets/cpp/runtime/host_document_gea.cpp`,
-          // namespace `gea::runtime::host`, fully typed `NodeHandle` params, `void`
-          // result — a perfect fit for a receiver-carrying flat symbol call). This
-          // is geatsc's OWN runtime, not a `gea_ir`-generated overload: there is no
-          // `gea_ir::domInsertBefore` (the doc comment at `cpp-ir.ts:1826-1827`
-          // documents only `domNextSibling`'s role in feeding `container.
-          // insertBefore(ref, ...)`'s reference argument, not a codegen'd
-          // `insertBefore` binding itself), so this entry is qualified with the
-          // runtime's real namespace instead of the plugin-generated one.
+          // The actual native facade preserves allocation identity, validates the
+          // reference and returns the inserted node (including an emptied Fragment).
           insertBefore: [
             {
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
-              emit: "gea::runtime::host::domInsertBefore({receiver}, {arg0}, {arg1})",
-              returnType: "void",
+              emit: "({receiver}).insertBefore({arg0}, {arg1})",
+              returnType: "gea::embedded::ui::NodeHandle",
             },
           ],
-          // `parent.removeChild(child)`. The engine models removal on the CHILD
-          // (`NodeHandle::remove()`), so the runtime helper validates the parent and
-          // detaches the child; void, matching appendChild/insertBefore above.
+          // The actual facade validates both allocation owners/direct parent,
+          // detaches without retiring, and returns the same native child handle.
           removeChild: [
             {
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
-              emit: "gea::runtime::host::domRemoveChild({receiver}, {arg0})",
-              returnType: "void",
+              emit: "({receiver}).removeChild({arg0})",
+              returnType: "gea::embedded::ui::NodeHandle",
             },
           ],
           // `parent.replaceChild(replacement, child)`. Keep both operands on the
@@ -3136,7 +3255,7 @@ export function createGeaHostShims(): HostShimDefinitions {
           focus: [
             {
               receiverTypes: NODE_HANDLE_RECEIVER_TYPES,
-              emit: "({receiver}).focus()",
+              emit: "({receiver}).focus({args})",
               returnType: "void",
             },
           ],

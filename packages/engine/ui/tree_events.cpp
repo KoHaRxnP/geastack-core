@@ -6,11 +6,13 @@
 #include "internal.h"
 #include "tree_internal.h"
 #include "tree_state.h"
+#include <stdexcept>
 
 #include <algorithm>
 #include <new>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -59,7 +61,7 @@ void applyAudioAttribute(Tree &tree, int node, const char *name, const char *val
 // Index order mirrors NodeEventListeners' slots and is kept in sync by
 // setEventListener (on the empty->set transition) and NodeEventListeners::clear()
 // (which every removal path calls).
-constexpr int kEventTypeCount = 8;
+constexpr int kEventTypeCount = 12;
 #if GEA_UI_NODE_LISTENERS
 int g_listenerTypeCounts[kEventTypeCount] = {};
 EventListenerId g_nextEventListenerId = 1;
@@ -78,92 +80,313 @@ int eventTypeIndex(const char *type)
 	if (sameName(type, "touchmove") || sameName(type, "pointermove")) return 2;
 	if (sameName(type, "touchend") || sameName(type, "pointerup")) return 3;
 	if (sameName(type, "input")) return 4;
+	if (sameName(type, "change")) return 9;
+ if (sameName(type,"focusin")) return 10;
+ if (sameName(type,"focusout")) return 11;
 	if (sameName(type, "keydown")) return 5;
 	if (sameName(type, "scroll")) return 6;
 	if (sameName(type, "keyup")) return 7;
+	if (sameName(type, "pointercancel") || sameName(type, "touchcancel")) return 8;
 	return -1;
-}
-
-// Document-level (off-tree) event handlers. `rotary` (encoder dial) belongs to
-// the document, not to any element — it is never stored per-node. `keydown`
-// bound on a non-input element is treated the same way (hardware buttons /
-// app-level shortcuts); keydown on an <input> stays a per-node listener.
-// Dispatched directly by the runtime (dispatch_rotary_input / dispatch_key_input),
-// never by the tree walk. Reset on app switch via resetDocumentEventListeners().
-gea::framework::events::EventListener g_documentRotaryListener;
-gea::framework::events::EventListener g_documentKeyDownListener;
-gea::framework::events::EventListener g_documentKeyUpListener;
-
-void chainDocumentListener(gea::framework::events::EventListener &slot,
-                           gea::framework::events::EventListener listener)
-{
-	if (!listener) return;
-	if (static_cast<bool>(slot)) {
-		slot = [previous = std::move(slot), next = std::move(listener)](
-		           gea::framework::events::PointerEvent &event) mutable {
-			previous(event);
-			if (event.propagationStopped) return;
-			next(event);
-		};
-		return;
-	}
-	slot = std::move(listener);
 }
 
 }  // namespace
 
-void resetDocumentEventListeners()
-{
-	g_documentRotaryListener = {};
-	g_documentKeyDownListener = {};
-	g_documentKeyUpListener = {};
-}
-
-// Register a document-level handler. Only "rotary" and "keydown" are
-// document-native; anything else is ignored (those route through per-node
-// setEventListener instead). Called by Document::addEventListener.
 void setDocumentEventListener(const char *type, gea::framework::events::EventListener listener)
 {
-	if (!type || !listener) return;
-	if (sameName(type, "rotary")) {
-		chainDocumentListener(g_documentRotaryListener, std::move(listener));
-		return;
-	}
-	if (sameName(type, "keydown")) {
-		chainDocumentListener(g_documentKeyDownListener, std::move(listener));
-	}
-	if (sameName(type, "keyup")) {
-		chainDocumentListener(g_documentKeyUpListener, std::move(listener));
-	}
+ if (!listener) return;
+ // Legacy C++ registrations have no externally removable callback identity.
+ // Retain their distinct callable allocation for the whole registration.
+ auto held = std::make_shared<gea::framework::events::EventListener>(std::move(listener));
+ addDocumentEventListener(type, held.get(), [held](auto &event) { (*held)(event); });
 }
-
-// Fire the document-level rotary handler with a fresh Rotary event carrying the
-// encoder delta. No tree walk, no node target.
 void dispatchDocumentRotary(int delta)
 {
-	if (!static_cast<bool>(g_documentRotaryListener)) return;
-	gea::framework::events::PointerEvent event{};
-	event.type = gea::framework::events::PointerEventType::Rotary;
-	event.delta = delta;
-	event.bubbles = true;
-	event.cancelable = true;
-	g_documentRotaryListener(event);
+ gea::framework::events::PointerEvent event{};
+ event.type = gea::framework::events::PointerEventType::Rotary;
+ event.delta = delta;
+ event.bubbles = true;
+ event.cancelable = true;
+ dispatchWindowEvent(event, true);
+ if (!event.propagationStopped) dispatchDocumentEvent(event, true);
+ if (!event.propagationStopped) dispatchDocumentEvent(event, false);
+ if (!event.propagationStopped) dispatchWindowEvent(event, false);
 }
-
-// Fire the document-level keydown handler (hardware buttons / app-level
-// shortcuts bound on a non-input element). Returns true if a handler ran.
 bool dispatchDocumentKeyDown(gea::framework::events::PointerEvent &event)
-{
-	if (!static_cast<bool>(g_documentKeyDownListener)) return false;
-	g_documentKeyDownListener(event);
-	return true;
+{ return dispatchDocumentEvent(event, false); }
+bool dispatchDocumentKeyUp(gea::framework::events::PointerEvent &event)
+{ return dispatchDocumentEvent(event, false); }
+
+namespace {
+struct SubscriberTypeScope {
+ gea::framework::events::PointerEvent &event;
+ std::string previous;
+ SubscriberTypeScope(gea::framework::events::PointerEvent &event, const std::string &name)
+  : event(event), previous(std::move(event.subscriberTypeName)) { event.subscriberTypeName = name; }
+ ~SubscriberTypeScope() { event.subscriberTypeName = std::move(previous); }
+};
+struct WindowListenerEntry {
+ std::uint64_t id;
+ std::string type;
+ const void *identity;
+ bool capture;
+ bool once;
+ std::shared_ptr<gea::framework::events::EventListener> listener;
+};
+// UI-owner-thread realm identity fences callbacks still on the stack when
+// Tree.clear retires both global targets. Neither target is a fabricated node.
+bool g_nativeEventRealmRetired = false;
+std::uint64_t g_rootEventRealm = 1;
+std::uint64_t g_activeListenerRealm = 0;
+struct ListenerRealmScope {
+ std::uint64_t previous;
+ explicit ListenerRealmScope(std::uint64_t realm): previous(g_activeListenerRealm) { g_activeListenerRealm = realm; }
+ ~ListenerRealmScope() { g_activeListenerRealm = previous; }
+};
+bool staleListenerRealm() { return g_activeListenerRealm != 0 && g_activeListenerRealm != g_rootEventRealm; }
+std::vector<WindowListenerEntry> g_documentListeners;
+std::uint64_t g_nextDocumentListenerId = 1;
+bool g_resettingDocumentListeners = false;
+bool supportedDocumentType(const char *type) {
+ return eventTypeIndex(type) >= 0 || sameName(type, "rotary");
+}
+std::vector<WindowListenerEntry> g_windowListeners;
+std::uint64_t g_nextWindowListenerId = 1;
+bool g_resettingWindowListeners = false;
+std::string windowTypeKey(const char *type) {
+ const int index = eventTypeIndex(type);
+ return index >= 0 ? std::to_string(index) : std::string(type ? type : "");
+}
+std::vector<gea::framework::events::EventTarget> captureEventPath(Tree &tree, int target) {
+ std::vector<gea::framework::events::EventTarget> path;
+ for (int node = target, left = tree.nodeCount(); left > 0 && node >= 0 && node < tree.nodeCount(); --left) {
+  gea::framework::events::EventTarget owner(node);
+  if (!owner.valid()) break;
+  path.push_back(owner);
+  node = tree.node(node).parent;
+ }
+ return path;
+}
+bool supportedWindowType(const char *type) {
+ return eventTypeIndex(type) >= 0 || sameName(type, "rotary") || sameName(type, "blur") || sameName(type, "resize");
+}
 }
 
-bool dispatchDocumentKeyUp(gea::framework::events::PointerEvent &event)
-{
-	if (!g_documentKeyUpListener) return false;
-	g_documentKeyUpListener(event);
-	return true;
+bool addWindowEventListener(const char *type, const void *identity,
+                           gea::framework::events::EventListener listener,
+                           bool capture, bool once) {
+ if (g_nativeEventRealmRetired || g_resettingWindowListeners || staleListenerRealm() || !supportedWindowType(type) || !identity || !listener) return false;
+ const std::string key(type);
+ for (const auto &entry : g_windowListeners)
+  if (entry.type == key && entry.identity == identity && entry.capture == capture) return true;
+ if (g_windowListeners.size() >= 256 || g_nextWindowListenerId == 0) return false;
+ g_windowListeners.push_back({g_nextWindowListenerId++, key, identity, capture, once,
+   std::make_shared<gea::framework::events::EventListener>(std::move(listener))});
+ return true;
+}
+bool removeWindowEventListener(const char *type, const void *identity, bool capture) {
+ if (g_nativeEventRealmRetired || staleListenerRealm() || !type || !identity) return false;
+ const std::string key(type);
+ for (auto it = g_windowListeners.begin(); it != g_windowListeners.end(); ++it) {
+  if (it->type == key && it->identity == identity && it->capture == capture) {
+   auto held = std::move(it->listener);
+   g_windowListeners.erase(it);
+   return true;
+  }
+ }
+ return false;
+}
+bool windowEventListenersRetiring() { return g_nativeEventRealmRetired || g_resettingWindowListeners || staleListenerRealm(); }
+void resetWindowEventListeners() {
+ // Retire the registry before releasing captures: their destructors may reenter.
+ if (g_resettingWindowListeners) return;
+ g_resettingWindowListeners = true;
+ { std::vector<WindowListenerEntry> retired; retired.swap(g_windowListeners); }
+ g_resettingWindowListeners = false;
+}
+bool dispatchWindowEvent(gea::framework::events::PointerEvent &event, bool capture) {
+ if (g_nativeEventRealmRetired || staleListenerRealm()) return false;
+ const auto maximum = g_nextWindowListenerId - 1;
+ const auto dispatchRealm = g_rootEventRealm;
+ std::uint64_t cursor = 0;
+ bool dispatched = false;
+ struct Restore {
+  gea::framework::events::PointerEvent &event;
+  gea::framework::events::EventTarget target;
+  int id;
+  gea::framework::events::EventPhase phase;
+  ~Restore() { event.currentTarget = target; event.currentTargetId = id; event.eventPhase = phase; }
+ } restore{event, event.currentTarget, event.currentTargetId, event.eventPhase};
+ const auto key = windowTypeKey(event.typeName());
+ event.currentTarget = gea::framework::events::EventTarget();
+ event.currentTargetId = -1;
+ event.eventPhase = capture ? gea::framework::events::EventPhase::Capturing
+                            : gea::framework::events::EventPhase::Bubbling;
+ for (;;) {
+  if (dispatchRealm != g_rootEventRealm) break;
+  ListenerRealmScope realm(dispatchRealm);
+  std::shared_ptr<gea::framework::events::EventListener> callback;
+  std::string subscribedType;
+  for (auto it = g_windowListeners.begin(); it != g_windowListeners.end(); ++it) {
+   if (it->id <= cursor || it->id > maximum || it->capture != capture || windowTypeKey(it->type.c_str()) != key) continue;
+   cursor = it->id;
+   callback = it->listener;
+   subscribedType = it->type;
+   if (it->once) g_windowListeners.erase(it); // Before invocation, including reentrant dispatch.
+   break;
+  }
+  if (!callback) break;
+  SubscriberTypeScope projection(event, subscribedType);
+  (*callback)(event);
+  dispatched = true;
+ }
+ return dispatched;
+}
+
+bool addDocumentEventListener(const char *type, const void *identity,
+                           gea::framework::events::EventListener listener,
+                           bool capture, bool once) {
+ if (g_nativeEventRealmRetired || g_resettingDocumentListeners || staleListenerRealm() || !supportedDocumentType(type) || !identity || !listener) return false;
+ const std::string key(type);
+ for (const auto &entry : g_documentListeners)
+  if (entry.type == key && entry.identity == identity && entry.capture == capture) return true;
+ if (g_documentListeners.size() >= 256 || g_nextDocumentListenerId == 0) return false;
+ g_documentListeners.push_back({g_nextDocumentListenerId++, key, identity, capture, once,
+   std::make_shared<gea::framework::events::EventListener>(std::move(listener))});
+ return true;
+}
+bool removeDocumentEventListener(const char *type, const void *identity, bool capture) {
+ if (g_nativeEventRealmRetired || staleListenerRealm() || !type || !identity) return false;
+ const std::string key(type);
+ for (auto it = g_documentListeners.begin(); it != g_documentListeners.end(); ++it) {
+  if (it->type == key && it->identity == identity && it->capture == capture) {
+   auto held = std::move(it->listener);
+   g_documentListeners.erase(it);
+   return true;
+  }
+ }
+ return false;
+}
+bool documentEventListenersRetiring() { return g_nativeEventRealmRetired || g_resettingDocumentListeners || staleListenerRealm(); }
+void resetDocumentEventListeners() {
+ // Retire the registry before releasing captures: their destructors may reenter.
+ if (g_resettingDocumentListeners) return;
+ g_resettingDocumentListeners = true;
+ { std::vector<WindowListenerEntry> retired; retired.swap(g_documentListeners); }
+ g_resettingDocumentListeners = false;
+}
+bool dispatchDocumentEvent(gea::framework::events::PointerEvent &event, bool capture) {
+ if (g_nativeEventRealmRetired || staleListenerRealm()) return false;
+ const auto maximum = g_nextDocumentListenerId - 1;
+ const auto dispatchRealm = g_rootEventRealm;
+ std::uint64_t cursor = 0;
+ bool dispatched = false;
+ struct Restore {
+  gea::framework::events::PointerEvent &event;
+  gea::framework::events::EventTarget target;
+  int id;
+  gea::framework::events::EventPhase phase;
+  ~Restore() { event.currentTarget = target; event.currentTargetId = id; event.eventPhase = phase; }
+ } restore{event, event.currentTarget, event.currentTargetId, event.eventPhase};
+ const auto key = windowTypeKey(event.typeName());
+ event.currentTarget = gea::framework::events::EventTarget();
+ event.currentTargetId = -1;
+ event.eventPhase = capture ? gea::framework::events::EventPhase::Capturing
+                            : gea::framework::events::EventPhase::Bubbling;
+ for (;;) {
+  if (dispatchRealm != g_rootEventRealm) break;
+  ListenerRealmScope realm(dispatchRealm);
+  std::shared_ptr<gea::framework::events::EventListener> callback;
+  std::string subscribedType;
+  for (auto it = g_documentListeners.begin(); it != g_documentListeners.end(); ++it) {
+   if (it->id <= cursor || it->id > maximum || it->capture != capture || windowTypeKey(it->type.c_str()) != key) continue;
+   cursor = it->id;
+   callback = it->listener;
+   subscribedType = it->type;
+   if (it->once) g_documentListeners.erase(it); // Before invocation, including reentrant dispatch.
+   break;
+  }
+  if (!callback) break;
+  SubscriberTypeScope projection(event, subscribedType);
+  (*callback)(event);
+  dispatched = true;
+ }
+ return dispatched;
+}
+
+void resetRootEventListeners() noexcept {
+ if (g_resettingDocumentListeners || g_resettingWindowListeners) return;
+ g_resettingDocumentListeners = g_resettingWindowListeners = true;
+ if (++g_rootEventRealm == 0) std::abort();
+ {
+  std::vector<WindowListenerEntry> document, window;
+  document.swap(g_documentListeners);
+  window.swap(g_windowListeners);
+  // Both admission guards remain closed while either set releases captures.
+ }
+ g_resettingDocumentListeners = g_resettingWindowListeners = false;
+}
+
+void retireNativeEventRealm() noexcept {
+ if (g_nativeEventRealmRetired) return;
+ g_nativeEventRealmRetired = true;
+ resetRootEventListeners();
+#if GEA_UI_NODE_LISTENERS
+ // Move every node capture away before destruction: destructors may reenter
+ // Tree APIs, but terminal admission/dispatch is already permanently closed.
+ for (auto &count:g_listenerTypeCounts) count=0;
+ for (int node=0;node<treeState().nodeCount;++node) {
+  // Fresh lookup each iteration: capture destruction may clear or grow Tree.
+  // No allocation and no cached rare-data reference survives capture release.
+  std::vector<NodeEventListenerEntry> retired;
+  {
+   auto *rare=rareDataFor(node);
+   if (!rare) continue;
+   retired.swap(rare->listeners.entries);
+   rare->listeners.types=0;
+  }
+ }
+#endif
+}
+
+bool dispatchWindowLifecycleEvent(gea::framework::events::PointerEventType type) {
+ using gea::framework::events::PointerEventType;
+ if (type != PointerEventType::WindowBlur && type != PointerEventType::WindowResize) return false;
+ gea::framework::events::PointerEvent event{};
+ event.type = type;
+ event.bubbles = false;
+ event.cancelable = false;
+ bool dispatched = dispatchWindowEvent(event, true);
+ // Both registrations are on the actual lifecycle target; stopPropagation
+ // does not suppress other listeners on that same target.
+ return dispatchWindowEvent(event, false) || dispatched;
+}
+
+bool dispatchRootKeyEvent(gea::framework::events::PointerEvent &event, bool legacyDocumentFirst) {
+ using gea::framework::events::PointerEventType;
+ if (event.type != PointerEventType::KeyDown && event.type != PointerEventType::KeyUp) return false;
+ auto &tree = Tree::instance();
+ if (event.targetId < 0) event.targetId = tree.mountedRoot();
+ event.target = gea::framework::events::EventTarget(event.targetId);
+ const auto path = captureEventPath(tree, event.targetId);
+ bool dispatched = dispatchWindowEvent(event, true);
+ if (!event.propagationStopped) dispatched = dispatchDocumentEvent(event, true) || dispatched;
+ const auto document = [&]() {
+  return event.type == PointerEventType::KeyUp ? dispatchDocumentKeyUp(event) : dispatchDocumentKeyDown(event);
+ };
+ if (event.targetId >= 0 && !event.target.valid()) return dispatched;
+ if (!event.propagationStopped) {
+  if (legacyDocumentFirst) {
+   const bool present = document();
+   dispatched = present || dispatched;
+   if (!present && !event.propagationStopped) dispatched = tree.dispatchEventAlongPath(event, path) || dispatched;
+  } else {
+   dispatched = tree.dispatchEventAlongPath(event, path) || dispatched;
+   if (!event.propagationStopped) dispatched = document() || dispatched;
+  }
+ }
+ if (!event.propagationStopped && event.bubbles) dispatched = dispatchWindowEvent(event, false) || dispatched;
+ return dispatched;
 }
 
 // ---- NodeRareData pool ------------------------------------------------------
@@ -188,17 +411,19 @@ NodeAuxiliaryStorageUsage nodeAuxiliaryStorageUsage()
     result.text = NodeText::storageUsage();
     result.dependencies = styleDependencyStorageUsage();
     auto &usage = result.rare;
-    usage.staticBytes = sizeof(g_rareDataPool) + sizeof(g_rareDataFreeList) + sizeof(g_documentKeyUpListener) + sizeof(g_documentKeyDownListener) + sizeof(g_documentRotaryListener);
+    usage.staticBytes = sizeof(g_rareDataPool) + sizeof(g_rareDataFreeList) + sizeof(g_documentListeners) + sizeof(g_nextDocumentListenerId) + sizeof(g_resettingDocumentListeners) + sizeof(g_windowListeners) + sizeof(g_nextWindowListenerId) + sizeof(g_resettingWindowListeners) + sizeof(g_rootEventRealm) + sizeof(g_activeListenerRealm) + sizeof(g_nativeEventRealmRetired);
 #if GEA_UI_NODE_LISTENERS
     usage.staticBytes += sizeof(g_listenerTypeCounts) + sizeof(g_nextEventListenerId);
 #endif
-    if (g_documentKeyDownListener) ++usage.untrackedOwners;
-    if (g_documentKeyUpListener) ++usage.untrackedOwners;
-    if (g_documentRotaryListener) ++usage.untrackedOwners;
+    usage.addVector(g_documentListeners);
+    usage.addVector(g_windowListeners);
+    usage.untrackedOwners += g_documentListeners.size() + g_windowListeners.size();
     usage.addVector(g_rareDataPool);
     usage.addVector(g_rareDataFreeList);
     for (const auto &record : g_rareDataPool) {
         usage.addAllocation(record.get(), sizeof(NodeRareData));
+        // Shared token/control-block allocation is not exposed by shared_ptr.
+        if (record->childNodeListIdentity) ++usage.untrackedOwners;
 #if GEA_UI_NODE_LISTENERS
         usage.addVector(record->listeners.entries);
         for (const auto &listener : record->listeners.entries)
@@ -261,9 +486,32 @@ void releaseRareData(int node)
 	if (node < 0 || node >= kMaxNodes) return;
 	const int16_t handle = state.nodes[node].rare_data;
 	if (handle < 0) return;
-	g_rareDataPool[static_cast<std::size_t>(handle)]->clear();
-	g_rareDataFreeList.push_back(handle);
+	auto &record = *g_rareDataPool[static_cast<std::size_t>(handle)];
+#if GEA_UI_NODE_LISTENERS
+	std::vector<NodeEventListenerEntry> retired;
+	retired.swap(record.listeners.entries);
+#endif
+	// Publish the detached, reusable record before any capture destructor runs.
 	state.nodes[node].rare_data = -1;
+	record.clear();
+	g_rareDataFreeList.push_back(handle);
+}
+
+// Called only after Tree::clear has published its entire empty structural state.
+// Retire all node/global registration ownership before releasing any captures.
+void resetTreeEventStorage()
+{
+	std::vector<std::unique_ptr<NodeRareData>> retired;
+	std::vector<int16_t> retiredFreeList;
+	retired.swap(g_rareDataPool);
+	retiredFreeList.swap(g_rareDataFreeList);
+#if GEA_UI_NODE_LISTENERS
+	for (auto &count : g_listenerTypeCounts) count = 0;
+	for (const auto &record : retired) if (record) record->listeners.types = 0;
+#endif
+	// This swaps BOTH global registries before either releases captures. Any
+	// successor Tree created by those destructors uses the already-new pool.
+	resetRootEventListeners();
 }
 
 void NodeAttributeDeleter::operator()(NodeAttributeEntry *entry) const
@@ -415,6 +663,7 @@ void NodeEventListeners::clear()
 
 EventListenerId Tree::setEventListener(int node, const char *type, gea::framework::events::EventListener listener)
 {
+ if (g_nativeEventRealmRetired) return kInvalidEventListenerId;
 #if GEA_UI_NODE_LISTENERS
 	auto &state = treeState();
 	if (node < 0 || node >= state.nodeCount) return kInvalidEventListenerId;
@@ -431,7 +680,7 @@ EventListenerId Tree::setEventListener(int node, const char *type, gea::framewor
 	EventListenerId id = g_nextEventListenerId++;
 	if (id == kInvalidEventListenerId) id = g_nextEventListenerId++;
 	list.entries.push_back(NodeEventListenerEntry{
-		id, static_cast<std::uint8_t>(typeIndex),
+		id, static_cast<std::uint8_t>(typeIndex), std::string(type),
 		std::make_shared<gea::framework::events::EventListener>(std::move(listener))});
 	return id;
 #else
@@ -451,7 +700,10 @@ bool Tree::removeEventListener(int node, const char *type, EventListenerId liste
 	const int typeIndex = eventTypeIndex(type);
 	if (!list.hasType(typeIndex)) return false;
 	for (auto it = list.entries.begin(); it != list.entries.end(); ++it) {
-		if (it->id != listenerId || it->type != typeIndex) continue;
+		if (it->id != listenerId || it->type != typeIndex || it->subscribedType != type) continue;
+		// Detach physical callback ownership before vector mutation. Its final
+		// destructor may register/remove handlers and invalidate this storage.
+		auto retired = std::move(it->listener);
 		list.entries.erase(it);
 		const bool remains = std::any_of(list.entries.begin(), list.entries.end(),
 		    [typeIndex](const auto &entry) { return entry.type == typeIndex; });
@@ -477,6 +729,7 @@ bool Tree::hasEventListener(int node) const
 
 bool Tree::hasListenersForType(const char *type) const
 {
+ if (g_nativeEventRealmRetired) return false;
 #if GEA_UI_NODE_LISTENERS
 	const int index = eventTypeIndex(type);
 	// Unknown/untracked types fall through to dispatch — never silently drop an
@@ -489,13 +742,44 @@ bool Tree::hasListenersForType(const char *type) const
 
 bool Tree::dispatchEvent(gea::framework::events::PointerEvent &event)
 {
+ if (g_nativeEventRealmRetired) return false;
+ return dispatchEventAlongPath(event, captureEventPath(*this, event.targetId));
+}
+
+bool Tree::dispatchEventAlongPath(gea::framework::events::PointerEvent &event,
+    const std::vector<gea::framework::events::EventTarget> &path)
+{
+ if (g_nativeEventRealmRetired) return false;
 #if GEA_UI_NODE_LISTENERS
 	auto &state = treeState();
 	if (event.targetId < 0 || event.targetId >= state.nodeCount) return false;
 
-	event.target = gea::framework::events::EventTarget(event.targetId);
-	bool dispatched = false;
-	for (int node = event.targetId; node >= 0 && node < state.nodeCount; node = state.nodes[node].parent) {
+ if (path.empty() || !path.front().valid() || path.front().id() != event.targetId) return false;
+ struct RestoreCurrentTarget {
+  gea::framework::events::PointerEvent &event;
+  gea::framework::events::EventTarget target;
+  int id;
+  gea::framework::events::EventPhase phase;
+  ~RestoreCurrentTarget() {
+   event.currentTarget = target;
+   event.currentTargetId = id;
+   event.eventPhase = phase;
+  }
+ } restore{event, event.currentTarget, event.currentTargetId, event.eventPhase};
+ event.target = path.front();
+ const NodeRareData *originalTarget = rareDataFor(event.targetId);
+ const int targetPressId = originalTarget ? originalTarget->attributes.pressId : -1;
+ const int targetPressValue = originalTarget ? originalTarget->attributes.pressValue : -1;
+ const bool windowPhases = event.type != gea::framework::events::PointerEventType::KeyDown &&
+                           event.type != gea::framework::events::PointerEventType::KeyUp;
+ bool dispatched = windowPhases && dispatchWindowEvent(event, true);
+ if (event.propagationStopped || !event.target.valid()) return dispatched;
+ if (windowPhases) dispatched = dispatchDocumentEvent(event, true) || dispatched;
+ if (event.propagationStopped || !event.target.valid()) return dispatched;
+	for (const auto &owner : path) {
+  if (g_nativeEventRealmRetired) break;
+  if (!owner.valid()) continue;
+  const int node = owner.id();
 		if (!event.bubbles && node != event.targetId) break;
 		NodeRareData *rd = rareDataFor(node);
 		if (!rd) continue;
@@ -503,17 +787,16 @@ bool Tree::dispatchEvent(gea::framework::events::PointerEvent &event)
 		if (!rd->listeners.hasType(typeIndex)) continue;
 
 		event.currentTargetId = node;
-		event.currentTarget = gea::framework::events::EventTarget(node);
+		event.currentTarget = owner;
 		event.eventPhase = node == event.targetId ? gea::framework::events::EventPhase::AtTarget
 		                                           : gea::framework::events::EventPhase::Bubbling;
 		// pressId/pressValue ride on the event from the first ancestor that has one
 		// (the listener-bearing node here, `rd`), else the original target's. Both
 		// now live in the rare-data block, so read them through it.
-		const NodeRareData *targetRd = rareDataFor(event.targetId);
 		const int currentPressId = rd->attributes.pressId;
 		const int currentPressValue = rd->attributes.pressValue;
-		event.pressId = currentPressId >= 0 ? currentPressId : (targetRd ? targetRd->attributes.pressId : -1);
-		event.pressValue = currentPressValue >= 0 ? currentPressValue : (targetRd ? targetRd->attributes.pressValue : -1);
+		event.pressId = currentPressId >= 0 ? currentPressId : targetPressId;
+		event.pressValue = currentPressValue >= 0 ? currentPressValue : targetPressValue;
 		// A delegated handler may dispose its own conditional branch, removing
 		// listeners from this same body list during dispatch. The shared callback
 		// keeps the in-flight function alive after its entry is erased. Reacquire the
@@ -522,25 +805,33 @@ bool Tree::dispatchEvent(gea::framework::events::PointerEvent &event)
 		const EventListenerId maxId = rd->listeners.entries.back().id;
 		EventListenerId cursor = kInvalidEventListenerId;
 		for (;;) {
+   if (g_nativeEventRealmRetired || !owner.valid()) break;
 			rd = rareDataFor(node);
 			if (!rd) break;
 			if (!rd->listeners.hasType(typeIndex)) break;
 			EventListenerId nextId = kInvalidEventListenerId;
 			std::shared_ptr<gea::framework::events::EventListener> callback;
+   std::string subscribedType;
 			for (const auto &entry : rd->listeners.entries) {
 				if (entry.type != typeIndex) continue;
 				if (entry.id <= cursor || entry.id > maxId) continue;
 				nextId = entry.id;
 				callback = entry.listener;
+    subscribedType = entry.subscribedType;
 				break;
 			}
 			if (!callback) break;
 			cursor = nextId;
+   SubscriberTypeScope projection(event, subscribedType);
 			(*callback)(event);
 			dispatched = true;
 		}
 		if (event.propagationStopped || !event.bubbles) break;
 	}
+ if (windowPhases && event.bubbles && !event.propagationStopped)
+  dispatched = dispatchDocumentEvent(event, false) || dispatched;
+ if (windowPhases && event.bubbles && !event.propagationStopped)
+  dispatched = dispatchWindowEvent(event, false) || dispatched;
 	return dispatched;
 #else
 	return false;

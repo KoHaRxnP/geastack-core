@@ -62,6 +62,7 @@ gea_native_sources() {
     "$engine_root/ui/layout.cpp"
     "$engine_root/ui/layout_snapshot.cpp"
     "$engine_root/ui/node.cpp"
+    "$engine_root/ui/selector.cpp"
     "$engine_root/ui/node_lifecycle.cpp"
     "$engine_root/ui/render.cpp"
     "$engine_root/ui/root_scroll_refresh.cpp"

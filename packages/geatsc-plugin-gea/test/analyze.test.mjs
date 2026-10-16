@@ -23,6 +23,25 @@ function app(t, files) {
   return path.join(root, 'index.tsx')
 }
 
+test('microphone capture and PCM playback report automatic AEC prerequisites', (t) => {
+  const entry = app(t, { 'index.tsx': 'navigator.mediaDevices.getUserMedia({ audio: true }); new PcmAudioStream(24000);' })
+  const analysis = analyzeSourceHostBindings(entry)
+  assert.ok(analysis.features.includes('audio-capture'))
+  assert.ok(analysis.features.includes('audio-playback'))
+})
+
+test('video capture detects camera without enabling microphone capture', (t) => {
+  const entry = app(t, { 'index.tsx': 'navigator.mediaDevices.getUserMedia({ audio: false, video: true }); new PcmAudioStream(24000);' })
+  const analysis = analyzeSourceHostBindings(entry)
+  assert.ok(analysis.bindings.includes('camera'))
+  assert.ok(!analysis.features.includes('audio-capture'))
+})
+
+test('a microphone example in a comment does not opt playback into AEC', (t) => {
+  const entry = app(t, { 'index.tsx': '// navigator.mediaDevices.getUserMedia({ audio: true })\nnew PcmAudioStream(24000);' })
+  assert.ok(!analyzeSourceHostBindings(entry).features.includes('audio-capture'))
+})
+
 test('an https literal reached through a relative import reports the https feature', (t) => {
   const entry = app(t, {
     'index.tsx': "import { Display, mount } from '@geastack/core'\nimport { weather } from './stores/WeatherStore'\n// see https://example.com for the API\nmount(weather)\n",

@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig-native-input.json",
+  "files": ["native-input-contract.ts", "native-input-contract-refusals.ts"]
+}

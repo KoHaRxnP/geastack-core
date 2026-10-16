@@ -1,0 +1,21 @@
+import type {Node} from '@geastack/core'
+const parent=document.createElement('div')
+const child=document.createElement('span')
+const other=document.createElement('aside')
+parent.setAttribute('id','remove-child-parent')
+child.setAttribute('id','remove-child-child')
+document.body.appendChild(parent)
+document.body.appendChild(other)
+parent.appendChild(child)
+const returned:Node=parent.removeChild(child)
+console.log(String(returned===child))
+console.log(String(returned.parentNode===null))
+console.log(String(!returned.isConnected))
+parent.appendChild(returned)
+console.log(String(returned.parentNode===parent&&returned.isConnected))
+let refused=false
+try { other.removeChild(child) } catch { refused=true }
+console.log(String(refused&&child.parentNode===parent))
+const again:Node=parent.removeChild(returned)
+console.log(String(again===returned&&again.parentNode===null))
+parent.appendChild(again)

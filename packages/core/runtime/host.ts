@@ -7,6 +7,8 @@
 // below. lib.dom's GeolocationPositionError also carries PERMISSION_DENIED /
 // POSITION_UNAVAILABLE / TIMEOUT, which our host object never sets.
 import type {
+  UartOptions,
+  MagnetometerReading,
   CanvasRenderingContext2D,
   GeolocationCoordinates,
   GeolocationPosition,
@@ -353,6 +355,32 @@ declare const __gea_Gpio: {
   configureInput(pin: number, pullUp: boolean): boolean
   write(pin: number, level: boolean): boolean
   read(pin: number): boolean
+}
+declare const __gea_Magnetometer: {
+  open(): boolean
+  close(): void
+  count(): number
+  read(index: number, values: Float64Array): boolean
+}
+declare const __gea_Uart: {
+  open(port: number, tx: number, rx: number, baud: number, rxBytes: number, txBytes: number): boolean
+  isOpen(port: number): boolean
+  close(port: number): void
+  read(port: number, buffer: Uint8Array): number
+  write(port: number, buffer: Uint8Array): number
+  available(port: number): number
+  writable(port: number): number
+}
+declare const __gea_EspNow: {
+  open(channel: number, rate: number): boolean
+  setMaxTxPower(quarterDbm: number): boolean
+  getMaxTxPower(): number
+  isOpen(): boolean
+  canSend(): boolean
+  close(): void
+  addPeer(address: Uint8Array, key: Uint8Array): boolean
+  send(address: Uint8Array, bytes: Uint8Array): number
+  receive(source: Uint8Array, bytes: Uint8Array): number
 }
 declare const __gea_Led: {
   // A WS2812/NeoPixel strand on one pin — what "the onboard LED" is on most
@@ -1029,6 +1057,73 @@ export const Gpio = {
   },
   read(pin: number): boolean {
     return __gea_Gpio.read(pin)
+  },
+}
+export const Uart = {
+  open(port: number, options: UartOptions): boolean {
+    if (typeof __gea_Uart === 'undefined') return false
+    return __gea_Uart.open(port, options.tx, options.rx, options.baudRate,
+      options.rxBufferSize ?? 4096, options.txBufferSize ?? 4096)
+  },
+  isOpen(port: number): boolean {
+    return typeof __gea_Uart !== 'undefined' && __gea_Uart.isOpen(port)
+  },
+  close(port: number): void {
+    if (typeof __gea_Uart !== 'undefined') __gea_Uart.close(port)
+  },
+  read(port: number, buffer: Uint8Array): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.read(port, buffer) : -1
+  },
+  write(port: number, buffer: Uint8Array): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.write(port, buffer) : -1
+  },
+  available(port: number): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.available(port) : -1
+  },
+  writable(port: number): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.writable(port) : -1
+  },
+}
+export const Magnetometer = {
+  open(): boolean {
+    return typeof __gea_Magnetometer !== 'undefined' && __gea_Magnetometer.open()
+  },
+  close(): void {
+    if (typeof __gea_Magnetometer !== 'undefined') __gea_Magnetometer.close()
+  },
+  count(): number {
+    return typeof __gea_Magnetometer !== 'undefined' ? __gea_Magnetometer.count() : 0
+  },
+  read(index: number): MagnetometerReading {
+    const values = new Float64Array(5)
+    const valid = typeof __gea_Magnetometer !== 'undefined' && __gea_Magnetometer.read(index, values)
+    return { x: values[0], y: values[1], z: values[2], valid, saturatedAxes: values[3], timestampUs: values[4] }
+  },
+}
+
+export const EspNow = {
+  // 115 selects S31 HE20 MCS9 short GI (114.7 Mbps); target validation owns
+  // availability. Other rates and the default retain their existing meaning.
+  open(channel: number, rateMbps: number = 54): boolean {
+    return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.open(channel, rateMbps)
+  },
+  setMaxTxPower(quarterDbm: number): boolean {
+    return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.setMaxTxPower(quarterDbm)
+  },
+  getMaxTxPower(): number {
+    return typeof __gea_EspNow !== 'undefined' ? __gea_EspNow.getMaxTxPower() : -1
+  },
+  isOpen(): boolean { return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.isOpen() },
+  canSend(): boolean { return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.canSend() },
+  close(): void { if (typeof __gea_EspNow !== 'undefined') __gea_EspNow.close() },
+  addPeer(address: Uint8Array, key: Uint8Array = new Uint8Array(0)): boolean {
+    return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.addPeer(address, key)
+  },
+  send(address: Uint8Array, bytes: Uint8Array): number {
+    return typeof __gea_EspNow !== 'undefined' ? __gea_EspNow.send(address, bytes) : -1
+  },
+  receive(source: Uint8Array, bytes: Uint8Array): number {
+    return typeof __gea_EspNow !== 'undefined' ? __gea_EspNow.receive(source, bytes) : -1
   },
 }
 export const Led = {

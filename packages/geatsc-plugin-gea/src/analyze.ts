@@ -61,6 +61,7 @@ export function analyzeSourceHostBindings(entry: string): HostBindingAnalysisPat
     addBindingsForGeaEmbeddedImports(text, bindings)
     addBindingsForEmbeddedHostNames(text, bindings)
     addBindingsForHostGlobals(text, bindings)
+    addMediaCapabilities(file, text, bindings, features)
     addFeaturesForUrlSchemes(text, features)
     if (analyzeWorkerModules(file, text).realms) features.add('worker-realms')
     addRendererFeatures(file, text, features, observer, variables)
@@ -102,6 +103,7 @@ const importBindingNames = new Map<string, string>([
   // WiFi/network bring-up binding so the TCP/IP stack is initialized.
   ['http', 'wifi'],
   ['Accelerometer', 'imu'],
+  ['Magnetometer', 'imu'],
   ['Audio', 'audio'],
   ['Display', 'display'],
   ['Memory', 'memory'],
@@ -114,6 +116,7 @@ const importBindingNames = new Map<string, string>([
 
 const embeddedHostNamePrefixes: Array<[prefix: string, binding: string]> = [
   ['__gea_Accelerometer', 'imu'],
+  ['__gea_Magnetometer', 'imu'],
   ['__gea_audioContext', 'audio'],
   ['__gea_Audio', 'audio'],
   ['__gea_Display', 'display'],
@@ -172,6 +175,31 @@ function addBindingsForHostGlobals(text: string, bindings: Set<string>): void {
     if (binding === 'fetch' && shadowed) continue
     if (pattern.test(text)) bindings.add(binding)
   }
+}
+
+function addMediaCapabilities(file: string, text: string, bindings: Set<string>, features: Set<string>): void {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true)
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'navigator.mediaDevices.getUserMedia') {
+      const constraints = node.arguments[0]
+      for (const kind of ['audio', 'video']) {
+        const property = constraints && ts.isObjectLiteralExpression(constraints)
+          ? constraints.properties.find(member => member.name && member.name.getText(source).replace(/['"]/g, '') === kind)
+          : undefined
+        const requested = !constraints || !ts.isObjectLiteralExpression(constraints) ||
+          (property && (!ts.isPropertyAssignment(property) || property.initializer.kind !== ts.SyntaxKind.FalseKeyword))
+        if (requested) {
+          if (kind === 'video') bindings.add('camera')
+          else features.add('audio-capture')
+        }
+      }
+    }
+    if (ts.isNewExpression(node) && /^(?:(?:window|globalThis)\.)?(?:AudioContext|PcmAudioStream|Audio)$/.test(node.expression.getText(source))) {
+      features.add('audio-playback')
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
 }
 
 // Only a quoted `https://` counts: a bare one is almost always a comment

@@ -191,6 +191,7 @@ void rootScrollImageHoldTick();
 				int16_t lineHeight;
 				int16_t containerWidth;
 				int16_t fontId;
+				int16_t fontWeight,fontStretch;
 				// CSS white-space / text-overflow, carried so the deferred draw
 				// can reproduce single-line truncation. whiteSpace==1 => nowrap
 				// (no width-based wrapping); textOverflow==1 => ellipsis ("...").
@@ -210,6 +211,7 @@ void rootScrollImageHoldTick();
 				int16_t srcX, srcY, srcW, srcH;
 				int16_t x0, y0, x1, y1, x2, y2, x3, y3;
 				int16_t fontId, fontSize;
+				int16_t fontWeight,fontStretch;
 				gea::framework::graphics::pixel::native_t color;
 				uint8_t alpha;
 				int8_t textTransform;
@@ -570,7 +572,7 @@ void rootScrollImageHoldTick();
 		                             int width, uint8_t *outCoverage);
 		static void drawWrapped(const char *text, int x, int y, int maxWidth, gea::framework::graphics::pixel::native_t color, float scale, int textAlign,
 														int containerWidth, int fontId, int textTransform = 0, int lineHeight = 0, int whiteSpace = 0, int textOverflow = 0, int maxHeight = 0,
-														int firstLineIndent = 0);
+														int firstLineIndent = 0, int fontWeight = 400, int fontStretch = 1000);
 		// Single-line width measure for places that don't go through layout()
 		// — used by InputRenderer to position the caret at the end of the value.
 		static int measureWidth(const char *text, int fontId, int fontSize, int textTransform = 0);

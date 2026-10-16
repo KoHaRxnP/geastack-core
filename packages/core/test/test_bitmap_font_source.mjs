@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import test from "node:test";
+import { fileAssetBundle, fileAssetLoader } from "../scripts/gea-file-asset-bundle.mjs";
 
 import {
   buildBitmapFont,
@@ -57,6 +58,8 @@ function generator(source) {
     execFileSync,
     buildBitmapFont,
     loadBitmapFontSource,
+    fileAssetBundle,
+    fileAssetLoader,
     console,
   });
 

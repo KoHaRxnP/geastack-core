@@ -13,8 +13,8 @@ npm install @geastack/core
 Apps import the types and the runtime modules:
 
 ```tsx
-import type { Style } from '@geastack/core'
-import { View, Text } from '@geastack/engine'
+import type { Style } from "@geastack/core";
+import { View, Text } from "@geastack/engine";
 ```
 
 Everything else in the package is consumed by tooling, not by app code. The
@@ -37,15 +37,15 @@ before this hook runs. Field initializers and constructors initialize state;
 code that needs a rendered canvas belongs in the hook.
 
 ```tsx
-import { ReactiveComponent } from '@geastack/core'
+import { ReactiveComponent } from "@geastack/core";
 
 class Counter extends ReactiveComponent {
-  count = 0
+  count = 0;
   onAfterRender(): void {
-    this.count = 1
+    this.count = 1;
   }
   template(): JSX.Element {
-    return <div>{this.count}</div>
+    return <div>{this.count}</div>;
   }
 }
 ```
@@ -63,14 +63,41 @@ changes need to preserve the shared component and native-type contracts.
 WebSocket constructor argument for connection headers on ESP32 native hosts:
 
 ```ts
-const socket = new WebSocket('wss://api.openai.com/v1/live/sessions', '', {
-  headers: [{ name: 'Authorization', value: `Bearer ${process.env.OPENAI_API_KEY}` }],
-})
+const socket = new WebSocket("wss://api.openai.com/v1/live/sessions", "", {
+  headers: [
+    { name: "Authorization", value: `Bearer ${process.env.OPENAI_API_KEY}` },
+  ],
+});
 ```
 
 Use these paired versions or newer when a service requires bearer authentication
 in the WebSocket handshake. Header names and values are validated before the
 connection starts. This native option is unavailable in browser WebSockets.
+
+## File-backed native assets
+
+Native apps can keep images and baked font atlases on a mounted volume instead
+of in the executable. Opt in through the app manifest:
+
+```json
+{
+  "gea": {
+    "embeddedAssets": {
+      "storage": { "type": "file", "directory": "/nand" }
+    }
+  }
+}
+```
+
+The generators emit content-addressed `.bin` payloads and a `.assets.json`
+deployment manifest alongside each generated C++ source. Copy each `local` file
+to its `remote` path, for example with `gea devctl push`, before starting the app.
+The target must register a mount provider; ESP32 targets also need external BSS
+enabled. The runtime reads and validates the entire bundle once into permanent
+RAM buffers. Render-time image and font lookups use those buffers, with no file
+I/O. Missing, truncated or corrupt bundles are rejected until the next process
+start. Retain older content-addressed files when firmware rollback is required.
+Apps without this option continue embedding their assets in the executable.
 
 ## Related packages
 

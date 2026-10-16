@@ -78,7 +78,7 @@ export function cxxSources(env = process.env) {
       'tree_state', 'node_lifecycle', 'display_invalidation', 'layout_snapshot',
       'absolute_leaf_refresh', 'viewport_region', 'dirty_regions', 'root_scroll_refresh',
       'node', 'view_element', 'text_element', 'image_element', 'style', 'css_atom',
-      'document', 'core', 'tree_nodes', 'tree_style', 'tree_scroll_mirror', 'tree_render',
+      'document', 'selector', 'core', 'tree_nodes', 'tree_style', 'tree_scroll_mirror', 'tree_render',
       'view', 'text', 'image_node', 'layout', 'render', 'input', 'input_render',
       'virtual_keyboard', 'canvas_element', 'canvas_store', 'tree_events'
     ]),
@@ -87,6 +87,8 @@ export function cxxSources(env = process.env) {
     ...cpp(join(elements, 'ui'), ['camera_element', 'virtual_list']),
     // @geastack/host — platform layer + services
     ...cpp(host, ['input', 'wifi', 'bluetooth', 'geolocation']),
+    // Only native Linux targets opt into their existing libcurl dependency.
+    ...(env.GEA_DESKTOP_WEBSOCKET_CURL === '1' ? [join(host, 'host/websocket_curl.cpp')] : []),
     ...cpp(join(host, 'host'), [
       'timers', 'worker', 'input', 'device', 'display', 'fetch', 'media', 'rtc', 'websocket', 'http', 'wifi',
       'ble', 'apps', 'audio', 'audio_worklet', 'audio_buffer_runtime', 'video', 'mjpeg', 'image', 'touch', 'imu', 'memory', 'camera', 'geolocation',
@@ -105,10 +107,18 @@ export function cxxSources(env = process.env) {
   ]
 }
 
+// Apple targets compile Objective-C++ separately with ARC/Foundation. Keep the
+// framework transport provider at the same source authority as C/C++ inputs.
+export function objcxxSources(env = process.env) {
+  const { host } = packageDirs(env)
+  return [join(host, 'host/websocket_apple.mm')]
+}
+
 const queries = {
   'include-flags': includeFlags,
   'c-sources': cSources,
-  'cxx-sources': cxxSources
+  'cxx-sources': cxxSources,
+  'objcxx-sources': objcxxSources
 }
 
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)

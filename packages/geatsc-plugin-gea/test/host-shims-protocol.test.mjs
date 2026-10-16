@@ -191,3 +191,42 @@ test('event targets expose native attribute reads', () => {
   assert.ok(method.receiverTypes.includes('InputEventTarget'));
   assert.ok(method.emit.includes('std::string({arg0}).c_str()'));
 });
+
+// firstChild participates in ordinary native component traversal. Its static
+// result must retain the NodeHandle identity/null carrier, including comments.
+test("firstChild is a nullable SDK Node and its native getter stays typed", () => {
+  const declaration = fileURLToPath(new URL("../../core/index.d.ts", import.meta.url));
+  const program = ts.createProgram([declaration], {strict:true, skipLibCheck:true, lib:["lib.es2022.d.ts"]});
+  const checker=program.getTypeChecker(), source=program.getSourceFile(declaration);
+  const symbol=checker.getExportsOfModule(checker.getSymbolAtLocation(source)).find(s=>s.name==="Node");
+  const node=checker.getDeclaredTypeOfSymbol(symbol);
+  const first=checker.getTypeOfSymbolAtLocation(checker.getPropertyOfType(node,"firstChild"),source);
+  assert.ok(first.isUnion());
+  assert.ok(first.types.some(type=>type.flags & ts.TypeFlags.Null));
+  assert.equal(first.types.filter(type=>!(type.flags & ts.TypeFlags.Null)).length,1);
+  assert.ok(first.types.filter(type=>!(type.flags & ts.TypeFlags.Null)).every(type=>type===node));
+  const rows=createGeaHostShims().nativeMemberPropertyGetters.firstChild;
+  assert.ok(rows.length>0);
+  assert.ok(rows.every(row=>row.returnType==="gea::embedded::ui::NodeHandle"));
+  assert.ok(rows.every(row=>row.emit==="({receiver}).firstChildHandle()"));
+});
+
+test("insertBefore states the actual Node return, nullable reference and direct native method", () => {
+  const declaration=fileURLToPath(new URL("../../core/index.d.ts",import.meta.url));
+  const program=ts.createProgram([declaration],{strict:true,skipLibCheck:true,lib:["lib.es2022.d.ts"]});
+  const checker=program.getTypeChecker(),source=program.getSourceFile(declaration);
+  const symbol=checker.getExportsOfModule(checker.getSymbolAtLocation(source)).find(s=>s.name==="Node");
+  const node=checker.getDeclaredTypeOfSymbol(symbol);
+  const method=checker.getTypeOfSymbolAtLocation(checker.getPropertyOfType(node,"insertBefore"),source);
+  const signatures=checker.getSignaturesOfType(method,ts.SignatureKind.Call);
+  assert.equal(signatures.length,1);
+  assert.equal(checker.getReturnTypeOfSignature(signatures[0]),node);
+  const reference=checker.getTypeOfSymbolAtLocation(signatures[0].parameters[1],source);
+  assert.ok(reference.isUnion()&&reference.types.length===2);
+  assert.ok(reference.types.some(type=>type.flags&ts.TypeFlags.Null));
+  assert.ok(reference.types.some(type=>type===node));
+  const rows=createGeaHostShims().nativeMemberMethods.insertBefore;
+  assert.ok(rows.length>0);
+  assert.ok(rows.every(row=>row.returnType==="gea::embedded::ui::NodeHandle"));
+  assert.ok(rows.every(row=>row.emit==="({receiver}).insertBefore({arg0}, {arg1})"));
+});

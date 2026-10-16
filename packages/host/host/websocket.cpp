@@ -2,10 +2,12 @@
 #include "host/websocket.h"
 #include "host/worker.h"
 #include "host/websocket_message.h"
+#include "host/websocket_platform.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <stdexcept>
 #include <functional>
 #include <deque>
@@ -81,7 +83,33 @@ std::unordered_map<NativeWebSocketHandle, CallbackTable> &callbackTable() {
   static Table mainTable;
   static std::unordered_map<workers::Context *, std::weak_ptr<Table>> tables;
   const auto context = workers::Context::current();
-  if (context->isMain()) return mainTable;
+  if (context->isMain()) {
+    // One process cleanup per main owner, rather than one accumulating entry
+    // per reconnect. Admission is closed before Context invokes this cleanup.
+    static bool cleanupInstalled = false;
+    if (!cleanupInstalled) {
+      context->addCleanup([key = context.get()] {
+        for (;;) {
+          NativeWebSocketHandle handle = 0;
+          {
+            std::lock_guard lock(ownerMutex);
+            for (const auto &entry : owners) {
+              auto owner = entry.second.lock();
+              if (owner && owner.get() == key) { handle = entry.first; break; }
+            }
+            if (handle) owners.erase(handle);
+          }
+          if (!handle) break;
+          try { destroy_handle(handle); }
+          catch (...) { std::fputs("WebSocket main cleanup failed; continuing retirement\n", stderr); }
+        }
+        Table retiredCallbacks;
+        retiredCallbacks.swap(mainTable);
+      });
+      cleanupInstalled = true;
+    }
+    return mainTable;
+  }
   std::lock_guard lock(mutex);
   auto table = tables[context.get()].lock();
   if (!table) {
@@ -94,6 +122,28 @@ std::unordered_map<NativeWebSocketHandle, CallbackTable> &callbackTable() {
     });
   }
   return *table;
+}
+
+bool callbackAdmissionOpen(NativeWebSocketHandle handle) {
+  std::shared_ptr<workers::Context> owner;
+  { std::lock_guard lock(ownerMutex); auto entry = owners.find(handle); if (entry != owners.end()) owner = entry->second.lock(); }
+  if (!owner || owner->stopped()) return false;
+  std::lock_guard lock(instancesMutex());
+  return instances().find(handle) != instances().end();
+}
+
+static CallbackTable detachCallbacks(NativeWebSocketHandle handle) {
+  CallbackTable callbacks;
+  auto &table = callbackTable();
+  auto entry = table.find(handle);
+  if (entry != table.end()) {
+    callbacks.on_open.swap(entry->second.on_open);
+    callbacks.on_message.swap(entry->second.on_message);
+    callbacks.on_close.swap(entry->second.on_close);
+    callbacks.on_error.swap(entry->second.on_error);
+    table.erase(entry);
+  }
+  return callbacks;
 }
 
 #if defined(ESP_PLATFORM) && !defined(GEA_EMBEDDED_WIFI_DISABLED)
@@ -114,6 +164,66 @@ __attribute__((weak)) void platform_reap() {}
 __attribute__((weak)) void platform_set_producer(NativeWebSocketHandle, TextProducer) {}
 #endif
 
+bool transport_open(NativeWebSocketHandle handle) {
+  {
+    std::lock_guard lock(instancesMutex());
+    auto it = instances().find(handle);
+    if (it == instances().end() || it->second.readyState != WebSocket::CONNECTING) return false;
+    it->second.readyState = WebSocket::OPEN;
+  }
+  enqueue(PendingEvent{handle, EventKind::Open, {}, 0});
+  return true;
+}
+
+void transport_message(NativeWebSocketHandle handle, std::string text) {
+  TextConsumer consumer;
+  {
+    std::lock_guard lock(instancesMutex());
+    auto it = instances().find(handle);
+    if (it == instances().end() || it->second.readyState != WebSocket::OPEN) return;
+    consumer = it->second.consumer;
+  }
+  if (text.size() > 1024 * 1024) {
+    transport_error(handle, "WebSocket message exceeds 1 MiB");
+    platform_close(handle);
+    return;
+  }
+  try {
+    if (!consumer || !consumer(text))
+      enqueue(PendingEvent{handle, EventKind::Message, std::move(text), 0});
+  } catch (const std::exception &error) {
+    transport_error(handle, error.what());
+  } catch (...) {
+    transport_error(handle, "WebSocket native consumer failed");
+  }
+}
+
+void transport_closing(NativeWebSocketHandle handle) {
+  std::lock_guard lock(instancesMutex());
+  auto it = instances().find(handle);
+  if (it != instances().end() && it->second.readyState != WebSocket::CLOSED)
+    it->second.readyState = WebSocket::CLOSING;
+}
+
+void transport_close(NativeWebSocketHandle handle, int code, const std::string &reason) {
+  TextConsumer retiredConsumer;
+  {
+    std::lock_guard lock(instancesMutex());
+    auto it = instances().find(handle);
+    if (it == instances().end() || it->second.readyState == WebSocket::CLOSED) return;
+    it->second.readyState = WebSocket::CLOSED;
+    retiredConsumer = std::move(it->second.consumer);
+    it->second.messages = TextMessageAssembler{};
+  }
+  // Release native captures outside the instance lock, before the close callback.
+  retiredConsumer = {};
+  enqueue(PendingEvent{handle, EventKind::Close, reason, code});
+}
+
+void transport_error(NativeWebSocketHandle handle, const std::string &reason) {
+  enqueue(PendingEvent{handle, EventKind::Error, reason, 0});
+}
+
 void setTextProducer(NativeWebSocketHandle handle, TextProducer producer) {
   // The producer runs exclusively on the native socket sender, whose priority
   // platform_set_producer raises for audio. Promoting the caller's realm here
@@ -122,32 +232,50 @@ void setTextProducer(NativeWebSocketHandle handle, TextProducer producer) {
 }
 
 void setTextConsumer(NativeWebSocketHandle handle, TextConsumer consumer) {
-  std::lock_guard lock(instancesMutex());
-  auto it = instances().find(handle);
-  if (it == instances().end()) throw std::invalid_argument("Closed WebSocket native sink");
-  it->second.consumer = std::move(consumer);
+  TextConsumer retired;
+  {
+    std::lock_guard lock(instancesMutex());
+    auto it = instances().find(handle);
+    if (it == instances().end() || it->second.readyState == WebSocket::CLOSED)
+      throw std::invalid_argument("Closed WebSocket native sink");
+    retired = std::move(it->second.consumer);
+    it->second.consumer = std::move(consumer);
+  }
+  // Native captured-object destruction may call back into the facade.
 }
 
 NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols, const std::string &headers) {
+  auto owner = workers::Context::current();
+  if (owner->stopped()) throw std::runtime_error("WebSocket owner context is closed");
+  (void)callbackTable(); // Admit owner cleanup before allocating facade state.
   auto handle = nextHandle()++;
   {
     std::lock_guard<std::mutex> lock(instancesMutex());
     instances()[handle] = WebSocketInstance{url, WebSocket::CONNECTING, {}};
   }
-  auto owner = workers::Context::current();
-  (void)callbackTable();
   { std::lock_guard lock(ownerMutex); owners[handle] = owner; }
-  if (!owner->isMain()) owner->addCleanup([handle] { destroy_handle(handle); });
-  platform_open(handle, url, protocols, headers);
+  try {
+    if (!owner->isMain()) owner->addCleanup([handle] { destroy_handle(handle); });
+    platform_open(handle, url, protocols, headers);
+  } catch (...) { destroy_handle(handle); throw; }
   return handle;
 }
 
 void destroy_handle(NativeWebSocketHandle handle) {
-  platform_destroy(handle);
+  WebSocketInstance retired;
+  CallbackTable callbacks;
+  {
+    std::lock_guard<std::mutex> lock(instancesMutex());
+    auto it = instances().find(handle);
+    if (it == instances().end()) return;
+    retired = std::move(it->second);
+    instances().erase(it);
+  }
   { std::lock_guard lock(ownerMutex); owners.erase(handle); }
-  std::lock_guard<std::mutex> lock(instancesMutex());
-  instances().erase(handle);
-  callbackTable().erase(handle);
+  callbacks = detachCallbacks(handle);
+  // Ownership is absent before transport/captured-owner teardown can reenter.
+  // All callbacks are released outside table erasure and instance/owner locks.
+  platform_destroy(handle);
 }
 
 void runCallbacks() {
@@ -165,17 +293,52 @@ void test_inject_close(NativeWebSocketHandle handle, int code, const std::string
   enqueue(PendingEvent{handle, EventKind::Close, reason, code});
 }
 
+void set_open_callback(NativeWebSocketHandle handle, std::function<void()> cb) {
+  if (!callbackAdmissionOpen(handle)) return;
+  std::function<void()> retired;
+  auto &slot = callbackTable()[handle].on_open;
+  retired.swap(slot);
+  slot.swap(cb);
+  // No table references may be used after captured-owner destruction reenters.
+}
 void test_set_open_callback(NativeWebSocketHandle handle, std::function<void()> cb) {
-  callbackTable()[handle].on_open = std::move(cb);
+  set_open_callback(handle, std::move(cb));
+}
+
+void set_message_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb) {
+  if (!callbackAdmissionOpen(handle)) return;
+  std::function<void(const std::string &)> retired;
+  auto &slot = callbackTable()[handle].on_message;
+  retired.swap(slot);
+  slot.swap(cb);
+  // No table references may be used after captured-owner destruction reenters.
 }
 void test_set_message_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb) {
-  callbackTable()[handle].on_message = std::move(cb);
+  set_message_callback(handle, std::move(cb));
+}
+
+void set_close_callback(NativeWebSocketHandle handle, std::function<void(int, const std::string &)> cb) {
+  if (!callbackAdmissionOpen(handle)) return;
+  std::function<void(int, const std::string &)> retired;
+  auto &slot = callbackTable()[handle].on_close;
+  retired.swap(slot);
+  slot.swap(cb);
+  // No table references may be used after captured-owner destruction reenters.
 }
 void test_set_close_callback(NativeWebSocketHandle handle, std::function<void(int, const std::string &)> cb) {
-  callbackTable()[handle].on_close = std::move(cb);
+  set_close_callback(handle, std::move(cb));
+}
+
+void set_error_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb) {
+  if (!callbackAdmissionOpen(handle)) return;
+  std::function<void(const std::string &)> retired;
+  auto &slot = callbackTable()[handle].on_error;
+  retired.swap(slot);
+  slot.swap(cb);
+  // No table references may be used after captured-owner destruction reenters.
 }
 void test_set_error_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb) {
-  callbackTable()[handle].on_error = std::move(cb);
+  set_error_callback(handle, std::move(cb));
 }
 
 }  // namespace websocket
@@ -197,10 +360,12 @@ void dispatch(PendingEvent ev) {
       break;
     }
     case EventKind::Close: {
+      // Detach every script capture before transport teardown can reenter or
+      // erase this entry. No map iterator survives an external call.
+      auto callbacks = websocket::detachCallbacks(ev.handle);
       websocket::platform_close(ev.handle);
-      const auto callback = std::move(it->second.on_close);
-      table.erase(it);
-      if (callback) callback(ev.code, ev.text);
+      if (!workers::Context::current()->stopped() && callbacks.on_close)
+        callbacks.on_close(ev.code, ev.text);
       break;
     }
     case EventKind::Error: {

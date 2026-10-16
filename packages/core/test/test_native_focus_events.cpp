@@ -1,0 +1,11 @@
+#include "ui/document.h"
+#include "ui/tree_internal.h"
+#include <cassert>
+#include <cstdio>
+#include <string>
+#include <vector>
+namespace gea::framework::graphics::generated {void ensureLinked(){}}
+using namespace gea::embedded::ui;
+int main(){auto&t=Tree::instance();auto&d=Document::instance();t.clear();auto root=d.createView();auto a=d.createElement("input"),b=d.createElement("input");root.appendChild(a);root.appendChild(b);d.mount(root,320,240);std::vector<std::string>seen;t.setEventListener(a.id(),"focusin",[&](auto&e){assert(std::string(e.typeName())=="focusin");assert(d.activeElement().id()==a.id());seen.push_back("a-in");});t.setEventListener(a.id(),"focusout",[&](auto&e){assert(std::string(e.typeName())=="focusout");assert(d.activeElement().id()==b.id());seen.push_back("a-out");});t.setEventListener(b.id(),"focusin",[&](auto&){seen.push_back("b-in");});a.focus();b.focus();assert((seen==std::vector<std::string>{"a-in","a-out","b-in"}));seen.clear();b.focus();assert(seen.empty());auto detached=d.createElement("input");detached.focus();assert(d.activeElement().id()==b.id()&&seen.empty());a.setAttribute("disabled","");a.focus();assert(d.activeElement().id()==b.id()&&seen.empty());a.removeAttribute("disabled");
+ t.setEventListener(a.id(),"focusin",[&](auto&){seen.push_back("outer-a-in");});t.setEventListener(b.id(),"focusout",[&](auto&){seen.push_back("b-out");b.focus();});a.focus();assert(d.activeElement().id()==b.id());assert((seen==std::vector<std::string>{"b-out","a-out","b-in"}));
+ t.clear();auto rr=d.createView();auto live=d.createElement("input");rr.appendChild(live);d.mount(rr,320,240);int identity=0,captures=0;assert(addDocumentEventListener("focusin",&identity,[&](auto&e){assert(e.target.id()==live.id());++captures;},true,true));live.focus();live.blur();live.focus();assert(captures==1);assert(!removeDocumentEventListener("focusin",&identity,true));live.blur();int removed=0;assert(addDocumentEventListener("focusin",&identity,[&](auto&){++removed;},false,false));assert(removeDocumentEventListener("focusin",&identity,false));live.focus();assert(removed==0);t.clear();puts("PASS actual native focus transition events; no duplicate, detached/disabled refusal and reentrant transition supersession; CPU only");}

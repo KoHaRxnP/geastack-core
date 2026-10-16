@@ -103,9 +103,20 @@ export interface GeaIntrinsicElements {
   'virtual-list': NativeVirtualListProps
 }
 
+export interface WindowEventListenerOptions {
+  capture?: boolean
+  once?: boolean
+}
+export interface GeaWindowEventMap extends GeaEventMap {
+  blur: Event
+  resize: Event
+}
+/** Native app-window event authority. No global input posting or browser Window privileges. */
 export interface GeaWindow {
   readonly innerWidth: number
   readonly innerHeight: number
+  addEventListener<K extends keyof GeaWindowEventMap>(type: K, listener: (event: GeaWindowEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
+  removeEventListener<K extends keyof GeaWindowEventMap>(type: K, listener: (event: GeaWindowEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
 }
 
 declare global {
@@ -139,6 +150,10 @@ declare global {
   // Native frames supply whole milliseconds; the request handle stays numeric.
   /** @gea-host-no-property-writes */
   function requestAnimationFrame(callback: (timestampMs: int) => void): number
+
+  // Shares the native Promise-job FIFO; app replacement retires pending jobs.
+  /** @gea-host-no-property-writes */
+  function queueMicrotask(callback: () => void): void
 
   // Native one-shot / repeating timers (gea::host::setTimeout/setInterval,
   // engine/../host/include/host/timers.h), NOT Node's `NodeJS.Timeout` (there is
@@ -339,6 +354,7 @@ export interface DataAttributes {
 }
 
 export interface Event {
+  readonly defaultPrevented: boolean
   readonly type: string
   readonly target: EventTarget
   readonly currentTarget: EventTarget
@@ -354,11 +370,29 @@ export interface EventTarget {
   addEventListener(type: string, listener: (event: Event) => void): void
 }
 
+/** Live child collection; iterable and bracket protocols are not published yet. */
+export interface NodeList {
+  readonly length: number
+  item(index: number): Node | null
+}
+
 export interface Node extends EventTarget {
-  readonly nodeType?: number
+  /** True only for a live allocation in the current mounted document subtree. */
+  readonly isConnected: boolean
+  readonly nodeType: number
+  readonly parentNode: Node | null
+  /** The current first child, including text/comments; null when empty. */
+  readonly firstChild: Node | null
+  readonly childNodes: NodeList
   appendChild(child: Node): void
+  /** Move a live node before a direct child; null appends. Return the inserted node. */
+  insertBefore(child: Node, reference: Node | null): Node
+  /** Detach a direct live child and return that same allocation, without retiring it. */
+  removeChild(child: Node): Node
   remove(): void
 }
+
+export interface FocusOptions { preventScroll?: boolean }
 
 export interface ScrollIntoViewOptions {
   behavior?: 'auto' | 'instant' | 'smooth'
@@ -374,6 +408,12 @@ export interface DOMTokenList {
 }
 
 export interface Element extends Node {
+  readonly lastElementChild: Element | null
+  /** Bounded native selector grammar; malformed/unsupported selectors refuse. */
+  matches(selector: string): boolean
+  closest<E extends Element = Element>(selector: string): E | null
+  querySelector(selector: string): Element | null
+  querySelectorAll(selector: string): readonly Element[]
   className?: string
   readonly children: readonly Element[]
   scrollLeft?: number
@@ -395,8 +435,22 @@ export interface Element extends Node {
   // `blur()` clears it again (and does nothing when this element was not the
   // one focused). Backed by `NodeHandle::focus()`/`blur()` over
   // `Tree::setActiveInput` (engine/ui/node.cpp).
-  focus(): void
+  focus(options?: FocusOptions): void
   blur(): void
+}
+
+/** Minimal native text input backed by a live NodeHandle allocation.
+ * Value uses the native value attribute; HTML dirty-value/defaultValue semantics
+ * and checked/type/selection APIs are not declared by this carrier. */
+export interface InputElement extends Element {
+  disabled: boolean
+  value: string
+}
+
+/** Native button attributes backed by the live node allocation. */
+export interface ButtonElement extends Element {
+  disabled: boolean
+  value: string
 }
 
 export interface VirtualListElement extends Element {
@@ -412,15 +466,22 @@ export interface VirtualListElement extends Element {
 }
 
 export interface Document {
+  addEventListener<K extends keyof GeaEventMap>(type: K, listener: (event: GeaEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
+  removeEventListener<K extends keyof GeaEventMap>(type: K, listener: (event: GeaEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
   readonly body: Element
+  /** Actual connected native focus, null when no owned responder is focused. */
+  readonly activeElement: Element | null
   getElementById(id: string): Element | null
   querySelector(selector: string): Element | null
   querySelectorAll(selector: string): readonly Element[]
+  createElement(tag: 'input'): InputElement
+  createElement(tag: 'button'): ButtonElement
   createElement(tag: 'audio'): HTMLAudioElement
   createElement(tag: 'video'): HTMLVideoElement
   createElement(tag: 'virtual-list'): VirtualListElement
   createElement(tag: string): Element
   createTextNode(text: string): Node
+  createComment(text: string): Node
   createDocumentFragment(): Node
 }
 
@@ -435,6 +496,10 @@ export interface PointerEvent extends Event {
   // finger is 2, etc. (web convention, mirrored by the device touch runtime).
   // Multi-touch handlers route gestures by this id.
   readonly pointerId: number
+  /** Changed button: primary 0, auxiliary 1, secondary 2; -1 for no known edge. */
+  readonly button: number
+  /** Held-button bitmask for the producing pointer gesture; zero when released/unknown. */
+  readonly buttons: number
   readonly x: number
   readonly y: number
   readonly clientX: number
@@ -502,7 +567,7 @@ export interface RotaryEvent extends Event {
  * `KeyEvent`; `input` carries an `InputEvent`. Both are dispatched off-tree by
  * the runtime (`dispatch_key_input`, and `virtual_keyboard.cpp`'s synthetic
  * pair). Hardware button releases dispatch `keyup` with the same KeyEvent.
- * `pointercancel` remains unsupported by the native event dispatcher.
+ * Native cancellation names its event `pointercancel`; `touchcancel` is a listener alias.
  */
 export interface GeaEventMap {
   click: PressEvent
@@ -512,7 +577,12 @@ export interface GeaEventMap {
   pointerdown: PointerEvent
   pointermove: PointerEvent
   pointerup: PointerEvent
+  pointercancel: PointerEvent
+  touchcancel: PointerEvent
   input: InputEvent
+  focusin: Event
+  focusout: Event
+  change: InputEvent
   keydown: KeyEvent
   keyup: KeyEvent
   rotary: RotaryEvent
@@ -524,6 +594,15 @@ export type PointerEventHandler = (event: PointerEvent) => void
 export type RotaryEventHandler = (event: RotaryEvent) => void
 
 export interface NativeTouchEventAttributes {
+  /** Bare JSX spellings use the same native listener publication as onX. */
+  touchstart?: TouchEventHandler
+  touchend?: TouchEventHandler
+  touchmove?: TouchEventHandler
+  touchcancel?: PointerEventHandler
+  pointerdown?: PointerEventHandler
+  pointermove?: PointerEventHandler
+  pointerup?: PointerEventHandler
+  pointercancel?: PointerEventHandler
   onTouchStart?: TouchEventHandler
   onTouchEnd?: TouchEventHandler
   onTouchMove?: TouchEventHandler
@@ -538,9 +617,18 @@ export interface NativeTouchEventAttributes {
   onPointerDown?: PointerEventHandler
   onPointerMove?: PointerEventHandler
   onPointerUp?: PointerEventHandler
+  onPointerCancel?: PointerEventHandler
 }
 
 export interface NativeEventAttributes extends NativeTouchEventAttributes {
+  click?: PressHandler
+  input?: (event: InputEvent) => void
+  /** Committed user value change; distinct from intermediate input. */
+  change?: (event: InputEvent) => void
+  onChange?: (event: InputEvent) => void
+  keydown?: (event: KeyEvent) => void
+  keyup?: (event: KeyEvent) => void
+  scroll?: (event: Event) => void
   /** Text services and app-owned editors may dispatch input on ordinary views. */
   onInput?: (event: InputEvent) => void
   onClick?: PressHandler
@@ -551,6 +639,7 @@ export interface NativeEventAttributes extends NativeTouchEventAttributes {
 }
 
 export interface InputEventTarget extends Element {
+  disabled: boolean
   value: string
 }
 
@@ -559,9 +648,19 @@ export interface InputEvent {
   currentTarget: InputEventTarget
 }
 
-export interface KeyEvent {
-  keyCode: number
-  which: number
+export interface KeyEvent extends Event {
+  readonly target: Element
+  readonly currentTarget: Element
+  readonly keyCode: number
+  readonly which: number
+  readonly key: string
+  readonly code: string
+  readonly altKey: boolean
+  readonly ctrlKey: boolean
+  readonly metaKey: boolean
+  readonly shiftKey: boolean
+  readonly repeat: boolean
+  readonly isComposing: boolean
 }
 
 export interface ViewProps extends DataAttributes {
@@ -1322,6 +1421,59 @@ export interface GpioController {
 
 export declare const Gpio: GpioController
 
+export interface UartOptions {
+  tx: number
+  rx: number
+  baudRate: number
+  /** Receive/transmit queue bytes. Defaults to 4096 each. */
+  rxBufferSize?: number
+  txBufferSize?: number
+}
+
+/** Hardware UART, 8 data bits, no parity, one stop bit (8N1). */
+export interface UartController {
+  /** Claims a free controller and pins. False on conflict/invalid configuration. */
+  open(port: number, options: UartOptions): boolean
+  isOpen(port: number): boolean
+  close(port: number): void
+  /** Nonblocking read into the supplied view; returns bytes read, or -1 on error. */
+  read(port: number, buffer: Uint8Array): number
+  /** Nonblocking whole-buffer enqueue; 0 means backpressure, -1 means error. */
+  write(port: number, buffer: Uint8Array): number
+  /** Queued readable bytes, or -1 when unavailable. */
+  available(port: number): number
+  /** Writable queue capacity, or -1 when unavailable. */
+  writable(port: number): number
+}
+
+export declare const Uart: UartController
+
+/** ESP-NOW v2 datagrams; addresses are six-byte MACs. Unsupported targets return false/-1. */
+export interface EspNowController {
+  /** Integer quarter-dBm cap, 8..84; fails on closed/borrowed radios. The SDK quantizes it. */
+  setMaxTxPower(quarterDbm: number): boolean
+  /** Actual cap in quarter-dBm, or -1 when unavailable. */
+  getMaxTxPower(): number
+  /**
+   * Channel 0 borrows running Wi-Fi. Other channels claim an idle radio.
+   * Default 54; rates 24/36/54 use OFDM, 65 uses HT20 MCS7.
+   * ESP32-S31 also accepts 115 for HE20 MCS9 short GI (nominal 114.7 Mbps).
+   * Unsupported rates/protocols return false without changing a borrowed radio.
+   */
+  open(channel: number, rateMbps?: number): boolean
+  isOpen(): boolean
+  /** True when the previous radio send has completed. */
+  canSend(): boolean
+  close(): void
+  /** Optional key is a 16-byte LMK; omit only for unencrypted traffic. */
+  addPeer(address: Uint8Array, key?: Uint8Array): boolean
+  /** Whole datagram admission: bytes, 0 when busy, -1 for invalid/unavailable. */
+  send(address: Uint8Array, bytes: Uint8Array): number
+  /** source must be 6 bytes, buffer at least 1470. Returns received length, 0, or -1. */
+  receive(source: Uint8Array, buffer: Uint8Array): number
+}
+export declare const EspNow: EspNowController
+
 export interface LedController {
   // A WS2812/NeoPixel strand on one pin — what "the onboard LED" is on most
   // modern ESP32 modules.
@@ -1522,6 +1674,29 @@ export interface AccelerometerController {
 }
 
 export declare const Accelerometer: AccelerometerController
+
+export interface MagnetometerReading {
+  /** Compensated whole microtesla; saturated axes retain their sensor sentinel. */
+  x: number
+  y: number
+  z: number
+  /** False for an unavailable sensor or failed I2C read. */
+  valid: boolean
+  /** Saturated-axis bits: X=1, Y=2, Z=4. Those values are not field strength. */
+  saturatedAxes: number
+  timestampUs: number
+}
+
+export interface MagnetometerController {
+  /** Initializes the board's sensors. Idempotent; false when unavailable. */
+  open(): boolean
+  close(): void
+  /** Number of board-defined sensors, whether open or closed. */
+  count(): number
+  /** Board-defined sensor index, 0 to count() - 1. */
+  read(index: number): MagnetometerReading
+}
+export declare const Magnetometer: MagnetometerController
 
 export type CameraFacing = 'front' | 'back' | 'external'
 export type CameraFlashMode = 'off' | 'on' | 'auto' | 'torch'
@@ -1787,7 +1962,7 @@ export interface InputElementProps {
   keyup?: (keyCode: number) => void
 }
 
-export interface NativeInputElementProps extends InputElementProps, DataAttributes {
+export interface NativeInputElementProps extends Omit<InputElementProps, 'input' | 'keydown' | 'keyup'>, NativeEventAttributes, DataAttributes {
   id?: string
   ref?: GeaElement | null
 }
@@ -1802,7 +1977,7 @@ export interface TextAreaElementProps {
   onBlur?: () => void
 }
 
-export interface NativeTextAreaElementProps extends TextAreaElementProps, DataAttributes {
+export interface NativeTextAreaElementProps extends TextAreaElementProps, NativeEventAttributes, DataAttributes {
   id?: string
   disabled?: boolean
   readOnly?: boolean

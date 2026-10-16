@@ -8,6 +8,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Framebuffer-free retained rendering: each dirty band is rasterized into the
 // display's internal-RAM DMA chunk and streamed to the panel while the next
@@ -36,6 +37,8 @@ public:
 	int createView();
 	int createButton();
 	int createText();
+	int createComment();
+	int createDocumentFragment();
 	int createImage();
 	int createCanvas();
 	int createCamera();
@@ -52,6 +55,8 @@ public:
 
 	void setParent(int child, int parent);
 	void insertBefore(int child, int parent, int reference);
+	void detachNode(int child);
+	void replaceChildren(int parent, const std::vector<int> &children);
 	void setStyle(int node, Property prop, int value);
 	void setDefaultStyle(int node, Property prop, int value);
 	void setStyleFromClass(int node, Property prop, int value);
@@ -86,6 +91,8 @@ public:
 	// event types not tracked by the listener tables.
 	bool hasListenersForType(const char *type) const;
 	bool dispatchEvent(gea::framework::events::PointerEvent &event);
+	bool dispatchEventAlongPath(gea::framework::events::PointerEvent &event,
+	    const std::vector<gea::framework::events::EventTarget> &path);
 	bool containsNode(int ancestor, int node) const;
 	void removeNode(int node);
 	gea::framework::graphics::Canvas *ensureCanvas(int node, int width = 0, int height = 0);
@@ -141,6 +148,10 @@ public:
 	// setActiveInput(-1) clears focus.
 	int activeInputId() const;
 	void setActiveInput(int nodeId);
+	// Pixel user-edit boundary, separate from programmatic attribute writes.
+	bool activeInputAdmitted() const;
+	void markActiveInputEdited();
+	void commitActiveInput();
 	bool activeInputCaretVisible() const;
 	void tickInputCaret(int timestampMs);
 
@@ -164,16 +175,17 @@ private:
 	Tree() = default;
 };
 
-// Document-level (off-tree) events: `rotary` always, and `keydown` bound on a
-// non-input element. These belong to `document`, not to any node, so they are
-// stored as singletons (not per-node listener slots) and dispatched directly by
-// the runtime rather than through Tree::dispatchEvent's tree walk.
+// Legacy anonymous registration and native document-target producers. The
+// off-tree registry owns callback identity/capture/once; mounted pointer/key
+// delivery reaches it through explicit document phases, never a body proxy.
 void setDocumentEventListener(const char *type, gea::framework::events::EventListener listener);
 void dispatchDocumentRotary(int delta);
 bool dispatchDocumentKeyDown(gea::framework::events::PointerEvent &event);
 bool dispatchDocumentKeyUp(gea::framework::events::PointerEvent &event);
+// Native keyboard root authority: real window capture, node/document phases, window bubble.
+bool dispatchRootKeyEvent(gea::framework::events::PointerEvent &event, bool legacyDocumentFirst = false);
 void resetDocumentEventListeners();
-void resetDocumentDelegatedEventListeners();
+void resetRootEventListeners() noexcept;
 
 // Deliver a pointer/touch event straight to document-level listeners with no
 // tree walk. Immediate-mode apps (Display.ctx games) mount no UI tree, so there

@@ -24,6 +24,20 @@
 namespace gea::host {
 
 namespace {
+// Reset releases arbitrary native captures. Those destructors must run without
+// a scheduler lock and cannot repopulate either queue being retired.
+std::atomic<bool> scheduledCallbacksRetired{false};
+thread_local unsigned callbackResetDepth = 0;
+struct CallbackResetScope {
+	CallbackResetScope() { ++callbackResetDepth; }
+	~CallbackResetScope() { --callbackResetDepth; }
+	CallbackResetScope(const CallbackResetScope &) = delete;
+	CallbackResetScope &operator=(const CallbackResetScope &) = delete;
+};
+bool callbacksRejected()
+{
+	return callbackResetDepth != 0 || scheduledCallbacksRetired.load(std::memory_order_acquire);
+}
 
 std::atomic<const char *> callbackStage{"idle"};
 
@@ -82,7 +96,7 @@ public:
 
 	double schedule(TimerCallback callback, double delayMs, bool interval)
 	{
-		if (!callback) return 0;
+		if (!callback || callbacksRejected()) return 0;
 		auto timer = std::make_shared<ScheduledTimer>();
 		timer->id = nextTimerId();
 		timer->callback = std::move(callback);
@@ -91,6 +105,7 @@ public:
 		timer->interval = interval;
 		if (timer->interval && timer->delayMs <= 0) timer->delayMs = 1;
 		std::lock_guard<std::mutex> lock(mutex_);
+		if (callbacksRejected()) return 0;
 		timers_.push_back(timer);
 		return timer->id;
 	}
@@ -124,6 +139,7 @@ public:
 		}
 
 		for (auto &timer : due) {
+			if (scheduledCallbacksRetired.load(std::memory_order_acquire)) break;
 			if (timer->active && timer->callback) timer->callback();
 
 			std::lock_guard<std::mutex> lock(mutex_);
@@ -141,11 +157,14 @@ public:
 
 	void reset()
 	{
-		std::lock_guard<std::mutex> lock(mutex_);
-		for (auto &timer : timers_) {
-			if (timer) timer->active = false;
+		std::vector<std::shared_ptr<ScheduledTimer>> retired;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			for (auto &timer : timers_) {
+				if (timer) timer->active = false;
+			}
+			retired.swap(timers_);
 		}
-		timers_.clear();
 	}
 
 private:
@@ -157,10 +176,16 @@ private:
 
 	void compactInactiveTimers()
 	{
-		std::lock_guard<std::mutex> lock(mutex_);
-		timers_.erase(
-			std::remove_if(timers_.begin(), timers_.end(), [](const auto &timer) { return !timer || (!timer->active && !timer->running); }),
-			timers_.end());
+		std::vector<std::shared_ptr<ScheduledTimer>> retired;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			for (const auto &timer : timers_) {
+				if (timer && !timer->active && !timer->running) retired.push_back(timer);
+			}
+			timers_.erase(
+				std::remove_if(timers_.begin(), timers_.end(), [](const auto &timer) { return !timer || (!timer->active && !timer->running); }),
+				timers_.end());
+		}
 	}
 
 	std::mutex mutex_;
@@ -181,7 +206,7 @@ public:
 #if GEA_EMBEDDED_RAF_PERF
 		perfStats_.requestCount++;
 #endif
-		if (!callback) {
+		if (!callback || callbacksRejected()) {
 #if GEA_EMBEDDED_RAF_PERF
 			perfStats_.droppedCount++;
 #endif
@@ -212,6 +237,7 @@ public:
 #endif
 
 		for (int i = 0; i < count; i++) {
+			if (scheduledCallbacksRetired.load(std::memory_order_acquire)) break;
 			if (active[i]) {
 				[[maybe_unused]] const std::int64_t callbackStartUs = rafPerfNowUs();
 				active[i](timestampMs);
@@ -232,7 +258,8 @@ public:
 
 	void reset()
 	{
-		pending_.clear();
+		std::vector<AnimationFrameCallback> retired;
+		retired.swap(pending_);
 	}
 
 	void resetPerfStats()
@@ -279,12 +306,14 @@ private:
 
 double setTimeout(TimerCallback callback, double delayMs)
 {
+	if (callbacksRejected()) return 0;
 	if (workers::Context::isWorkerCurrent()) return workers::Context::current()->schedule(std::move(callback), delayMs, false);
 	return TimerScheduler::instance().schedule(std::move(callback), delayMs, false);
 }
 
 double setInterval(TimerCallback callback, double delayMs)
 {
+	if (callbacksRejected()) return 0;
 	if (workers::Context::isWorkerCurrent()) return workers::Context::current()->schedule(std::move(callback), delayMs, true);
 	return TimerScheduler::instance().schedule(std::move(callback), delayMs, true);
 }
@@ -303,6 +332,7 @@ void clearInterval(double id)
 
 void resetScheduledTimers()
 {
+	CallbackResetScope retirement;
 	TimerScheduler::instance().reset();
 }
 
@@ -313,10 +343,13 @@ double requestAnimationFrame(AnimationFrameCallback callback)
 
 void runAnimationFrameCallbacks(AnimationFrameTimestamp timestampMs)
 {
+	if (callbacksRejected()) return;
 	callbackStage.store("worker_callbacks", std::memory_order_relaxed);
 	workers::Context::runMainPending();
+	if (scheduledCallbacksRetired.load(std::memory_order_acquire)) { callbackStage.store("idle", std::memory_order_relaxed); return; }
 	callbackStage.store("timer_callbacks", std::memory_order_relaxed);
 	TimerScheduler::instance().run(static_cast<double>(timestampMs));
+	if (scheduledCallbacksRetired.load(std::memory_order_acquire)) { callbackStage.store("idle", std::memory_order_relaxed); return; }
 	callbackStage.store("animation_callbacks", std::memory_order_relaxed);
 	AnimationFrameQueue::instance().run(timestampMs);
 	callbackStage.store("idle", std::memory_order_relaxed);
@@ -329,7 +362,15 @@ const char *animationFrameCallbackStage()
 
 void resetAnimationFrameCallbacks()
 {
+	CallbackResetScope retirement;
 	AnimationFrameQueue::instance().reset();
+}
+
+void retireScheduledCallbacks()
+{
+	scheduledCallbacksRetired.store(true, std::memory_order_release);
+	resetScheduledTimers();
+	resetAnimationFrameCallbacks();
 }
 
 void animationFramePerfStatsReset()

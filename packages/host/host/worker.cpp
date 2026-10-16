@@ -31,6 +31,7 @@ thread_local std::shared_ptr<Context> activeContext;
 thread_local MessagePort globalPort;
 std::atomic<std::uint64_t> timerIds{1};
 std::atomic<bool> mainCreated{false};
+std::atomic<bool> mainRetired{false};
 std::atomic<const char *> mainStage{"idle"};
 struct Registry {
   std::mutex mutex;
@@ -79,6 +80,7 @@ Context::~Context() = default;
 std::shared_ptr<Context> Context::main() {
   static auto context = std::shared_ptr<Context>(new Context(true, "main"));
   mainCreated.store(true, std::memory_order_release);
+  if (mainRetired.load(std::memory_order_acquire)) context->stop();
   return context;
 }
 void Context::runMainPending() {
@@ -113,21 +115,36 @@ void Context::prioritizeAudio() {
 bool Context::post(std::function<void()> callback, std::size_t bytes) {
   if (!callback) return false;
   std::lock_guard lock(state_->mutex);
-  if (state_->stopping || state_->tasks.size() >= maxQueueEntries || bytes > maxQueueBytes - state_->bytes)
+  if (state_->stopping || (state_->main && mainRetired.load(std::memory_order_acquire)) || state_->tasks.size() >= maxQueueEntries || bytes > maxQueueBytes - state_->bytes)
     return false;
   state_->tasks.push_back({std::move(callback), bytes});
   state_->bytes += bytes;
   state_->wake.notify_one();
   return true;
 }
-void Context::setPump(std::function<void()> pump) { state_->pump = std::move(pump); }
+void Context::setPump(std::function<void()> pump) {
+  if (!state_->main) { state_->pump = std::move(pump); return; }
+  std::function<void()> retired;
+  {
+    std::lock_guard lock(state_->mutex);
+    if (mainRetired.load(std::memory_order_acquire)) return;
+    retired.swap(state_->pump);
+    state_->pump.swap(pump);
+  }
+}
 void Context::setErrorHandler(std::function<void(const std::string &)> handler) {
-  std::lock_guard lock(state_->mutex);
-  state_->error = std::move(handler);
+  if (!state_->main) { std::lock_guard lock(state_->mutex); state_->error = std::move(handler); return; }
+  std::function<void(const std::string &)> retired;
+  {
+    std::lock_guard lock(state_->mutex);
+    if (mainRetired.load(std::memory_order_acquire)) return;
+    retired.swap(state_->error);
+    state_->error.swap(handler);
+  }
 }
 void Context::addCleanup(std::function<void()> cleanup) {
   std::lock_guard lock(state_->mutex);
-  if (state_->stopping) throw std::runtime_error("Worker context is closed");
+  if (state_->stopping || (state_->main && mainRetired.load(std::memory_order_acquire))) throw std::runtime_error("Worker context is closed");
   state_->cleanups.push_back(std::move(cleanup));
 }
 void Context::stop() {
@@ -143,7 +160,7 @@ double Context::schedule(std::function<void()> callback, double delayMs, bool re
       std::max(repeat ? 1.0 : 0.0, normalized)));
   const double id = static_cast<double>(timerIds.fetch_add(1));
   std::lock_guard lock(state_->mutex);
-  if (state_->stopping) return 0;
+  if (state_->stopping || (state_->main && mainRetired.load(std::memory_order_acquire))) return 0;
   state_->timers.push_back({id, std::move(callback), Clock::now() + delay, delay, repeat});
   state_->wake.notify_one();
   return id;
@@ -192,7 +209,13 @@ void Context::runPending(double budgetMs) {
       stage("invoke_callback");
       if (callback) callback();
       stage("pump_microtasks");
-      if (state_->pump) state_->pump();
+      if (state_->main) {
+        // A pump may itself retire the realm: keep its active callable alive
+        // locally, and never run it after a task has closed main admission.
+        std::function<void()> pump;
+        { std::lock_guard lock(state_->mutex); if (!state_->stopping && !mainRetired.load(std::memory_order_acquire)) pump = state_->pump; }
+        if (pump) pump();
+      } else if (state_->pump) state_->pump();
     } catch (const std::exception &error) {
       std::function<void(const std::string &)> report;
       { std::lock_guard lock(state_->mutex); report = state_->error; }
@@ -274,6 +297,34 @@ void Context::finish() {
   globalPort.close();
   globalPort = {};
 }
+void retireMainContext() {
+  if (mainRetired.exchange(true, std::memory_order_acq_rel)) return;
+  if (!mainCreated.load(std::memory_order_acquire)) return;
+  auto context = Context::main();
+  std::deque<Context::State::Task> tasks;
+  std::vector<Context::State::Timer> timers;
+  std::vector<std::function<void()>> cleanups;
+  std::function<void()> pump;
+  std::function<void(const std::string &)> error;
+  {
+    std::lock_guard lock(context->state_->mutex);
+    context->state_->stopping.store(true);
+    tasks.swap(context->state_->tasks);
+    timers.swap(context->state_->timers);
+    cleanups.swap(context->state_->cleanups);
+    pump.swap(context->state_->pump);
+    error.swap(context->state_->error);
+    context->state_->bytes = 0;
+  }
+  // Native captured-owner destructors may reenter any admission API. All are
+  // closed before captures are released, with no Context lock held here.
+  tasks.clear(); timers.clear(); pump = {}; error = {};
+  for (auto it = cleanups.rbegin(); it != cleanups.rend(); ++it) {
+    try { if (*it) (*it)(); }
+    catch (...) { std::fputs("[Worker:main] process cleanup failed; continuing retirement\n", stderr); }
+  }
+}
+
 void Context::start(std::function<void()> entry) {
   if (state_->main || state_->started.exchange(true)) throw std::runtime_error("Worker already started");
   auto context = shared_from_this();

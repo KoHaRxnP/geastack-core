@@ -168,6 +168,7 @@ bool isLayoutProperty(Property prop)
 	case Property::Overflow:
 	case Property::OverflowX:
 	case Property::OverflowY:
+	case Property::FontStretch:
 	case Property::FontId:
 	case Property::FontSize:
 	case Property::FontWeight:
@@ -937,6 +938,9 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			changed = 1;
 		}
 		break;
+#endif
+#if GEA_CSS_FONT_STRETCH
+	case Property::FontStretch: if (style.font_stretch != value) { style.font_stretch = value; changed = 1; } break;
 #endif
 	case Property::FontId:          if (style.font_id != value) { style.font_id = value; changed = 1; } break;
 	case Property::FontSize:        if (style.font_size != value) { style.font_size = value; changed = 1; } break;

@@ -599,6 +599,7 @@ bool styleEqualExceptTextPaint(const ComputedStyle &a, const ComputedStyle &b)
 	    a.font_id != b.font_id ||
 	    a.font_size != b.font_size ||
 	    a.font_weight != b.font_weight ||
+	    a.font_stretch != b.font_stretch ||
 	    a.line_height != b.line_height ||
 	    a.text_align != b.text_align ||
 	    a.overflow != b.overflow ||
@@ -718,6 +719,7 @@ bool styleEqualExceptLocalDisplayCommands(const ComputedStyle &a, const Computed
 	    a.font_id != b.font_id ||
 	    a.font_size != b.font_size ||
 	    a.font_weight != b.font_weight ||
+	    a.font_stretch != b.font_stretch ||
 	    a.line_height != b.line_height ||
 	    a.text_align != b.text_align ||
 	    a.overflow != b.overflow ||
@@ -1241,6 +1243,7 @@ CssDeclarationId classifyDeclaration(const char *property)
 	if (std::strcmp(property, "border-bottom-left-radius") == 0) return CssDeclarationId::BorderBottomLeftRadius;
 	if (std::strcmp(property, "font-family") == 0) return CssDeclarationId::FontFamily;
 	if (std::strcmp(property, "font-size") == 0) return CssDeclarationId::FontSize;
+	if (std::strcmp(property, "font-stretch") == 0) return CssDeclarationId::FontStretch;
 	if (std::strcmp(property, "font-weight") == 0) return CssDeclarationId::FontWeight;
 	if (std::strcmp(property, "line-height") == 0) return CssDeclarationId::LineHeight;
 	if (std::strcmp(property, "text-align") == 0) return CssDeclarationId::TextAlign;
@@ -4093,6 +4096,24 @@ int fontSizeValue(const std::string &value, int nodeId)
 	return parseLengthForNode(value, nodeId, LengthAxis::Vertical);
 }
 
+int fontStretchValue(const std::string &value)
+{
+	const std::string token = toLowerAscii(trimCssValue(value));
+	if (token == "normal") return 1000;
+	if (token == "ultra-condensed") return 500;
+	if (token == "extra-condensed") return 625;
+	if (token == "condensed") return 750;
+	if (token == "semi-condensed") return 875;
+	if (token == "semi-expanded") return 1125;
+	if (token == "expanded") return 1250;
+	if (token == "extra-expanded") return 1500;
+	if (token == "ultra-expanded") return 2000;
+	char *end = nullptr;
+	const double number = std::strtod(token.c_str(), &end);
+	if (!std::isfinite(number) || number <= 0 || !end || std::strcmp(end, "%") != 0) return -1;
+	return static_cast<int>(std::clamp(std::round(number * 10.0), 1.0, 32767.0));
+}
+
 int fontWeightValue(const std::string &rawValue)
 {
 	const std::string value = toLowerAscii(trimCssValue(rawValue));
@@ -4496,7 +4517,7 @@ void setCustomPropertyRuleValue(NodeCustomPropertyStore &store,
 				               value,
 				               compiled.values[0],
 				               compiled.values[1],
-				               static_cast<std::uint8_t>(compiled.values[2]));
+				               static_cast<std::uint8_t>(compiled.values[2]), static_cast<std::uint32_t>(compiled.values[3]));
 				return;
 			}
 #if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
@@ -7191,6 +7212,9 @@ bool compileKeywordValue(CssDeclarationId declaration, const std::string &value,
 		compiled.values[0] = fontFamilyValue(value);
 		return true;
 	}
+	case CssDeclarationId::FontStretch:
+		compiled.values[0] = fontStretchValue(value);
+		return compiled.values[0] > 0;
 	case CssDeclarationId::FontWeight:
 		compiled.values[0] = fontWeightValue(value);
 		return true;
@@ -7771,7 +7795,7 @@ bool isLineHeightProperty(Property property)
 
 bool isFontMetricProperty(Property property)
 {
-	return property == Property::FontId || property == Property::FontSize || property == Property::FontWeight;
+	return property == Property::FontId || property == Property::FontSize || property == Property::FontWeight || property == Property::FontStretch;
 }
 
 void applyGridTemplateValue(NodeHandle node, const std::string &value, bool columns)
@@ -8307,6 +8331,9 @@ bool setClassRuleValueFastUnchecked(Node &target, Property property, int value)
 	case Property::FontSize: style.font_size = value; return true;
 #if GEA_CSS_FONT_WEIGHT
 	case Property::FontWeight: style.font_weight = value; return true;
+#endif
+#if GEA_CSS_FONT_STRETCH
+	case Property::FontStretch: style.font_stretch = value; return true;
 #endif
 #if GEA_CSS_LINE_HEIGHT
 	case Property::LineHeight:
@@ -9303,19 +9330,19 @@ bool resolveLayoutBoxLengths(int nodeId, int percentageBasis)
 
 void Style::set(Property property, int value) const
 {
-	if (nodeId_ < 0) return;
+	if (nodeId() < 0) return;
 	#if GEA_CSS_ANIMATIONS
 	double before = 0;
-	const bool transition = inlineTransitionBefore(nodeId_, property, before);
+	const bool transition = inlineTransitionBefore(nodeId(), property, before);
 	#endif
-	Tree::instance().setStyle(nodeId_, property, value);
+	Tree::instance().setStyle(nodeId(), property, value);
 	#if GEA_CSS_ANIMATIONS
-	if (transition) applyInlineTransition(nodeId_, property, before);
+	if (transition) applyInlineTransition(nodeId(), property, before);
 	#endif
 	// This element's cascaded lengths can depend on its own font too. Updating
 	// descendants alone leaves, for example, class padding in ch at old metrics.
-	if (isFontMetricProperty(property) || isLineHeightProperty(property)) recomputeSubtreeClassStyles(nodeId_);
-	else if (propertyAffectsDescendantStyle(property)) recomputeDescendantClassStyles(nodeId_);
+	if (isFontMetricProperty(property) || isLineHeightProperty(property)) recomputeSubtreeClassStyles(nodeId());
+	else if (propertyAffectsDescendantStyle(property)) recomputeDescendantClassStyles(nodeId());
 }
 
 void Style::backgroundColor(int rgb565) const
@@ -9326,20 +9353,20 @@ void Style::backgroundColor(int rgb565) const
 
 void Style::setProperty(const std::string &property, const std::string &value) const
 {
-	if (nodeId_ < 0) return;
-	StyleSheet::instance().applyProperty(NodeHandle(nodeId_), property, value);
+	if (nodeId() < 0) return;
+	StyleSheet::instance().applyProperty(NodeHandle(nodeId()), property, value);
 }
 
 bool Style::setNumberProperty(const std::string &property, double value) const
 {
-	if (nodeId_ < 0) return false;
-	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId_), property.c_str(), value);
+	if (nodeId() < 0) return false;
+	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId()), property.c_str(), value);
 }
 
 bool Style::removeProperty(const std::string &property) const
 {
-	if (nodeId_ < 0) return false;
-	return StyleSheet::instance().removeProperty(NodeHandle(nodeId_), property);
+	if (nodeId() < 0) return false;
+	return StyleSheet::instance().removeProperty(NodeHandle(nodeId()), property);
 }
 
 void applyAnimatedStyleValue(int nodeId, Property property, int value)
@@ -9377,6 +9404,9 @@ void applyInheritedStyleDefaults(int node)
 	style.text_color = parentStyle.text_color;
 #if GEA_CSS_TEXT_ALPHA
 	style.text_alpha = parentStyle.text_alpha;
+#endif
+#if GEA_CSS_FONT_STRETCH
+	style.font_stretch = parentStyle.font_stretch;
 #endif
 	style.font_id = parentStyle.font_id;
 	style.font_size = parentStyle.font_size;
@@ -9523,6 +9553,12 @@ bool applyNumberDeclarationWithSource(NodeHandle node,
 	case CssDeclarationId::FontSize:
 		setStyleValue(node, Property::FontSize, length, source);
 		return true;
+#if GEA_CSS_FONT_STRETCH
+	case CssDeclarationId::FontStretch:
+		if (!std::isfinite(value) || value <= 0) return false;
+		setStyleValue(node, Property::FontStretch, std::clamp(roundToInt(std::clamp(value, 0.1, 3276.7) * 10), 1, 32767), source);
+		return true;
+#endif
 	case CssDeclarationId::FontWeight:
 		setStyleValue(node, Property::FontWeight, std::clamp(roundToInt(value), 1, 1000), source);
 		return true;
@@ -9620,6 +9656,10 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 #if !GEA_CSS_WRITING_MODE
 	case CssDeclarationId::Direction:
 	case CssDeclarationId::WritingMode:
+		return false;
+#endif
+#if !GEA_CSS_FONT_STRETCH
+	case CssDeclarationId::FontStretch:
 		return false;
 #endif
 
@@ -10074,6 +10114,9 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::Font: {
 		ParsedFontShorthand font;
 		if (!parseFontShorthand(value, font)) return true;
+#if GEA_CSS_FONT_STRETCH
+		setStyleValue(node, Property::FontStretch, 1000, source);
+#endif
 		setStyleValue(node, Property::FontWeight, font.weight, source);
 		setStyleValue(node, Property::FontId, fontFamilyValue(font.family), source);
 		setLengthStyleValue(node, font.size, Property::FontSize, fontSizeValue(font.size, nodeId), source);
@@ -10083,6 +10126,13 @@ bool applyKnownResolvedPropertyWithSource(NodeHandle node, CssDeclarationId decl
 	case CssDeclarationId::FontSize:
 		setLengthStyleValue(node, value, Property::FontSize, fontSizeValue(value, nodeId), source);
 		return true;
+#if GEA_CSS_FONT_STRETCH
+	case CssDeclarationId::FontStretch: {
+		const int stretch = fontStretchValue(value);
+		if (stretch > 0) setStyleValue(node, Property::FontStretch, stretch, source);
+		return true;
+	}
+#endif
 	case CssDeclarationId::FontWeight:
 		setStyleValue(node, Property::FontWeight, fontWeightValue(value), source);
 		return true;
@@ -11170,6 +11220,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		case CssDeclarationId::OverflowX: setStyleValue(node, Property::OverflowX, compiled.values[0], source); return true;
 		case CssDeclarationId::OverflowY: setStyleValue(node, Property::OverflowY, compiled.values[0], source); return true;
 		case CssDeclarationId::FontFamily: setStyleValue(node, Property::FontId, compiled.values[0], source); return true;
+		case CssDeclarationId::FontStretch: setStyleValue(node, Property::FontStretch, compiled.values[0], source); return true;
 		case CssDeclarationId::FontWeight: setStyleValue(node, Property::FontWeight, compiled.values[0], source); return true;
 		default: return false;
 		}
@@ -11212,7 +11263,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		                               compiled.values[0],
 		                               compiled.values[1],
 		                               compiled.values[2],
-		                               source);
+		                               source, static_cast<std::uint32_t>(compiled.values[3]));
 	case CssCompiledKind::ColorVar: {
 		const CssAtomId atom = static_cast<CssAtomId>(compiled.values[0]);
 		if (const NodeCustomProperty *entry = lookupCustomPropertyEntry(nodeId, atom)) {
@@ -11240,7 +11291,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		                               compiled.values[1],
 		                               compiled.values[2],
 		                               compiled.values[3],
-		                               source);
+		                               source, static_cast<std::uint32_t>(compiled.values[4]));
 	}
 	case CssCompiledKind::Rotate: {
 		const IndividualRotation rotation{compiled.values[0], compiled.values[1], compiled.values[2], compiled.values[3]};
@@ -14008,6 +14059,7 @@ bool addCachedKeywordDeclaration(CachedStyleApplyOp &op, CssDeclarationId declar
 	case CssDeclarationId::OverflowX: return addCachedStyleApplyProperty(op, Property::OverflowX, value);
 	case CssDeclarationId::OverflowY: return addCachedStyleApplyProperty(op, Property::OverflowY, value);
 	case CssDeclarationId::FontFamily: return addCachedStyleApplyProperty(op, Property::FontId, value);
+	case CssDeclarationId::FontStretch: return addCachedStyleApplyProperty(op, Property::FontStretch, value);
 	case CssDeclarationId::FontWeight: return addCachedStyleApplyProperty(op, Property::FontWeight, value);
 	default: return false;
 	}
@@ -14919,6 +14971,7 @@ bool addCompiledValueWrites(const CssCompiledValue &compiled, PropertyWriteMask 
 		case CssDeclarationId::OverflowX: addPropertyWrite(mask, Property::OverflowX); return true;
 		case CssDeclarationId::OverflowY: addPropertyWrite(mask, Property::OverflowY); return true;
 		case CssDeclarationId::FontFamily: addPropertyWrite(mask, Property::FontId); return true;
+		case CssDeclarationId::FontStretch: addPropertyWrite(mask, Property::FontStretch); return true;
 		case CssDeclarationId::FontWeight: addPropertyWrite(mask, Property::FontWeight); return true;
 		default: return false;
 		}
@@ -15721,7 +15774,7 @@ void applyCachedRuleWithSource(NodeHandle node, const CachedRuleApply &op, Style
 bool setsFontMetrics(CssDeclarationId declaration)
 {
 	return declaration == CssDeclarationId::Font || declaration == CssDeclarationId::FontFamily ||
-	       declaration == CssDeclarationId::FontSize || declaration == CssDeclarationId::FontWeight;
+	       declaration == CssDeclarationId::FontSize || declaration == CssDeclarationId::FontWeight || declaration == CssDeclarationId::FontStretch;
 }
 
 void applyActiveRuleSpanToNode(int node, const ActiveRulePlan &plan, int bucketId, int metricsOnly = 0)
@@ -16071,6 +16124,11 @@ struct ParentStyleSnapshot {
 #else
 	static constexpr std::uint8_t text_alpha = 255;
 #endif
+#if GEA_CSS_FONT_STRETCH
+	std::int16_t font_stretch;
+#else
+	static constexpr std::int16_t font_stretch = 1000;
+#endif
 	std::int16_t font_id;
 	decltype(ComputedStyle::font_size) font_size;
 #if GEA_CSS_FONT_WEIGHT
@@ -16127,6 +16185,9 @@ ParentStyleSnapshot snapshotParentStyle(const ComputedStyle &s)
 #if GEA_CSS_FONT_WEIGHT
 	out.font_weight = s.font_weight;
 #endif
+#if GEA_CSS_FONT_STRETCH
+	out.font_stretch = s.font_stretch;
+#endif
 #if GEA_CSS_LINE_HEIGHT
 	out.line_height = s.line_height;
 #endif
@@ -16157,7 +16218,8 @@ ParentStyleSnapshot snapshotParentStyle(const ComputedStyle &s)
 bool parentStylesDiffer(const ParentStyleSnapshot &a, const ParentStyleSnapshot &b)
 {
 	return a.text_color != b.text_color || a.text_alpha != b.text_alpha || a.font_id != b.font_id || a.font_size != b.font_size ||
-	       a.font_weight != b.font_weight || a.line_height != b.line_height || a.line_height_multiplier != b.line_height_multiplier ||
+	       a.font_weight != b.font_weight ||
+	    a.font_stretch != b.font_stretch || a.line_height != b.line_height || a.line_height_multiplier != b.line_height_multiplier ||
 	       a.text_align != b.text_align || a.text_transform != b.text_transform ||
 	       a.white_space != b.white_space || a.visibility != b.visibility || a.border_widths != b.border_widths;
 }

@@ -2,6 +2,10 @@
 
 #include <cstdint>
 
+#ifndef GEA_EMBEDDED_TTF_FREETYPE
+#define GEA_EMBEDDED_TTF_FREETYPE 0
+#endif
+
 namespace gea::framework::graphics {
 
 struct Glyph {
@@ -98,6 +102,12 @@ struct RasterizedFontData {
 	const FontKerningPair *kerning = nullptr;
 	bool strictGlyphLookup = false;
 	int fallbackCodepoint = -1;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ // Runtime slot reuse must not reuse Canvas sprite/glyph-cache identity.
+ std::uint64_t generation = 0;
+#else
+ static constexpr std::uint64_t generation = 0;
+#endif
 };
 
 class RasterizedFont final : public Font {
@@ -122,6 +132,7 @@ class FontRegistry {
 public:
 	static RasterizedFont rasterized(int fontId);
 	static RasterizedFont rasterizedFamily(int familyId, int sizePx);
+	static RasterizedFont rasterizedFamily(int familyId, int sizePx, int weight, int stretch);
 	static const BitmapFont8x16 &bitmap8x16();
 	static int familyId(const char *family);
 	static const char *familyName(int familyId);

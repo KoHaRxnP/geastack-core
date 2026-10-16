@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "internal.h"
+#include "node.h"
+#include "input_retirement.h"
+#include <stdexcept>
+#include <algorithm>
+#include <string>
 #include <image.h>
 #include "canvas_element.h"
 #include "display.h"
@@ -14,6 +19,9 @@
 #include <cstring>
 
 namespace gea::embedded::ui {
+
+// Internal cross-TU cleanup; no public/native SDK surface.
+void resetTreeEventStorage();
 
 namespace {
 
@@ -100,6 +108,7 @@ bool canUseDisplayFramebuffer(TreeState &state, int id, int width, int height)
 void resetNodeSlot(TreeState &state, int id)
 {
 	if (id < 0 || id >= kMaxNodes) return;
+	gea::framework::identity::retire(id);
 	forgetNodeCssAnimations(id);
 #if GEA_UI_IMAGE_NODES
 	gea::framework::graphics::ImageStore::instance().release(state.nodes[id].image_id);
@@ -109,7 +118,10 @@ void resetNodeSlot(TreeState &state, int id)
 	// before NodeLifecycle::init frees the string, or a stale-list replay in the
 	// gap before the next record reads freed memory.
 	if (!state.nodes[id].text.empty()) DisplayList::instance().scrubNodeText(state.nodes[id].text.c_str());
-	releaseRareData(id);  // frees the rare-data block: attributes, listeners, custom props, virtual-list
+	releaseRareData(id);  // releases detached listener captures after pool mutation
+	// The intentional retirement above expected no live owner. A destructor
+	// may clear/recreate this slot; never finish cleanup against its successor.
+	if (gea::framework::identity::node(id)) return;
 #if GEA_CSS_RARE_STYLE
 	releaseRareStyle(state.nodes[id].mutableStyle().rare_style);  // frees the cold-style block
 #endif
@@ -152,6 +164,7 @@ bool localAbsoluteLeafTreeMutation(const TreeState &state, int child)
 
 void Tree::clear()
 {
+	gea::framework::identity::clear();
 	LayoutEngine::instance().endLayoutPass();
 	LayoutEngine::instance().releasePersistentLayoutStorage();
 	auto &state = treeState();
@@ -159,16 +172,9 @@ void Tree::clear()
 	if (state.refreshSerial == 0) state.refreshSerial = 1;
 	for (int i = 0; i < state.nodeCount; i++) {
 		forgetNodeCssAnimations(i);
-		releaseRareData(i);  // frees the rare-data block: attributes, listeners, custom props, styles, virtual-list
+		// Listener captures stay owned until ALL structural clear writes finish.
 		state.classLists[i].clear();
 	}
-	// Document-level handlers live off-tree; drop them so the next app doesn't
-	// inherit the previous app's dial/hardware-button/pointer handlers.
-	// Delegated document pointer/touch handlers also bind onto the mounted root;
-	// releaseRareData above drops those per-node listener slots, so the binding
-	// cache must be reset with them.
-	resetDocumentEventListeners();
-	resetDocumentDelegatedEventListeners();
 	resetRareStylePool();  // drop all cold-style entries; node handles reset by the Node{} loop below
 	state.canvases.clear();
 	std::memset(state.nodeActive, 0, sizeof(state.nodeActive));
@@ -226,6 +232,9 @@ void Tree::clear()
 	// be reused. Dropping our handles forces re-mount on the next focus
 	// event in the new app.
 	VirtualKeyboard::instance().reset();
+	// No outgoing Tree bookkeeping may run after capture destruction: it can
+	// synchronously clear and mount a successor tree.
+	resetTreeEventStorage();
 }
 
 int Tree::createNode(NodeType type)
@@ -241,12 +250,17 @@ int Tree::createNode(NodeType type)
 		if (state.nodeCount >= kMaxNodes) return -1;
 		id = state.nodeCount++;
 	}
+	gea::framework::identity::activate(id);
+	const auto allocatedOwner = gea::framework::identity::node(id);
 	state.nodeActive[id] = 1;
 	releaseRareData(id);  // free any block from a prior occupant before reinit
+	if (!gea::framework::identity::current(id, allocatedOwner)) return -1;
 	NodeLifecycle::init(&state.nodes[id], type);
 	LayoutEngine::instance().resetNodeLayoutState(id);
 	state.classLists[id].clear();
 	if (type == NodeType::VirtualList) VirtualListRenderer::init(id);
+	// The typed native Button factory carries the same semantic tag as JSX/DOM creation.
+	if (type == NodeType::Button) setTagName(id, "button");
 	return id;
 }
 
@@ -325,6 +339,8 @@ int Tree::childAt(int node, int index)
 int Tree::createView() { return createNode(NodeType::View); }
 int Tree::createButton() { return createNode(NodeType::Button); }
 int Tree::createText() { return createNode(NodeType::Text); }
+int Tree::createComment() { return createNode(NodeType::Comment); }
+int Tree::createDocumentFragment() { return createNode(NodeType::DocumentFragment); }
 int Tree::createImage() { return createNode(NodeType::Image); }
 int Tree::createCanvas() { return createNode(NodeType::Canvas); }
 int Tree::createCamera() { return createNode(NodeType::Camera); }
@@ -534,12 +550,23 @@ bool reparentWouldCycle(const TreeState &state, int child, int parent)
 	return false;
 }
 
+namespace { void prepareDisconnectedMove(Tree &tree, int child, int parent, int reference = -1); }
+
 void Tree::setParent(int child, int parent)
 {
 	auto &state = treeState();
 	if (child < 0 || child >= state.nodeCount || parent < 0 || parent >= state.nodeCount) return;
 	if (child == parent) return;
 	if (reparentWouldCycle(state, child, parent)) return;
+	if (state.nodes[parent].type == NodeType::Comment ||
+	    (state.nodes[parent].type == NodeType::Text && !*tagName(parent))) return;
+	if (state.nodes[child].type == NodeType::DocumentFragment) {
+		// Insertion moves the children in order; the fragment remains detached
+		// and reusable. Never insert a visual container in its place.
+		while (state.nodes[child].first_child >= 0) setParent(state.nodes[child].first_child, parent);
+		return;
+	}
+	prepareDisconnectedMove(*this,child,parent);
 	Node *c = &state.nodes[child];
 	const bool localMutation = localAbsoluteLeafTreeMutation(state, child);
 	if (c->parent >= 0) {
@@ -590,13 +617,21 @@ void Tree::insertBefore(int child, int parent, int reference)
 	if (child < 0 || child >= state.nodeCount || parent < 0 || parent >= state.nodeCount) return;
 	if (child == parent) return;
 	if (reparentWouldCycle(state, child, parent)) return;
-	// No valid reference sibling under `parent` (or it's the child itself) → append.
-	if (reference < 0 || reference >= state.nodeCount || reference == child ||
-	    state.nodes[reference].parent != parent) {
+	if (state.nodes[parent].type == NodeType::Comment ||
+	    (state.nodes[parent].type == NodeType::Text && !*tagName(parent))) return;
+	if (reference >= 0 && (reference >= state.nodeCount || !state.nodeActive[reference] || state.nodes[reference].parent != parent))
+		throw std::invalid_argument("insertBefore reference is not a child of parent");
+	if (child == reference) return;
+	if (state.nodes[child].type == NodeType::DocumentFragment) {
+		while (state.nodes[child].first_child >= 0) insertBefore(state.nodes[child].first_child, parent, reference);
+		return;
+	}
+	if (reference < 0) {
 		setParent(child, parent);
 		return;
 	}
 
+	prepareDisconnectedMove(*this,child,parent,reference);
 	Node *c = &state.nodes[child];
 	const bool localMutation = localAbsoluteLeafTreeMutation(state, child);
 	// Detach `child` from its current position first; this may mutate the
@@ -645,14 +680,178 @@ void Tree::insertBefore(int child, int parent, int reference)
 	StyleSheet::instance().recomputeSubtree(child);
 }
 
+namespace {
+struct TopologySnapshot {
+	NodeHandle owner;
+	int parent, previous, next, first, last;
+	NodeType type;
+	std::string tag;
+};
+void captureTopology(Tree &tree, std::vector<TopologySnapshot> &snapshot, int id)
+{
+	if (id < 0) return;
+	for (const auto &entry : snapshot) if (entry.owner.id() == id) return;
+	NodeHandle owner(id);
+	if (!owner.valid()) throw std::invalid_argument("mutation requires live nodes");
+	const auto &n = tree.node(id);
+	snapshot.push_back({owner,n.parent,n.prev_sibling,n.next_sibling,n.first_child,n.last_child,n.type,tree.tagName(id)});
+}
+void validateTopology(Tree &tree, const std::vector<TopologySnapshot> &snapshot)
+{
+	for (const auto &entry : snapshot) {
+		if (!entry.owner.valid()) throw std::runtime_error("topology changed during focus retirement");
+		const auto &n = tree.node(entry.owner.id());
+		if (n.parent != entry.parent || n.prev_sibling != entry.previous || n.next_sibling != entry.next ||
+		    n.first_child != entry.first || n.last_child != entry.last || n.type != entry.type || entry.tag != tree.tagName(entry.owner.id()))
+			throw std::runtime_error("topology changed during focus retirement");
+	}
+}
+void retireLeavingFocus(Tree &tree, const std::vector<int> &removed, const std::vector<int> &retained)
+{
+	std::vector<NodeHandle> removedOwners, retainedOwners;
+	for (int id : removed) removedOwners.emplace_back(id);
+	for (int id : retained) retainedOwners.emplace_back(id);
+	auto contains = [&](int id, const std::vector<NodeHandle> &roots) {
+		if (id < 0) return false;
+		for (const auto &root : roots) if (root.valid() && tree.containsNode(root.id(),id)) return true;
+		return false;
+	};
+	auto leaving = [&](int id) { return contains(id,removedOwners) && !contains(id,retainedOwners); };
+	const auto native = queryNativeFocus();
+	if (native.node.valid() && leaving(native.node.id())) native.node.blur();
+	const NodeHandle logical(tree.activeInputId());
+	if (logical.valid() && leaving(logical.id())) logical.blur();
+	retirePointerInputForSubtrees(removedOwners,retainedOwners);
+	retireTouchInputForSubtrees(removedOwners,retainedOwners);
+	retirePlatformInputForSubtrees(removedOwners,retainedOwners);
+	const auto currentNative = queryNativeFocus();
+	if (leaving(tree.activeInputId()) || (currentNative.node.valid() && leaving(currentNative.node.id())))
+		throw std::runtime_error("focus retirement refused or reentered removed subtree");
+}
+void prepareDisconnectedMove(Tree &tree, int child, int parent, int reference)
+{
+	if (!NodeHandle(child).isConnected() || NodeHandle(parent).isConnected()) return;
+	std::vector<TopologySnapshot> snapshot;
+	captureTopology(tree,snapshot,child);
+	captureTopology(tree,snapshot,tree.node(child).prev_sibling);
+	captureTopology(tree,snapshot,tree.node(child).next_sibling);
+	for (int ancestor = tree.node(child).parent; ancestor >= 0; ancestor = tree.node(ancestor).parent)
+		captureTopology(tree,snapshot,ancestor);
+	if (reference >= 0) {
+		captureTopology(tree,snapshot,reference);
+		captureTopology(tree,snapshot,tree.node(reference).prev_sibling);
+		captureTopology(tree,snapshot,tree.node(reference).next_sibling);
+	}
+	for (int ancestor = parent; ancestor >= 0; ancestor = tree.node(ancestor).parent)
+		captureTopology(tree,snapshot,ancestor);
+	retireLeavingFocus(tree,{child},{});
+	validateTopology(tree,snapshot);
+}
+// No user callbacks here. The allocation, descendants and listeners remain live.
+void unlinkRetainedNode(Tree &tree, int id)
+{
+	auto &n = tree.node(id);
+	if (n.parent < 0) return;
+	auto &parent = tree.node(n.parent);
+	if (parent.first_child == id) parent.first_child = n.next_sibling;
+	if (parent.last_child == id) parent.last_child = n.prev_sibling;
+	if (n.prev_sibling >= 0) tree.node(n.prev_sibling).next_sibling = n.next_sibling;
+	if (n.next_sibling >= 0) tree.node(n.next_sibling).prev_sibling = n.prev_sibling;
+	parent.render.dirty = parent.render.layout_dirty = 1;
+	n.parent = n.prev_sibling = n.next_sibling = -1;
+	n.render.dirty = n.render.layout_dirty = 1;
+#if GEA_CSS_SCROLLING
+	parent.render.non_scroll_dirty = n.render.non_scroll_dirty = 1;
+#endif
+	tree.markDisplayListDirty();
+}
+}
+
+void Tree::detachNode(int child)
+{
+	NodeHandle owner(child);
+	if (!owner.valid()) throw std::invalid_argument("detach requires a live node");
+	if (node(child).parent < 0) return;
+	std::vector<TopologySnapshot> snapshot;
+	captureTopology(*this,snapshot,child);
+	captureTopology(*this,snapshot,node(child).prev_sibling);
+	captureTopology(*this,snapshot,node(child).next_sibling);
+	for (int ancestor = node(child).parent; ancestor >= 0; ancestor = node(ancestor).parent)
+		captureTopology(*this,snapshot,ancestor);
+	retireLeavingFocus(*this,{child},{});
+	validateTopology(*this,snapshot);
+	unlinkRetainedNode(*this,child);
+	StyleSheet::instance().recomputeSubtree(child);
+}
+
+void Tree::replaceChildren(int parent, const std::vector<int> &children)
+{
+	auto &state = treeState();
+	NodeHandle parentOwner(parent);
+	if (!parentOwner.valid()) throw std::invalid_argument("replaceChildren requires a live parent");
+	if (state.nodes[parent].type == NodeType::Comment ||
+	    (state.nodes[parent].type == NodeType::Text && !*tagName(parent)))
+		throw std::invalid_argument("parent cannot contain children");
+	std::vector<TopologySnapshot> snapshot;
+	for (int ancestor = parent; ancestor >= 0; ancestor = node(ancestor).parent) captureTopology(*this,snapshot,ancestor);
+	std::vector<int> old, incoming, moved;
+	for (int child = node(parent).first_child; child >= 0; child = node(child).next_sibling) {
+		old.push_back(child); captureTopology(*this,snapshot,child);
+	}
+	auto admit = [&](int child) {
+		if (!NodeHandle(child).valid() || reparentWouldCycle(state,child,parent))
+			throw std::invalid_argument("replaceChildren invalid child or cycle");
+		captureTopology(*this,snapshot,child);
+		captureTopology(*this,snapshot,node(child).prev_sibling);
+		captureTopology(*this,snapshot,node(child).next_sibling);
+		for (int ancestor = node(child).parent; ancestor >= 0; ancestor = node(ancestor).parent)
+			captureTopology(*this,snapshot,ancestor);
+		// DOM duplicate arguments move the same node to its final occurrence.
+		incoming.erase(std::remove(incoming.begin(),incoming.end(),child),incoming.end());
+		incoming.push_back(child);
+		if (std::find(moved.begin(),moved.end(),child) == moved.end()) moved.push_back(child);
+	};
+	std::vector<int> drainedFragments;
+	for (int child : children) {
+		if (!NodeHandle(child).valid() || reparentWouldCycle(state,child,parent))
+			throw std::invalid_argument("replaceChildren invalid child or cycle");
+		captureTopology(*this,snapshot,child);
+		if (node(child).type == NodeType::DocumentFragment) {
+			if (std::find(drainedFragments.begin(),drainedFragments.end(),child) != drainedFragments.end()) continue;
+			drainedFragments.push_back(child);
+			for (int entry = node(child).first_child; entry >= 0; entry = node(entry).next_sibling)
+				if (std::find(moved.begin(),moved.end(),entry) == moved.end()) admit(entry);
+		} else admit(child);
+	}
+	retireLeavingFocus(*this,old,incoming);
+	validateTopology(*this,snapshot);
+	// Finish all topology writes before style recomputation; no user code runs.
+	for (int child : old) unlinkRetainedNode(*this,child);
+	for (int child : incoming) {
+		unlinkRetainedNode(*this,child);
+		auto &n = node(child);
+		n.parent = parent; n.prev_sibling = node(parent).last_child; n.next_sibling = -1;
+		if (n.prev_sibling >= 0) node(n.prev_sibling).next_sibling = child;
+		else node(parent).first_child = child;
+		node(parent).last_child = child;
+		n.render.dirty = n.render.layout_dirty = 1;
+	}
+	node(parent).render.dirty = node(parent).render.layout_dirty = 1;
+	markDisplayListDirty();
+	for (int child : old) StyleSheet::instance().recomputeSubtree(child);
+	for (int child : incoming) StyleSheet::instance().recomputeSubtree(child);
+}
+
 void Tree::removeNode(int id)
 {
 	auto &state = treeState();
 	if (id < 0 || id >= state.nodeCount || !state.nodeActive[id]) return;
+	const auto removingOwner = gea::framework::identity::node(id);
 	if (containsNode(id, state.hoveredNodeId)) pointerHover(-1, -1);
 	while (state.nodes[id].first_child >= 0) {
 		removeNode(state.nodes[id].first_child);
-		if (id >= state.nodeCount || !state.nodeActive[id]) return;
+		if (id >= state.nodeCount || !state.nodeActive[id] ||
+		    !gea::framework::identity::current(id, removingOwner)) return;
 	}
 	Node *n = &state.nodes[id];
 	markDisplayListDirty();
@@ -679,6 +878,12 @@ void Tree::removeNode(int id)
 	n->last_child = -1;
 	n->prev_sibling = -1;
 	n->next_sibling = -1;
+	// A recycled numeric slot must not inherit the removed root's mount authority.
+	if (state.mountedRoot == id) {
+		state.mountedRoot = -1;
+		state.mountedWidth = 0;
+		state.mountedHeight = 0;
+	}
 	resetNodeSlot(state, id);
 	trimInactiveTail(state);
 }

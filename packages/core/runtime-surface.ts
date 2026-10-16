@@ -57,8 +57,13 @@ export type {
  * gets today.
  */
 export type {
+  UartOptions,
+  UartController,
+  EspNowController,
   AccelerometerController,
   AccelerometerReading,
+  MagnetometerController,
+  MagnetometerReading,
   AppsController,
   AudioBuffer,
   AudioBufferSourceNode,
@@ -128,6 +133,8 @@ export type {
   InputElementProps,
   InputEvent,
   InputEventTarget,
+  InputElement,
+  ButtonElement,
   KeyEvent,
   MediaDevices,
   MediaRecorder,

@@ -2861,7 +2861,7 @@ int gLastScrollUiFrame = -1000;
 
 			gea::framework::graphics::RasterizedFont font =
 					gea::framework::graphics::FontRegistry::rasterizedFamily(command.projectedText.fontId,
-																																	 command.projectedText.fontSize);
+																																	 command.projectedText.fontSize,command.projectedText.fontWeight,command.projectedText.fontStretch);
 			if (!font.valid())
 				return;
 
@@ -2932,6 +2932,9 @@ int gLastScrollUiFrame = -1000;
 #endif
 					std::uint32_t hash = 0;
 					int fontId = -2, fontSize = -1, srcW = -1, srcH = -1, textTransform = -1;
+#if GEA_CSS_FONT_STRETCH
+					int fontWeight=400,fontStretch=1000;
+#endif
 					int bytes = 0;
 					int ink[4] = {0, 0, -1, -1};
 					bool valid = false;
@@ -2966,6 +2969,9 @@ int gLastScrollUiFrame = -1000;
 				for (auto &e : cache)
 				{
 					if (e.valid && e.hash == textHash && e.fontId == fid && e.fontSize == fsz &&
+#if GEA_CSS_FONT_STRETCH
+ e.fontWeight==command.projectedText.fontWeight && e.fontStretch==command.projectedText.fontStretch &&
+#endif
 							e.srcW == srcW && e.srcH == srcH && e.textTransform == ttf)
 					{
 						hit = &e;
@@ -2989,6 +2995,9 @@ int gLastScrollUiFrame = -1000;
 					e.hash = textHash;
 					e.fontId = fid;
 					e.fontSize = fsz;
+#if GEA_CSS_FONT_STRETCH
+ e.fontWeight=command.projectedText.fontWeight;e.fontStretch=command.projectedText.fontStretch;
+#endif
 					e.srcW = srcW;
 					e.srcH = srcH;
 					e.textTransform = ttf;
@@ -6834,7 +6843,7 @@ int gLastScrollUiFrame = -1000;
 					TextRenderer::drawWrapped(c.text.text, c.text.x, c.text.y,
 																		c.text.maxWidth, c.text.color, c.text.scale,
 																		c.text.align, c.text.containerWidth, c.text.fontId, c.text.textTransform, c.text.lineHeight,
-																		c.text.whiteSpace, c.text.textOverflow, c.text.maxHeight, c.text.firstLineIndent);
+																		c.text.whiteSpace, c.text.textOverflow, c.text.maxHeight, c.text.firstLineIndent,c.text.fontWeight,c.text.fontStretch);
 					break;
 				case DisplayCommandType::BlitImage:
 #if GEA_PIXEL_STORAGE_PACKED
@@ -7101,6 +7110,10 @@ int gLastScrollUiFrame = -1000;
 			{
 				if (!state.hasNodeScratchFor(id))
 					return;
+				if (isStructuralNodeType(Tree::instance().node(id).type)) {
+					state.clearNodeRange(id);
+					return;
+				}
 				// Backdrop-cache record skip: skip recording a subtree only when it's fully
 				// static — neither containing a dirty node (subtreeDirty) NOR sitting under one
 				// (insideDirty, set once we descend into a dirty node so the cube's faces are
@@ -9649,7 +9662,7 @@ int gLastScrollUiFrame = -1000;
 		auto walk = [&](auto &&self, int parent, bool withinGroup) -> void {
 			std::vector<int> children;
 			for (int child = nodes[parent].first_child; child >= 0; child = nodes[child].next_sibling)
-				if (!isDisplayNone(nodes[child].computedStyle())) children.push_back(child);
+				if (!isStructuralNodeType(nodes[child].type) && !isDisplayNone(nodes[child].computedStyle())) children.push_back(child);
 			if (nodes[parent].computedStyle().display == kDisplayFlex || isDisplayGrid(nodes[parent].computedStyle())) {
 				std::stable_sort(children.begin(), children.end(), [&](int a, int b) {
 					const int oa = isOutOfFlowPosition(nodes[a].computedStyle().position) ? 0 : nodes[a].computedStyle().order;

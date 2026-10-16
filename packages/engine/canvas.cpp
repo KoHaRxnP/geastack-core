@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/renderer_features.h"
+#include "ui/state_init.h"
 #include "canvas.h"
 #include "display.h"
 #include "graphics/font.h"
@@ -148,9 +149,18 @@ constexpr int kTextSpriteMinSizePx = 40;
 constexpr std::size_t kTextSpriteMaxBytes = 768u * 1024u;
 
 struct TextSprite {
+#if GEA_EMBEDDED_UI_STATE_DYNAMIC_INIT
+	// Preserve the member defaults while keeping this cache in relocatable BSS.
+	__attribute__((noinline)) TextSprite() {}
+#endif
 	enum State { Empty, Seen, Cached };
 	char text[kTextSpriteMaxLen + 1] = {0};
 	const RasterizedFontData *fontData = nullptr;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ std::uint64_t fontGeneration=0;
+#else
+ static constexpr std::uint64_t fontGeneration=0;
+#endif
 	int sizePx = -1;
 	State state = Empty;
 	int minLX = 0;
@@ -256,7 +266,7 @@ TextSprite &textSpriteFor(const char *text, const RasterizedFont &font)
 	// such as "FPS: 59" and "FPS: 60" evict each other. Hits stay read-only;
 	// a four-byte replacement cursor advances only for a new cache key.
 	for (TextSprite &candidate : gTextSprites) {
-		if (candidate.fontData == font.data() && candidate.sizePx == font.sizePx() &&
+		if (candidate.fontData == font.data() && candidate.fontGeneration==font.data()->generation && candidate.sizePx == font.sizePx() &&
 		    std::strcmp(candidate.text, text) == 0)
 			return candidate;
 	}
@@ -993,6 +1003,10 @@ struct SolidGlyphRow {
 };
 
 struct SolidGlyphCacheEntry {
+#if GEA_EMBEDDED_UI_STATE_DYNAMIC_INIT
+	// Preserve the member defaults while keeping this cache in relocatable BSS.
+	__attribute__((noinline)) SolidGlyphCacheEntry() {}
+#endif
 	const RasterizedFontData *font = nullptr;
 	pixel::native_t color = 0;
 	pixel::native_t background = 0;
@@ -2734,7 +2748,12 @@ void Canvas::drawTextFont(const char *text, int x, int y, pixel::native_t color,
 
 void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t color, int family_id, int size_px)
 {
-	drawRasterizedText(text, x, y, color, FontRegistry::rasterizedFamily(family_id, size_px));
+ drawTextFontFamily(text,x,y,color,family_id,size_px,400,1000);
+}
+
+void Canvas::drawTextFontFamily(const char *text,int x,int y,pixel::native_t color,int family_id,int size_px,int weight,int stretch)
+{
+	drawRasterizedText(text, x, y, color, FontRegistry::rasterizedFamily(family_id, size_px,weight,stretch));
 }
 
 // Sum the glyph advances for a string in a family/size, so callers can centre
@@ -2918,6 +2937,11 @@ constexpr int kGlyphStampSlots = 256;
 
 struct PackedGlyphStamp {
 	const RasterizedFontData *fontData = nullptr;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ std::uint64_t fontGeneration=0;
+#else
+ static constexpr std::uint64_t fontGeneration=0;
+#endif
 	int sizePx = 0;
 	int codepoint = 0;
 	std::uint8_t fg = 0xFF;        // native 0..15 level; 0xFF = empty slot
@@ -2978,6 +3002,9 @@ bool buildPackedGlyphStamp(PackedGlyphStamp &e, const gea::framework::graphics::
 		}
 	}
 	e.fontData = font.data();
+#if GEA_EMBEDDED_TTF_FREETYPE
+ e.fontGeneration=font.data()->generation;
+#endif
 	e.sizePx = font.sizePx();
 	e.codepoint = cp;
 	e.fg = fg;
@@ -3040,7 +3067,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 #endif
 		if (len > 0 && len <= static_cast<std::size_t>(kTextSpriteMaxLen)) {
 			TextSprite &slot = textSpriteFor(text, font);
-			const bool idMatch = slot.fontData == font.data() &&
+			const bool idMatch = slot.fontData == font.data() && slot.fontGeneration==font.data()->generation &&
 			                     slot.sizePx == font.sizePx() &&
 			                     std::strcmp(slot.text, text) == 0;
 			if (idMatch && slot.state == TextSprite::Cached) {
@@ -3101,6 +3128,9 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 			} else if (!idMatch) {
 				// First sighting: claim the slot and render normally this time.
 				slot.fontData = font.data();
+#if GEA_EMBEDDED_TTF_FREETYPE
+ slot.fontGeneration=font.data()->generation;
+#endif
 				slot.sizePx = font.sizePx();
 				std::strncpy(slot.text, text, kTextSpriteMaxLen);
 				slot.text[kTextSpriteMaxLen] = '\0';
@@ -3169,7 +3199,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 			const std::uint8_t fg4 = static_cast<std::uint8_t>(color & 0x0F);
 			PackedGlyphStamp &e = gGlyphStamps[glyphStampSlot(font.data(), font.sizePx(), cp)];
 			bool ready = e.fg == fg4 && e.backdrop == gTextStampBackdrop &&
-			             e.fontData == font.data() && e.sizePx == font.sizePx() &&
+			             e.fontData == font.data() && e.fontGeneration==font.data()->generation && e.sizePx == font.sizePx() &&
 			             e.codepoint == cp;
 			if (!ready) {
 				e.fg = 0xFF;
@@ -3424,6 +3454,11 @@ void Canvas::drawTextFont(const char *text, int x, int y, pixel::native_t color,
 
 void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t color, int family_id, int size_px)
 {
+ drawTextFontFamily(text,x,y,color,family_id,size_px,400,1000);
+}
+
+void Canvas::drawTextFontFamily(const char *text,int x,int y,pixel::native_t color,int family_id,int size_px,int weight,int stretch)
+{
 #if GEA_EMBEDDED_TTF_RUNTIME_FONTS
 	// No baked atlas linked, but the runtime TTF rasterizer can still serve the
 	// family (desktop targets feed it the bundle's font bytes). Blit its glyphs
@@ -3432,7 +3467,7 @@ void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t 
 	// bitmap console font. Falls through to the bitmap font for families the
 	// runtime rasterizer doesn't know.
 	if (!pixels_ || !text) return;
-	RasterizedFont font = FontRegistry::rasterizedFamily(family_id, size_px);
+	RasterizedFont font = FontRegistry::rasterizedFamily(family_id, size_px,weight,stretch);
 	if (font.valid()) {
 		int pen_x = x;
 		int pen_y = y;

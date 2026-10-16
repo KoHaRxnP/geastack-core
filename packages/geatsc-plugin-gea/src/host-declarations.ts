@@ -64,6 +64,9 @@ const geaGeolocationHostMethods = [
 ]
 const geaInputHostMethods = ['consumeBackButton']
 const geaGpioHostMethods = ['configureOutput', 'configureInput', 'write', 'read']
+const geaMagnetometerHostMethods = ['open', 'close', 'count', 'read']
+const geaEspNowHostMethods = ['open', 'isOpen', 'canSend', 'setMaxTxPower', 'getMaxTxPower', 'close', 'addPeer', 'send', 'receive']
+const geaUartHostMethods = ['open', 'isOpen', 'close', 'read', 'write', 'available', 'writable']
 const geaLedHostMethods = ['set', 'off', 'attach', 'setPixel', 'show', 'detach']
 const geaClockHostMethods = ['epochMs', 'setEpochMs']
 const geaProfilerHostMethods = ['nowUs', 'nowCycles']
@@ -134,6 +137,10 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ['gea::host::Storage', geaHostDeclarations],
       ['gea::host::window.innerWidth', geaHostDeclarations],
       ['gea::host::window.innerHeight', geaHostDeclarations],
+      ['gea::host::window.addEventListener', geaHostDeclarations],
+      ['gea::host::window.removeEventListener', geaHostDeclarations],
+      ['gea::embedded::ui::Document::instance().addEventListener({args})', geaHostDeclarations],
+      ['gea::embedded::ui::Document::instance().removeEventListener({args})', geaHostDeclarations],
       ['gea::host::navigator.userAgent', geaHostDeclarations],
       ['gea::host::navigator.language', geaHostDeclarations],
       ['gea::host::navigator.platform', geaHostDeclarations],
@@ -143,6 +150,9 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ...geaMemoryHostMethods.map((method): [string, string[]] => [`gea::host::Memory.${method}`, geaHostDeclarations]),
       ...geaInputHostMethods.map((method): [string, string[]] => [`gea::host::Input.${method}`, geaHostDeclarations]),
       ...geaGpioHostMethods.map((method): [string, string[]] => [`gea::host::Gpio.${method}`, geaHostDeclarations]),
+      ...geaMagnetometerHostMethods.map((method): [string, string[]] => [`gea::host::Magnetometer.${method}`, geaHostDeclarations]),
+      ...geaEspNowHostMethods.map((method): [string, string[]] => [`gea::host::EspNow.${method}`, geaHostDeclarations]),
+      ...geaUartHostMethods.map((method): [string, string[]] => [`gea::host::Uart.${method}`, geaHostDeclarations]),
       ...geaLedHostMethods.map((method): [string, string[]] => [`gea::host::Led.${method}`, geaHostDeclarations]),
       ...geaClockHostMethods.map((method): [string, string[]] => [`gea::host::Clock.${method}`, geaHostDeclarations]),
       ...geaProfilerHostMethods.map((method): [string, string[]] => [`gea::host::Profiler.${method}`, geaHostDeclarations]),

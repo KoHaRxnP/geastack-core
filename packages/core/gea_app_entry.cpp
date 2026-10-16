@@ -31,6 +31,7 @@ void drainMicrotasks();
 
 extern "C" void gea_cycle_collection_defer_begin() __attribute__((weak));
 extern "C" void gea_cycle_collection_defer_end() __attribute__((weak));
+extern "C" bool gea_embedded_assets_prepare() __attribute__((weak));
 
 namespace gea::framework::app {
 
@@ -91,6 +92,9 @@ private:
 
 void Application::init(int width, int height, double devicePixelRatio)
 {
+    // File-backed static symbols must be populated before generated code can
+    // construct an image directly from them. Embedded assets need no hook.
+    if (gea_embedded_assets_prepare) gea_embedded_assets_prepare();
 	// Top-level construction allocates the entire native object graph. Keep the
 	// generated collector at a host safepoint until initialization has unwound,
 	// just as Application::frame does for animation callbacks.

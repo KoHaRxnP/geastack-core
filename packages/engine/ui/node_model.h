@@ -136,8 +136,15 @@ enum class NodeType : uint8_t {
 	Button = 4,
 	VirtualList = 5,
 	Camera = 6,
-	Audio = 7
+	Audio = 7,
+	Comment = 8,
+	DocumentFragment = 9
 };
+
+inline bool isStructuralNodeType(NodeType type)
+{
+	return type == NodeType::Comment || type == NodeType::DocumentFragment;
+}
 
 inline bool isViewLikeNodeType(NodeType type)
 {
@@ -814,6 +821,12 @@ struct ComputedStyle {
 
 	// transform / perspective / filter / box-shadow moved to RareStyle (rare).
 
+#if GEA_CSS_FONT_STRETCH
+	// Percentage in tenths: 1000 = normal 100%, preserving 87.5%.
+	int16_t font_stretch;
+#else
+	static constexpr int16_t font_stretch = 1000;
+#endif
 	int16_t font_id;
 #if !GEA_CSS_U8_FONT
 	int16_t font_size;
@@ -1622,6 +1635,12 @@ struct Node {
 #endif
 	RenderState render;
 };
+
+// Structural DOM nodes never participate in visual layout, regardless of authored styles.
+inline bool isLayoutExcluded(const Node &node)
+{
+	return isStructuralNodeType(node.type) || isDisplayNone(node.computedStyle());
+}
 
 // Overflow clips the padding edge on each non-visible axis. Open axes span
 // the positive display coordinate range and remain stationary during replay.

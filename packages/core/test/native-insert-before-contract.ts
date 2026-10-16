@@ -1,0 +1,27 @@
+import type {Node} from '@geastack/core'
+const parent=document.createElement('div'), other=document.createElement('aside')
+parent.setAttribute('id','insert-before-parent')
+document.body.appendChild(parent);document.body.appendChild(other)
+const a=document.createElement('span'), b=document.createElement('button'), c=document.createElement('i')
+a.setAttribute('id','insert-a');b.setAttribute('id','insert-b');c.setAttribute('id','insert-c')
+b.setAttribute('data-retained','yes')
+parent.appendChild(a);parent.appendChild(c)
+const inserted:Node=parent.insertBefore(b,c)
+console.log(String(inserted===b&&b.parentNode===parent))
+console.log(String(parent.firstChild===a))
+parent.removeChild(a)
+console.log(String(parent.firstChild===b))
+console.log(String(parent.insertBefore(a,b)===a&&parent.firstChild===a))
+console.log(String(parent.insertBefore(a,a)===a&&parent.firstChild===a))
+console.log(String(parent.insertBefore(a,null)===a&&parent.firstChild===b))
+const absent:Node|null=other.firstChild
+console.log(String(parent.insertBefore(c,absent)===c&&parent.firstChild===b))
+let refused=false
+try{other.insertBefore(a,b)}catch{refused=true}
+console.log(String(refused&&a.parentNode===parent&&other.firstChild===null))
+const retained=parent.removeChild(b)
+console.log(String(parent.insertBefore(retained,c)===b&&b.getAttribute('data-retained')==='yes'&&b.isConnected))
+const fragment=document.createDocumentFragment(),x=document.createElement('em'),y=document.createComment('retained comment')
+x.setAttribute('id','insert-x');fragment.appendChild(x);fragment.appendChild(y)
+console.log(String(parent.insertBefore(fragment,b)===fragment&&fragment.firstChild===null))
+console.log(String(x.parentNode===parent&&y.parentNode===parent&&parent.firstChild===a))
