@@ -35,20 +35,18 @@ GEA_NATIVE_HOST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 case "$(uname -s)" in
   Darwin)
     GEA_HOST_CXXFLAGS=()
-    # -no_deduplicate: ld64 folds identical functions, address-taken ones
-    # included, and the runtime tells callables apart by entry address.
-    GEA_HOST_LINK_GC=(-Wl,-dead_strip -Wl,-no_deduplicate)
+    GEA_HOST_LINK_GC=(-Wl,-dead_strip)
     ;;
   MINGW* | MSYS* | CYGWIN*)
     GEA_HOST_CXXFLAGS=(-fno-ms-compatibility -D_CRT_DECLARE_NONSTDC_NAMES=1 -fverify-intermediate-code -I "$GEA_NATIVE_HOST_DIR/windows-include")
     # lld-link options are spelled with '-', not '/': Git Bash rewrites an
     # argument such as /map into a Windows path before clang sees it.
     # -opt:ref alone would also turn on identical-code folding, which the other
-    # hosts' dead-code removal does not do, and which merged AddressSanitizer's
+    # hosts' dead-code removal does not do, and which merges AddressSanitizer's
     # instrumented string literals into a poisoned redzone (a
-    # global-buffer-overflow reading "" in test_audio_stream); -opt:noicf. It
-    # folds address-taken functions too, and the runtime tells callables apart
-    # by entry address.
+    # global-buffer-overflow reading "" in test_audio_stream, still so with
+    # clang 23); -opt:noicf. That is the only reason: these tests are
+    # sanitized, and the Gea runtime itself is indifferent to folding.
     GEA_HOST_LINK_GC=(-fuse-ld=lld -Wl,-opt:ref -Wl,-opt:noicf -Wl,-force:unresolved)
     # Python 3 is `python` on Windows; `python3` there is usually the
     # Microsoft Store's install prompt, which exits non-zero. The tests that
