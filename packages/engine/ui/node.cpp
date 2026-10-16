@@ -285,7 +285,9 @@ NodeHandle::NodeTypeProperty::operator int() const
 {
 	if (!gea::framework::identity::current(id, owner)) return 0;
 	const auto &tree=Tree::instance();
-	if (tree.node(id).type == NodeType::Comment) return 8;
+	// The template renderer's list/conditional anchors are hidden nodes tagged
+	// "#comment"; DOM queries must see them as the comments they stand for.
+	if (tree.node(id).type == NodeType::Comment || std::strcmp(tree.tagName(id), "#comment") == 0) return 8;
 	if (tree.node(id).type == NodeType::DocumentFragment) return 11;
 	// Native JSX text leaves retain their element tag (p/h1/etc.). Only an
 	// anonymous Text allocation projects a DOM text node.

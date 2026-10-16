@@ -4517,7 +4517,7 @@ void setCustomPropertyRuleValue(NodeCustomPropertyStore &store,
 				               value,
 				               compiled.values[0],
 				               compiled.values[1],
-				               static_cast<std::uint8_t>(compiled.values[2]), static_cast<std::uint32_t>(compiled.values[3]));
+				               static_cast<std::uint8_t>(compiled.values[2]));
 				return;
 			}
 #if GEA_CSS_CUSTOM_PROPERTY_LENGTHS
@@ -11263,7 +11263,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		                               compiled.values[0],
 		                               compiled.values[1],
 		                               compiled.values[2],
-		                               source, static_cast<std::uint32_t>(compiled.values[3]));
+		                               source);
 	case CssCompiledKind::ColorVar: {
 		const CssAtomId atom = static_cast<CssAtomId>(compiled.values[0]);
 		if (const NodeCustomProperty *entry = lookupCustomPropertyEntry(nodeId, atom)) {
@@ -11291,7 +11291,7 @@ bool applyCompiledCssValueWithSource(NodeHandle node, const CssCompiledValue &co
 		                               compiled.values[1],
 		                               compiled.values[2],
 		                               compiled.values[3],
-		                               source, static_cast<std::uint32_t>(compiled.values[4]));
+		                               source);
 	}
 	case CssCompiledKind::Rotate: {
 		const IndividualRotation rotation{compiled.values[0], compiled.values[1], compiled.values[2], compiled.values[3]};

@@ -7,6 +7,9 @@
 #include <deque>
 #include <mutex>
 #include <thread>
+#if __has_include(<sanitizer/lsan_interface.h>)
+#include <sanitizer/lsan_interface.h>
+#endif
 #include <vector>
 
 namespace {
@@ -286,6 +289,20 @@ struct Tree {
     event.propagationStopped = stopKey;
   }
 };
+// The engine's root key dispatch: the focused target first, then the document
+// unless the target stopped propagation.
+bool dispatchRootKeyEvent(gea::framework::events::PointerEvent &event,
+                          bool = false) {
+  if (event.targetId >= 0)
+    Tree::instance().dispatchEvent(event);
+  if (event.propagationStopped)
+    return true;
+  if (event.type == gea::framework::events::PointerEventType::KeyDown)
+    dispatchDocumentKeyDown(event);
+  else
+    dispatchDocumentKeyUp(event);
+  return true;
+}
 struct StyleSheet {
   static StyleSheet &instance() {
     static StyleSheet value;
@@ -401,6 +418,12 @@ void testUiPause() {
   const auto firstCallback = callbackCount.load();
   queueReady = true;
   std::thread runtime([] {
+#if __has_include(<sanitizer/lsan_interface.h>)
+    // A runtime thread keeps its cycle state and pool chunks for its whole
+    // life by design; only this test lets one exit. Live cycles are asserted
+    // directly (Cycle::live) after the join instead.
+    __lsan::ScopedDisabler runtimeThreadState;
+#endif
     gea::configureAutomaticCycleCollection(std::chrono::milliseconds(0), 0, 1);
     try {
       Runtime::run({});

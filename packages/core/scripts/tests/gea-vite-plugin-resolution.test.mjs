@@ -28,3 +28,19 @@ test('declared app plugin honors its real package/version and symlink; undeclare
     assert.throws(()=>resolveAppGeaVitePlugin(app,path.join(core,'package.json')),/App declares/)
   } finally { fs.rmSync(root,{recursive:true,force:true}) }
 })
+
+test('declared app plugin hoisted to its npm workspace root resolves; an unlisted ancestor install does not', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gea-plugin-workspace-')))
+  try {
+    const app = path.join(root,'apps/clock'), stray = path.join(root,'tools/stray'), core = path.join(root,'core')
+    for (const p of [app,stray,core]) fs.mkdirSync(p,{recursive:true})
+    for (const p of [app,stray]) fs.writeFileSync(path.join(p,'package.json'),JSON.stringify({devDependencies:{'@geajs/vite-plugin':'^1.4.2'}}))
+    fs.writeFileSync(path.join(core,'package.json'),'{}')
+    fs.writeFileSync(path.join(root,'package.json'),JSON.stringify({private:true,workspaces:['apps/*']}))
+    const pkg=path.join(root,'node_modules/@geajs/vite-plugin'); fs.mkdirSync(pkg,{recursive:true})
+    fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'@geajs/vite-plugin',version:'1.4.2',type:'module',exports:{'.':{import:'./index.mjs'}}}))
+    fs.writeFileSync(path.join(pkg,'index.mjs'),'export const version="1.4.2"')
+    assert.equal(resolveAppGeaVitePlugin(app,path.join(core,'package.json')),path.join(pkg,'index.mjs'))
+    assert.throws(()=>resolveAppGeaVitePlugin(stray,path.join(core,'package.json')),/App declares/)
+  } finally { fs.rmSync(root,{recursive:true,force:true}) }
+})

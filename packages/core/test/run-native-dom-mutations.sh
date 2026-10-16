@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[[ $# == 1 && "$1" == --build-only ]] || { echo 'Exactly --build-only required; CPU mode execution is explicit' >&2;exit 2; }
+[[ $# == 0 || ( $# == 1 && "$1" == --build-only ) ]] || { echo 'Use --build-only or no arguments' >&2;exit 2; }
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BUILD_DIR="$ROOT/dist/native-dom-mutations"
 mkdir -p "$BUILD_DIR"
@@ -13,3 +13,10 @@ gea_build_native_test "$BUILD_DIR" "$BUILD_DIR/native-dom-mutations-test" "$ROOT
 printf '%s\n' "${GEA_NATIVE_OBJECTS[@]}" > "$BUILD_DIR/native-dom-mutations-test.objects.txt"
 printf '%s\n' "${GEA_NATIVE_CXXFLAGS[@]}" > "$BUILD_DIR/native-dom-mutations-test.cxx-flags.txt"
 printf '%s\n' "${GEA_NATIVE_LINK_FLAGS[@]}" > "$BUILD_DIR/native-dom-mutations-test.link-flags.txt"
+if [[ $# == 0 ]]; then
+  for mode in replace-retained foreign-reference remove-detach focus-detach focus-retained focus-refocus focus-reentrant focus-throw move-focus reference-aba replace-atomic fragment-reference fragment-repeat fragment-direct-first; do
+    "$BUILD_DIR/native-dom-mutations-test" "$mode"
+  done
+  : "${GEA_JSDOM_PACKAGE:?Set GEA_JSDOM_PACKAGE to the installed jsdom package directory}"
+  node "$ROOT/packages/core/test/native-dom-mutations-oracle.mjs"
+fi

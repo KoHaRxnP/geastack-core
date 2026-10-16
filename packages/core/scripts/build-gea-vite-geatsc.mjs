@@ -25,7 +25,8 @@ import {
 const nativeModules = new Map()
 let nativeModuleSources = new Map()
 const args = process.argv.slice(2)
-const requireFromLib = createRequire(new URL('../package.json', import.meta.url))
+const corePackageJson = new URL('../package.json', import.meta.url)
+const requireFromLib = createRequire(corePackageJson)
 const coreRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const elementsRoot = path.resolve(coreRoot, '..', 'elements')
 const engineRoot = path.resolve(coreRoot, '..', 'engine')
@@ -550,7 +551,7 @@ function resolveGeaThreeAliasModules(appDir) {
 }
 
 function writeCompatViteConfig({ configPath, compatSrcDir, appDir, stagedAppDir, entry, viteOutDir, geaIrPath, appleNative, moduleGraphOutDir, envDefines }) {
-  const geaPluginResolved = resolveAppGeaVitePlugin(appDir, new URL('../package.json', import.meta.url))
+  const geaPluginResolved = resolveAppGeaVitePlugin(appDir, corePackageJson)
   const engineComponentsPath = path.join(engineRoot, 'components/index.ts')
   const engineComponentSubpath = path.join(engineRoot, 'components/$1')
   const elementsPath = path.join(elementsRoot, 'components/index.ts')

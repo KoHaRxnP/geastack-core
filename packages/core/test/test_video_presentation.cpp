@@ -49,6 +49,8 @@ namespace gea::platform::storage { bool ensureMounted() { return false; } }
 int main() {
   using namespace gea::host;
   using namespace gea::framework::graphics;
+  // No Tree runs here; activate the slot's identity as node allocation does.
+  gea::framework::identity::activate(42);
   HTMLVideoElement video(gea::embedded::ui::NodeHandle(42));
   const MediaStream stream(media::create_remote_video_stream());
   const auto track = stream.getVideoTracks().front();

@@ -20,9 +20,24 @@ void registerProcessor(const std::string& name, ProcessorFactory factory) {
 }
 }
 namespace websocket {
-std::unordered_map<NativeWebSocketHandle, CallbackTable>& callbackTable() {
-  static std::unordered_map<NativeWebSocketHandle, CallbackTable> table;
-  return table;
+// The runtime clears handlers only through the checked SDK setters; capture
+// release on those setters is the provider's own contract (run_websocket_desktop).
+unsigned cleared = 0;
+void set_open_callback(NativeWebSocketHandle handle, std::function<void()> cb) {
+  assert(handle == 77 && !cb);
+  ++cleared;
+}
+void set_message_callback(NativeWebSocketHandle handle, std::function<void(const std::string&)> cb) {
+  assert(handle == 77 && !cb);
+  ++cleared;
+}
+void set_close_callback(NativeWebSocketHandle handle, std::function<void(int, const std::string&)> cb) {
+  assert(handle == 77 && !cb);
+  ++cleared;
+}
+void set_error_callback(NativeWebSocketHandle handle, std::function<void(const std::string&)> cb) {
+  assert(handle == 77 && !cb);
+  ++cleared;
 }
 }
 }
@@ -32,27 +47,13 @@ int main() {
   gea_worklet_probe_entry();
   assert(registrations == 2);
 
-  // Standard event handler removal must release captures, and cleanup of an
-  // already closed socket must not resurrect a callback-table entry.
+  // Standard event handler removal forwards an empty callback to the checked
+  // SDK setter for every attribute.
   using namespace gea::runtime::hostevent;
   gea::host::WebSocket socket(gea::host::NativeWebSocketHandle{77});
-  auto& table = gea::host::websocket::callbackTable();
   setWebSocketOnOpen(socket, nullptr);
   setWebSocketOnMessage(socket, nullptr);
   setWebSocketOnClose(socket, nullptr);
   setWebSocketOnError(socket, nullptr);
-  assert(table.empty());
-  auto capture = std::make_shared<int>(1);
-  std::weak_ptr<int> released = capture;
-  auto& callbacks = table[socket.nativeHandle];
-  callbacks.on_open = [capture] {};
-  callbacks.on_message = [capture](const std::string&) {};
-  callbacks.on_close = [capture](int, const std::string&) {};
-  callbacks.on_error = [capture](const std::string&) {};
-  capture.reset();
-  setWebSocketOnOpen(socket, nullptr);
-  setWebSocketOnMessage(socket, nullptr);
-  setWebSocketOnClose(socket, nullptr);
-  setWebSocketOnError(socket, nullptr);
-  assert(released.expired());
+  assert(gea::host::websocket::cleared == 4);
 }

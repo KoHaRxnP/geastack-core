@@ -55,6 +55,9 @@ int main() {
   assert(!absent && absent.paused() && !absent.play());
   HTMLAudioElement missing(gea::embedded::ui::NodeHandle(-1));
   assert(!missing);
+  // No Tree runs here; activate the slots' identities as node allocation does.
+  gea::framework::identity::activate(42);
+  gea::framework::identity::activate(43);
   HTMLAudioElement nodeAudio(gea::embedded::ui::NodeHandle(42));
   HTMLAudioElement nodeAgain(gea::embedded::ui::NodeHandle(42));
   HTMLAudioElement differentNode(gea::embedded::ui::NodeHandle(43));

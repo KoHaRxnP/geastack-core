@@ -19,7 +19,7 @@ int main() {
  assert(addWindowEventListener("pointermove",&a,[&](PointerEvent &e){assert(e.defaultPrevented);seen.push_back(2);}));
  assert(dispatchWindowEvent(event,true));assert(dispatchWindowEvent(event,false));assert((seen==std::vector<int>{1,2}));
  assert(removeWindowEventListener("pointermove",&a,true));assert(!removeWindowEventListener("pointermove",&a,true));
- assert(dispatchWindowEvent(event,false));assert(removeWindowEventListener("touchmove",&a,false));
+ assert(dispatchWindowEvent(event,false));assert(!removeWindowEventListener("touchmove",&a,false));assert(removeWindowEventListener("pointermove",&a,false));
  int once=0;assert(addWindowEventListener("pointermove",&b,[&](PointerEvent &e){++once;dispatchWindowEvent(e,false);},false,true));
  dispatchWindowEvent(event,false);assert(once==1);
  int late=0;assert(addWindowEventListener("pointermove",&c,[&](PointerEvent &){assert(addWindowEventListener("pointermove",&d,[&](PointerEvent &){++late;}));}));

@@ -12,15 +12,30 @@ function resolveImport(directory) {
   return fs.realpathSync(fileURLToPath(url))
 }
 
+function workspaceOwner(appDir) {
+  const app = path.resolve(appDir)
+  if (fs.existsSync(path.join(app, 'node_modules', '@geajs', 'vite-plugin'))) return null
+  for (let dir = path.dirname(app); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+    let manifest
+    try { manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) } catch { continue }
+    const patterns = Array.isArray(manifest.workspaces) ? manifest.workspaces : manifest.workspaces?.packages ?? []
+    const relative = path.relative(dir, app).split(path.sep).join('/')
+    if (patterns.some(pattern => path.posix.matchesGlob(relative, pattern.replace(/\/+$/, '')))) return dir
+  }
+  return null
+}
+
 export function resolveAppGeaVitePlugin(appDir, corePackageJson) {
   const manifest = path.join(appDir, 'package.json')
-  const app = JSON.parse(fs.readFileSync(manifest, 'utf8'))
+  // A bare fixture directory has no manifest and so declares no plugin of its own.
+  const app = fs.existsSync(manifest) ? JSON.parse(fs.readFileSync(manifest, 'utf8')) : {}
   const declared = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
     .some(field => Object.hasOwn(app[field] || {}, '@geajs/vite-plugin'))
   if (!declared) return resolveImport(path.dirname(corePackageJson instanceof URL ? fileURLToPath(corePackageJson) : corePackageJson))
   // Resolving from the app may otherwise walk up to an unrelated ancestor install.
-  // Require an actual app-owned installation entry, including normal npm workspace links.
-  const installed = path.join(appDir, 'node_modules', '@geajs', 'vite-plugin')
+  // Require an actual app-owned installation entry, or the hoisted one of an npm
+  // workspace root that lists this app among its workspaces.
+  const installed = path.join(workspaceOwner(appDir) ?? appDir, 'node_modules', '@geajs', 'vite-plugin')
   try {
     const packageRoot = fs.realpathSync(installed)
     const actual = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))

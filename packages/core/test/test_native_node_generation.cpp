@@ -30,7 +30,7 @@ static void scenario(bool clear) {
  style.width(999);style.setProperty("width","888px");
  check(tree.node(reused).computedStyle().width==17,"retained Style mutation refused");
  check(style.nodeId()==-1,"retained Style id refused");
- check(static_cast<int>(type)==11,"retained NodeTypeProperty refuses replacement");
+ check(static_cast<int>(type)==0,"retained NodeTypeProperty refuses replacement");
  // Public focus needs actual connection; stale-owner assertions above stay unchanged.
  const int body=tree.createView();tree.setParent(reused,body);tree.mount(body,100,100);
  current.focus();check(tree.activeInputId()==reused,"live focus positive");

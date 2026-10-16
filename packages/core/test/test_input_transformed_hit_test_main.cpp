@@ -31,15 +31,18 @@ int main() {
                              ++releaseCount;
                              event.stopPropagation();
                            });
+  // stopPropagation stops later ancestors, not the document's other listeners.
+  int sameTargetCount = 0;
   setDocumentEventListener(
-      "keyup", [&](gea::framework::events::PointerEvent &) {
-        assert(false && "stopped release must not reach the next handler");
+      "keyup", [&](gea::framework::events::PointerEvent &event) {
+        assert(event.propagationStopped);
+        ++sameTargetCount;
       });
   gea::framework::events::PointerEvent release{};
   release.type = gea::framework::events::PointerEventType::KeyUp;
   release.keyCode = 39;
   assert(dispatchDocumentKeyUp(release));
-  assert(releaseCount == 1);
+  assert(releaseCount == 1 && sameTargetCount == 1);
   assert(release.typeName() == std::string("keyup"));
   resetDocumentEventListeners();
   assert(!dispatchDocumentKeyUp(release));
@@ -51,9 +54,10 @@ int main() {
   const int rootId = tree.createView();
   const int buttonId = tree.createButton();
   NodeHandle rootHandle(rootId);
-  assert(gea::jsx::detail::isDocumentLevelEvent(rootHandle, "keyup"));
-  const auto inputHandle = Document::instance().createElement("input");
-  assert(!gea::jsx::detail::isDocumentLevelEvent(inputHandle, "keyup"));
+  // Key handlers bind to their own node; the root key dispatcher walks that
+  // node's path. Only rotary input is delegated to the document.
+  assert(!gea::jsx::detail::isDocumentLevelEvent(rootHandle, "keyup"));
+  assert(gea::jsx::detail::isDocumentLevelEvent(rootHandle, "rotary"));
   int jsxReleases = 0;
   gea::jsx::prop(
       rootHandle, "onKeyUp",
@@ -63,8 +67,10 @@ int main() {
             ++*static_cast<int *>(context);
           },
           &jsxReleases});
+  tree.mount(rootId, 120, 120);
   release.propagationStopped = false;
-  assert(dispatchDocumentKeyUp(release));
+  release.targetId = rootId;
+  assert(dispatchRootKeyEvent(release));
   assert(jsxReleases == 1);
   resetDocumentEventListeners();
 
