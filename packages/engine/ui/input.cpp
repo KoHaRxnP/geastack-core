@@ -3,6 +3,8 @@
 
 #include "pixel.h"
 #include "tree_state.h"
+#include "control_commit.h"
+#include "input_retirement.h"
 
 #include "services/frame_scheduler.h"
 
@@ -12,6 +14,27 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+// Applications with short canvases can tune native momentum without replacing
+// the engine gesture/scroll path. Defaults retain the existing long-list feel.
+#ifndef GEA_SCROLL_MOMENTUM_LAUNCH_BOOST
+#define GEA_SCROLL_MOMENTUM_LAUNCH_BOOST 1.45f
+#endif
+#ifndef GEA_SCROLL_MOMENTUM_CARRY_BOOST
+#define GEA_SCROLL_MOMENTUM_CARRY_BOOST 2.0f
+#endif
+#ifndef GEA_SCROLL_MOMENTUM_MAX_VELOCITY
+#define GEA_SCROLL_MOMENTUM_MAX_VELOCITY 24.0f
+#endif
+#ifndef GEA_SCROLL_MOMENTUM_MIN_VELOCITY
+#define GEA_SCROLL_MOMENTUM_MIN_VELOCITY 0.06f
+#endif
+#ifndef GEA_SCROLL_MOMENTUM_DECAY_MS
+#define GEA_SCROLL_MOMENTUM_DECAY_MS 680.0f
+#endif
+#ifndef GEA_SCROLL_MOMENTUM_STOP_VELOCITY
+#define GEA_SCROLL_MOMENTUM_STOP_VELOCITY 0.012f
+#endif
 
 namespace gea::embedded::ui {
 
@@ -84,6 +107,7 @@ public:
 		carryOverAxis_ = momentumAxis_;
 		cancelMomentum();
 		activeScrollNode_ = tree.nodeCount() == 0 ? -1 : findScrollNodeId(0, x, y);
+		activeScrollOwner_=NodeHandle(activeScrollNode_);
 		snapAccumDy_ = 0;
 		activeScrollAxis_ = ScrollAxis::None;
 		scrollLastX_ = x;
@@ -106,7 +130,7 @@ public:
 		// A `touch-action="none"` element (e.g. a horizontal drag slider) owns the
 		// gesture: don't let an ancestor scroll container steal it.
 		if (activeScrollNode_ >= 0 && nodeChainDisablesScroll(nodeId)) {
-			activeScrollNode_ = -1;
+			activeScrollNode_ = -1;activeScrollOwner_={};
 		}
 		// Hit-routing audit (camera-studio tap-misrouting investigation): the
 		// resolved node, its tag, and its layout box for every pointer down.
@@ -127,7 +151,7 @@ public:
 		}
 
 		Node &node = tree.nodes()[activeNodeId];
-		activeTouchNode_ = activeNodeId;
+		activeTouchNode_ = activeNodeId;activeTouchOwner_=NodeHandle(activeNodeId);
 		savedBackgroundColor_ = node.computedStyle().bg_color;
 		savedHasBackground_ = node.computedStyle().has_bg;
 		node.mutableStyle().bg_color = node.mutableStyle().has_active_bg ? node.mutableStyle().active_bg_color : lightenRgb565(node.mutableStyle().bg_color);
@@ -148,7 +172,7 @@ public:
 	int pointerMove(int x, int y)
 	{
 		Tree &tree = Tree::instance();
-		if (activeScrollNode_ < 0 || activeScrollNode_ >= tree.nodeCount()) {
+		if (!activeScrollOwner_.valid() || activeScrollOwner_.id()!=activeScrollNode_) {
 			scrollLastX_ = x;
 			scrollLastY_ = y;
 			return 0;
@@ -222,9 +246,9 @@ public:
 
 	int pointerUp()
 	{
-		const int scrollNode = activeScrollNode_;
+		const int scrollNode = activeScrollOwner_.valid()?activeScrollNode_:-1;
 		const ScrollAxis scrollAxis = activeScrollAxis_;
-		activeScrollNode_ = -1;
+		activeScrollNode_ = -1;activeScrollOwner_={};
 		activeScrollAxis_ = ScrollAxis::None;
 		if (scrollTraceEnabled())
 			std::fprintf(stderr, "[sc.up] t=%d node=%d\n",
@@ -281,7 +305,7 @@ public:
 		const int count = tree.nodeCount();
 		for (int id = 0; id < count; ++id) {
 			Node &node = tree.nodes()[id];
-			if (node.computedStyle().display == 1) continue;  // display:none
+			if (isStructuralNodeType(node.type) || node.computedStyle().display == 1) continue;
 			if (!nodeCanScrollY(id, node)) continue;
 			const int cur = scrollTop(id);
 			int next = cur + dy;
@@ -303,12 +327,12 @@ public:
 	void reset()
 	{
 		treeState().hoveredNodeId = -1;
-		activeTouchNode_ = -1;
+		activeTouchNode_ = -1;activeTouchOwner_={};hoveredOwner_={};
 		savedBackgroundColor_ = 0;
 		savedHasBackground_ = 0;
 		activeBackgroundColor_ = 0;
 		activeHasBackground_ = 0;
-		activeScrollNode_ = -1;
+		activeScrollNode_ = -1;activeScrollOwner_={};
 		activeScrollAxis_ = ScrollAxis::None;
 		snapAccumDy_ = 0;
 		scrollLastX_ = 0;
@@ -319,11 +343,28 @@ public:
 		carryOverAxis_ = ScrollAxis::None;
 	}
 
+	void cancelActiveGesture()
+	{
+		clearActiveTouch();
+		activeScrollNode_=-1;activeScrollOwner_={};activeScrollAxis_=ScrollAxis::None;snapAccumDy_=0;
+		resetVelocitySamples();carryOverVelocity_=0;carryOverAxis_=ScrollAxis::None;
+	}
+	void retireSubtrees(const InputRetirementRoots &removed,const InputRetirementRoots &retained)
+	{
+		auto leaving=[&](const NodeHandle &owner){return inputOwnerLeaving(owner,removed,retained);};
+		if(leaving(activeTouchOwner_) || leaving(activeScrollOwner_)) cancelActiveGesture();
+		if(leaving(momentumOwner_)) cancelMomentum();
+		if(leaving(hoveredOwner_)){treeState().hoveredNodeId=-1;hoveredOwner_={};StyleSheet::instance().hoverChanged();}
+	}
+
+	void setHoveredOwner(int node){hoveredOwner_=NodeHandle(node);}
+	int hoveredId()const{return hoveredOwner_.valid()&&hoveredOwner_.id()==treeState().hoveredNodeId?hoveredOwner_.id():-1;}
+
 	void tick(int timestampMs)
 	{
 		if (momentumNode_ < 0) return;
 		Tree &tree = Tree::instance();
-		if (momentumNode_ >= tree.nodeCount()) {
+		if (!momentumOwner_.valid() || momentumOwner_.id()!=momentumNode_) {
 			cancelMomentum();
 			return;
 		}
@@ -443,7 +484,7 @@ private:
 	int hitTestNodeId(int id, int x, int y, bool clipped = false, bool groupRoot = true, bool includePositioned = true)
 	{
 		Node &node = Tree::instance().nodes()[id];
-		if (node.computedStyle().display == 1 || isCollapsedFlexSubtree(node)) return -1;
+		if (isStructuralNodeType(node.type) || node.computedStyle().display == 1 || isCollapsedFlexSubtree(node)) return -1;
 		// CSS `pointer-events: none` — this node and its subtree are never the
 		// target of a pointer event, so the hit-test falls through to whatever is
 		// painted behind it. Without this, a decorative overlay image positioned
@@ -482,7 +523,7 @@ private:
 	int findScrollNodeId(int id, int x, int y, bool clipped = false, bool groupRoot = true, bool includePositioned = true)
 	{
 		Node &node = Tree::instance().nodes()[id];
-		if (node.computedStyle().display == 1 || isCollapsedFlexSubtree(node)) return -1;
+		if (isStructuralNodeType(node.type) || node.computedStyle().display == 1 || isCollapsedFlexSubtree(node)) return -1;
 
 		const bool inside = pointInsideNodeHitArea(node, x, y);
 		if (LayoutEngine::isViewportFixed(node)) clipped = false;
@@ -651,6 +692,7 @@ private:
 	bool clearActiveTouch()
 	{
 		if (activeTouchNode_ < 0) return false;
+		if(!activeTouchOwner_.valid()||activeTouchOwner_.id()!=activeTouchNode_){activeTouchNode_=-1;activeTouchOwner_={};return false;}
 
 		Node &node = Tree::instance().node(activeTouchNode_);
 		const bool ownsActiveBackground =
@@ -665,7 +707,7 @@ private:
 #endif
 			Tree::instance().markNodeDisplayCommandsDirty(activeTouchNode_);
 		}
-		activeTouchNode_ = -1;
+		activeTouchNode_ = -1;activeTouchOwner_={};
 		activeBackgroundColor_ = 0;
 		activeHasBackground_ = 0;
 		return ownsActiveBackground;
@@ -776,7 +818,7 @@ private:
 		if (velocityPxPerMs > kMaxMomentumVelocity) velocityPxPerMs = kMaxMomentumVelocity;
 		else if (velocityPxPerMs < -kMaxMomentumVelocity) velocityPxPerMs = -kMaxMomentumVelocity;
 
-		momentumNode_ = scrollNode;
+		momentumNode_ = scrollNode;momentumOwner_=NodeHandle(scrollNode);
 		momentumAxis_ = axis;
 		momentumVelocity_ = velocityPxPerMs;
 		momentumLastTickMs_ = nowMs;
@@ -789,7 +831,7 @@ private:
 
 	void cancelMomentum()
 	{
-		momentumNode_ = -1;
+		momentumNode_ = -1;momentumOwner_={};
 		momentumAxis_ = ScrollAxis::None;
 		momentumVelocity_ = 0.0f;
 		momentumScrollAccum_ = 0.0f;
@@ -802,13 +844,14 @@ private:
 		int y;
 	};
 	static constexpr int kVelocitySampleCount = 5;
-	static constexpr float kLaunchVelocityBoost = 1.45f;
-	static constexpr float kCarryOverBoost = 2.0f;
-	static constexpr float kMaxMomentumVelocity = 24.0f;  // px/ms = 24000 px/s
-	static constexpr float kMinFlingVelocity = 0.06f;     // px/ms = 60 px/s
-	static constexpr float kMomentumDecayMs = 680.0f;
-	static constexpr float kStopVelocity = 0.012f;        // px/ms = 12 px/s
+	static constexpr float kLaunchVelocityBoost = GEA_SCROLL_MOMENTUM_LAUNCH_BOOST;
+	static constexpr float kCarryOverBoost = GEA_SCROLL_MOMENTUM_CARRY_BOOST;
+	static constexpr float kMaxMomentumVelocity = GEA_SCROLL_MOMENTUM_MAX_VELOCITY;  // px/ms
+	static constexpr float kMinFlingVelocity = GEA_SCROLL_MOMENTUM_MIN_VELOCITY;     // px/ms
+	static constexpr float kMomentumDecayMs = GEA_SCROLL_MOMENTUM_DECAY_MS;
+	static constexpr float kStopVelocity = GEA_SCROLL_MOMENTUM_STOP_VELOCITY;        // px/ms
 
+	NodeHandle activeTouchOwner_,activeScrollOwner_,momentumOwner_,hoveredOwner_;
 	int activeTouchNode_ = -1;
 	std::uint16_t savedBackgroundColor_ = 0;
 	std::int8_t savedHasBackground_ = 0;
@@ -853,8 +896,8 @@ int Tree::pointerHover(int x, int y)
 {
 	auto &state = treeState();
 	const int target = x < 0 || y < 0 ? -1 : hitTestNode(x, y);
-	if (target != state.hoveredNodeId) {
-		state.hoveredNodeId = target;
+	if (target != state.hoveredNodeId || target != InputController::instance().hoveredId()) {
+		state.hoveredNodeId = target;InputController::instance().setHoveredOwner(target);
 		StyleSheet::instance().hoverChanged();
 	}
 	return target;
@@ -863,10 +906,14 @@ int Tree::pointerHover(int x, int y)
 bool Tree::isHovered(int node) const
 {
 	const auto &state = treeState();
-	const int target = state.hoveredNodeId;
+	const int target = InputController::instance().hoveredId();
 	return target >= 0 && target < state.nodeCount && state.nodeActive[target] &&
 	       containsNode(mountedRoot(), target) && containsNode(node, target);
 }
+
+void retirePointerInputForSubtrees(const InputRetirementRoots &removed,const InputRetirementRoots &retained)
+{InputController::instance().retireSubtrees(removed,retained);}
+void cancelPrimaryPointerInput(){InputController::instance().cancelActiveGesture();}
 
 void Tree::pointerDown(int x, int y)
 {
@@ -898,9 +945,25 @@ void Tree::resetInput()
 	InputController::instance().reset();
 }
 
+#if GEA_UI_INPUT_NODES
+namespace { ControlCommit activeInputCommit; }
+bool Tree::activeInputAdmitted() const {return activeInputCommit.admitted(activeInputId());}
+void Tree::markActiveInputEdited(){activeInputCommit.edited(activeInputId());}
+void Tree::commitActiveInput(){activeInputCommit.commit();}
+#else
+bool Tree::activeInputAdmitted() const{return false;}
+void Tree::markActiveInputEdited(){}
+void Tree::commitActiveInput(){}
+#endif
+
 int Tree::activeInputId() const
 {
-	return treeState().activeInputId;
+	#if GEA_UI_INPUT_NODES
+ const int id=treeState().activeInputId;
+ return activeInputCommit.owns(id)?id:-1;
+#else
+ return -1;
+#endif
 }
 
 void Tree::setActiveInput(int nodeId)
@@ -908,8 +971,11 @@ void Tree::setActiveInput(int nodeId)
 #if GEA_UI_INPUT_NODES
 	auto &state = treeState();
 	if (nodeId < -1 || nodeId >= state.nodeCount) nodeId = -1;
-	if (state.activeInputId == nodeId) return;
-	const int previousId = state.activeInputId;
+	if (state.activeInputId == nodeId && (nodeId<0 || activeInputCommit.admitted(nodeId))) return;
+	const int previousId = activeInputId();
+ const NodeHandle previousOwner(previousId),nextOwner(nodeId);
+	auto previousCommit = activeInputCommit;
+	activeInputCommit.begin(nodeId);
 	state.activeInputId = nodeId;
 	state.caretVisible = true;
 	state.caretLastFlipMs = state.lastFrameMs;
@@ -938,6 +1004,13 @@ void Tree::setActiveInput(int nodeId)
 	// `displayListDirty`; the keyboard subsystem decides activity in
 	// notifyActiveInputChanged.
 	state.displayListDirty = true;
+	// All state writes precede reentrant user callbacks.
+	previousCommit.commit();
+ // Capture allocation owners, never reconstruct authority after callbacks.
+ auto stillCurrent=[&](){return nodeId<0?activeInputId()<0:(nextOwner.valid()&&activeInputId()==nextOwner.id());};
+ auto emitFocus=[&](const NodeHandle&owner,gea::framework::events::PointerEventType type){if(!owner.valid())return;gea::framework::events::PointerEvent event{};event.type=type;event.targetId=owner.id();event.cancelable=false;dispatchEvent(event);};
+ if(stillCurrent()&&previousOwner.valid())emitFocus(previousOwner,gea::framework::events::PointerEventType::FocusOut);
+ if(stillCurrent()&&nextOwner.valid())emitFocus(nextOwner,gea::framework::events::PointerEventType::FocusIn);
 #endif
 }
 

@@ -6,6 +6,7 @@ export type * from './audio-worklet'
 export declare function flushAudioWorkletOutput(): void
 export type * from './typed-arrays'
 import type { AudioContextOptions, AudioWorklet, MediaStreamAudioSourceNode } from './audio-worklet'
+export type * from './audio-worklet'
 
 // Opt-in native 64-bit integer. Structurally a `number` (assign/read without
 // casts), but where a binding, parameter, field, or return is annotated `int`,
@@ -18,6 +19,19 @@ import type { AudioContextOptions, AudioWorklet, MediaStreamAudioSourceNode } fr
 declare const __gea_int_brand: unique symbol
 declare global {
   type int = number & { readonly [__gea_int_brand]?: never }
+  type i64 = number & { readonly [__gea_int_brand]?: never }
+  type int64 = number & { readonly [__gea_int_brand]?: never }
+}
+
+// Opt-in native 32-bit integer: `int` at the width of a 32-bit core, held in an
+// `int32_t`. On an ESP32-S3 a 64-bit `int` sum is two instructions and its
+// quotient a library call; an `i32` one is a single instruction. Arithmetic
+// wraps at 32 bits, `/` landing in an `i32` truncates, and a Number stored into
+// one converts by ToInt32 (truncate, wrap, NaN -> 0). Under Node it is a number.
+declare const __gea_i32_brand: unique symbol
+declare global {
+  type i32 = number & { readonly [__gea_i32_brand]?: never }
+  type int32 = number & { readonly [__gea_i32_brand]?: never }
 }
 
 // Opt-in single-precision float. Structurally a `number` (assign/read without
@@ -82,12 +96,27 @@ export interface GeaIntrinsicElements {
   img: ImageProps
   input: NativeInputElementProps
   textarea: NativeTextAreaElementProps
+  select: NativeSelectProps
+  option: NativeOptionProps
+  stepper: NativeStepperProps
+  progress: NativeProgressProps
   'virtual-list': NativeVirtualListProps
 }
 
+export interface WindowEventListenerOptions {
+  capture?: boolean
+  once?: boolean
+}
+export interface GeaWindowEventMap extends GeaEventMap {
+  blur: Event
+  resize: Event
+}
+/** Native app-window event authority. No global input posting or browser Window privileges. */
 export interface GeaWindow {
   readonly innerWidth: number
   readonly innerHeight: number
+  addEventListener<K extends keyof GeaWindowEventMap>(type: K, listener: (event: GeaWindowEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
+  removeEventListener<K extends keyof GeaWindowEventMap>(type: K, listener: (event: GeaWindowEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
 }
 
 declare global {
@@ -116,7 +145,15 @@ declare global {
   }
   const console: Console
 
-  function requestAnimationFrame(callback: (timestampMs: number) => void): number
+  // Retains the callback and runs it next frame, so it cannot be inert -- but it
+  // writes no property on anything, which is all the argument stamp asks.
+  // Native frames supply whole milliseconds; the request handle stays numeric.
+  /** @gea-host-no-property-writes */
+  function requestAnimationFrame(callback: (timestampMs: int) => void): number
+
+  // Shares the native Promise-job FIFO; app replacement retires pending jobs.
+  /** @gea-host-no-property-writes */
+  function queueMicrotask(callback: () => void): void
 
   // Native one-shot / repeating timers (gea::host::setTimeout/setInterval,
   // engine/../host/include/host/timers.h), NOT Node's `NodeJS.Timeout` (there is
@@ -172,8 +209,20 @@ declare global {
     // fillText anchors the top of the line box, which carries ascender and
     // descender the glyphs do not fill, so subtracting half the font size sags.
     measureTextInkCenter(text: string): number
-    drawImageCircle(image: GeaEmbeddedImage, dx: number, dy: number, width: number, height: number): void
-    drawImageRotated90CW(image: GeaEmbeddedImage, dx: number, dy: number, width: number, height: number): void
+    drawImageCircle(
+      image: GeaEmbeddedImage,
+      dx: number,
+      dy: number,
+      width: number,
+      height: number,
+    ): void
+    drawImageRotated90CW(
+      image: GeaEmbeddedImage,
+      dx: number,
+      dy: number,
+      width: number,
+      height: number,
+    ): void
     drawImageTiledX(image: GeaEmbeddedImage, dx: number, dy: number, width: number): void
   }
 
@@ -197,7 +246,8 @@ export type StyleLength =
   | `max(${string})`
   | `clamp(${string})`
 export type StyleBox = StyleLength | string
-export type StylePreferredSize = StyleLength | 'auto' | 'min-content' | 'max-content' | 'fit-content'
+export type StylePreferredSize =
+  StyleLength | 'auto' | 'min-content' | 'max-content' | 'fit-content'
 export type StyleOverflow = 'visible' | 'hidden' | 'clip' | 'scroll' | 'auto' | 'overlay'
 export type ClassMap = Record<string, string | number | boolean | null | undefined>
 export type ClassValue = string | ClassMap
@@ -270,6 +320,9 @@ export interface Style {
   bottom?: StyleLength
   zIndex?: number
   backgroundColor?: string
+  objectFit?: 'fill' | 'contain' | 'cover' | 'none' | 'scale-down'
+  /** CSS image alignment on web; embedded image fitting currently centers the image. */
+  objectPosition?: string
   color?: string
   opacity?: number
   blinkInterval?: number
@@ -301,6 +354,7 @@ export interface DataAttributes {
 }
 
 export interface Event {
+  readonly defaultPrevented: boolean
   readonly type: string
   readonly target: EventTarget
   readonly currentTarget: EventTarget
@@ -309,15 +363,36 @@ export interface Event {
 }
 
 export interface EventTarget {
-  addEventListener<K extends keyof GeaEventMap>(type: K, listener: (event: GeaEventMap[K]) => void): void
+  addEventListener<K extends keyof GeaEventMap>(
+    type: K,
+    listener: (event: GeaEventMap[K]) => void,
+  ): void
   addEventListener(type: string, listener: (event: Event) => void): void
 }
 
+/** Live child collection; iterable and bracket protocols are not published yet. */
+export interface NodeList {
+  readonly length: number
+  item(index: number): Node | null
+}
+
 export interface Node extends EventTarget {
-  readonly nodeType?: number
+  /** True only for a live allocation in the current mounted document subtree. */
+  readonly isConnected: boolean
+  readonly nodeType: number
+  readonly parentNode: Node | null
+  /** The current first child, including text/comments; null when empty. */
+  readonly firstChild: Node | null
+  readonly childNodes: NodeList
   appendChild(child: Node): void
+  /** Move a live node before a direct child; null appends. Return the inserted node. */
+  insertBefore(child: Node, reference: Node | null): Node
+  /** Detach a direct live child and return that same allocation, without retiring it. */
+  removeChild(child: Node): Node
   remove(): void
 }
+
+export interface FocusOptions { preventScroll?: boolean }
 
 export interface ScrollIntoViewOptions {
   behavior?: 'auto' | 'instant' | 'smooth'
@@ -333,6 +408,12 @@ export interface DOMTokenList {
 }
 
 export interface Element extends Node {
+  readonly lastElementChild: Element | null
+  /** Bounded native selector grammar; malformed/unsupported selectors refuse. */
+  matches(selector: string): boolean
+  closest<E extends Element = Element>(selector: string): E | null
+  querySelector(selector: string): Element | null
+  querySelectorAll(selector: string): readonly Element[]
   className?: string
   readonly children: readonly Element[]
   scrollLeft?: number
@@ -354,8 +435,22 @@ export interface Element extends Node {
   // `blur()` clears it again (and does nothing when this element was not the
   // one focused). Backed by `NodeHandle::focus()`/`blur()` over
   // `Tree::setActiveInput` (engine/ui/node.cpp).
-  focus(): void
+  focus(options?: FocusOptions): void
   blur(): void
+}
+
+/** Minimal native text input backed by a live NodeHandle allocation.
+ * Value uses the native value attribute; HTML dirty-value/defaultValue semantics
+ * and checked/type/selection APIs are not declared by this carrier. */
+export interface InputElement extends Element {
+  disabled: boolean
+  value: string
+}
+
+/** Native button attributes backed by the live node allocation. */
+export interface ButtonElement extends Element {
+  disabled: boolean
+  value: string
 }
 
 export interface VirtualListElement extends Element {
@@ -371,15 +466,22 @@ export interface VirtualListElement extends Element {
 }
 
 export interface Document {
+  addEventListener<K extends keyof GeaEventMap>(type: K, listener: (event: GeaEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
+  removeEventListener<K extends keyof GeaEventMap>(type: K, listener: (event: GeaEventMap[K]) => void, options?: boolean | WindowEventListenerOptions): void
   readonly body: Element
+  /** Actual connected native focus, null when no owned responder is focused. */
+  readonly activeElement: Element | null
   getElementById(id: string): Element | null
   querySelector(selector: string): Element | null
   querySelectorAll(selector: string): readonly Element[]
+  createElement(tag: 'input'): InputElement
+  createElement(tag: 'button'): ButtonElement
   createElement(tag: 'audio'): HTMLAudioElement
   createElement(tag: 'video'): HTMLVideoElement
   createElement(tag: 'virtual-list'): VirtualListElement
   createElement(tag: string): Element
   createTextNode(text: string): Node
+  createComment(text: string): Node
   createDocumentFragment(): Node
 }
 
@@ -394,6 +496,10 @@ export interface PointerEvent extends Event {
   // finger is 2, etc. (web convention, mirrored by the device touch runtime).
   // Multi-touch handlers route gestures by this id.
   readonly pointerId: number
+  /** Changed button: primary 0, auxiliary 1, secondary 2; -1 for no known edge. */
+  readonly button: number
+  /** Held-button bitmask for the producing pointer gesture; zero when released/unknown. */
+  readonly buttons: number
   readonly x: number
   readonly y: number
   readonly clientX: number
@@ -411,7 +517,9 @@ export interface PressEvent extends PointerEvent {
   readonly currentTarget: PressEventTarget
 }
 
-export type PressEventArgument = number & PressEvent
+// Native listeners receive the engine event. Numeric press metadata is exposed
+// through pressId/pressValue; the event itself is not an arithmetic value.
+export type PressEventArgument = PressEvent
 export type PressHandler = (event: PressEventArgument) => void
 
 export interface TouchPoint {
@@ -458,9 +566,8 @@ export interface RotaryEvent extends Event {
  * `keydown` is the engine's hardware-button/shortcut event and carries a
  * `KeyEvent`; `input` carries an `InputEvent`. Both are dispatched off-tree by
  * the runtime (`dispatch_key_input`, and `virtual_keyboard.cpp`'s synthetic
- * pair). `keyup` and `pointercancel` are deliberately ABSENT: `eventTypeIndex`
- * returns -1 for both, so `addEventListener` drops them and the handler would
- * never run. Declaring them would promise a callback the engine does not make.
+ * pair). Hardware button releases dispatch `keyup` with the same KeyEvent.
+ * Native cancellation names its event `pointercancel`; `touchcancel` is a listener alias.
  */
 export interface GeaEventMap {
   click: PressEvent
@@ -470,8 +577,14 @@ export interface GeaEventMap {
   pointerdown: PointerEvent
   pointermove: PointerEvent
   pointerup: PointerEvent
+  pointercancel: PointerEvent
+  touchcancel: PointerEvent
   input: InputEvent
+  focusin: Event
+  focusout: Event
+  change: InputEvent
   keydown: KeyEvent
+  keyup: KeyEvent
   rotary: RotaryEvent
   scroll: Event
 }
@@ -481,6 +594,15 @@ export type PointerEventHandler = (event: PointerEvent) => void
 export type RotaryEventHandler = (event: RotaryEvent) => void
 
 export interface NativeTouchEventAttributes {
+  /** Bare JSX spellings use the same native listener publication as onX. */
+  touchstart?: TouchEventHandler
+  touchend?: TouchEventHandler
+  touchmove?: TouchEventHandler
+  touchcancel?: PointerEventHandler
+  pointerdown?: PointerEventHandler
+  pointermove?: PointerEventHandler
+  pointerup?: PointerEventHandler
+  pointercancel?: PointerEventHandler
   onTouchStart?: TouchEventHandler
   onTouchEnd?: TouchEventHandler
   onTouchMove?: TouchEventHandler
@@ -495,16 +617,29 @@ export interface NativeTouchEventAttributes {
   onPointerDown?: PointerEventHandler
   onPointerMove?: PointerEventHandler
   onPointerUp?: PointerEventHandler
+  onPointerCancel?: PointerEventHandler
 }
 
 export interface NativeEventAttributes extends NativeTouchEventAttributes {
+  click?: PressHandler
+  input?: (event: InputEvent) => void
+  /** Committed user value change; distinct from intermediate input. */
+  change?: (event: InputEvent) => void
+  onChange?: (event: InputEvent) => void
+  keydown?: (event: KeyEvent) => void
+  keyup?: (event: KeyEvent) => void
+  scroll?: (event: Event) => void
+  /** Text services and app-owned editors may dispatch input on ordinary views. */
+  onInput?: (event: InputEvent) => void
   onClick?: PressHandler
   onPress?: PressHandler
   onKeyDown?: (event: KeyEvent) => void
+  onKeyUp?: (event: KeyEvent) => void
   onRotary?: RotaryEventHandler
 }
 
 export interface InputEventTarget extends Element {
+  disabled: boolean
   value: string
 }
 
@@ -513,9 +648,19 @@ export interface InputEvent {
   currentTarget: InputEventTarget
 }
 
-export interface KeyEvent {
-  keyCode: number
-  which: number
+export interface KeyEvent extends Event {
+  readonly target: Element
+  readonly currentTarget: Element
+  readonly keyCode: number
+  readonly which: number
+  readonly key: string
+  readonly code: string
+  readonly altKey: boolean
+  readonly ctrlKey: boolean
+  readonly metaKey: boolean
+  readonly shiftKey: boolean
+  readonly repeat: boolean
+  readonly isComposing: boolean
 }
 
 export interface ViewProps extends DataAttributes {
@@ -609,7 +754,10 @@ export interface AudioProps extends DataAttributes {
   autoplay?: boolean | string | number
   controls?: boolean | string | number
   loop?: boolean | string | number
-  ref?: HTMLAudioElement | (typeof globalThis extends { HTMLAudioElement: { prototype: infer E } } ? E : never) | null
+  ref?:
+    | HTMLAudioElement
+    | (typeof globalThis extends { HTMLAudioElement: { prototype: infer E } } ? E : never)
+    | null
   autoPlay?: boolean
   children?: any
 }
@@ -623,7 +771,10 @@ export interface VideoProps extends DataAttributes {
   playsinline?: boolean
   autoPlay?: boolean
   playsInline?: boolean
-  ref?: HTMLVideoElement | (typeof globalThis extends { HTMLVideoElement: { prototype: infer E } } ? E : never) | null
+  ref?:
+    | HTMLVideoElement
+    | (typeof globalThis extends { HTMLVideoElement: { prototype: infer E } } ? E : never)
+    | null
 }
 
 export type ImageSource = string | ArrayBuffer | Uint8Array | GeaEmbeddedImage
@@ -650,11 +801,20 @@ export interface ImageProps extends DataAttributes {
   onFrame?: (frame: number) => void
 }
 
+export interface ImageData565 {
+  readonly width: number
+  readonly height: number
+  /** Row-major RGB565 pixels, `width * height` long. */
+  readonly data16: Uint16Array
+}
+
 export interface GeaEmbeddedImage {
   readonly width: number
   readonly height: number
   readonly frameCount: number
   readonly isAnimated: boolean
+  /** Decode deferred pixels into the shared image cache; false on failure. */
+  decode(): boolean
   play(): void
   pause(): void
   seek(frame: number): void
@@ -676,7 +836,10 @@ export interface LoadImageOptions {
 // native `GeaEmbeddedImage` handle directly rather than a Promise — `await` still
 // works and keeps the value (and any `GeaEmbeddedImage[]` cache) a concrete
 // struct instead of a boxed gea_cpp_value.
-export declare function loadImage(src: string | ArrayBuffer | Uint8Array, options?: LoadImageOptions): GeaEmbeddedImage
+export declare function loadImage(
+  src: string | ArrayBuffer | Uint8Array,
+  options?: LoadImageOptions,
+): GeaEmbeddedImage
 export declare function loadImageWithOpaque(src: Uint8Array, opaque: boolean): GeaEmbeddedImage
 
 // Load + decode an image directly from a persistent-cache file (e.g. a microSD
@@ -700,6 +863,9 @@ export declare function writeCacheFile(path: string, bytes: Uint8Array): boolean
 // Read a whole file's raw bytes from the persistent cache (e.g. a .pmtiles
 // pushed to /sdcard). Empty Uint8Array when the file is absent / no storage.
 export declare function readCacheFile(path: string): Uint8Array
+
+/** Delete a persistent-cache file. */
+export declare function removeCacheFile(path: string): boolean
 
 // Read a .pmtiles archive flashed into the spare ota_1 partition over USB
 // (esptool). Empty Uint8Array when none present (or off-device).
@@ -786,7 +952,7 @@ export class Component<RootElement extends GeaElement = GeaElement, Props = void
 // reactive overhead. Extend this only when the component manages its own state.
 export class ReactiveComponent<
   RootElement extends GeaElement = GeaElement,
-  Props = void
+  Props = void,
 > extends Component<RootElement, Props> {}
 
 export interface BluetoothKeyboard {
@@ -957,9 +1123,28 @@ export interface CanvasRenderingContext2D {
   fillCircle(x: number, y: number, radius: number, fill?: string | number): void
   strokeCircle(x: number, y: number, radius: number): void
   fillCircleRgb565(x: number, y: number, radius: number, color: number): void
-  fillTriangleRgb565(x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, color: number): void
-  fillCirclesRgb565(xs: ArrayLike<number>, ys: ArrayLike<number>, radius: number, colors: ArrayLike<number>, count?: number): void
-  fillCirclesRgb565Uniform(xs: ArrayLike<number>, ys: ArrayLike<number>, radius: number, color: number): void
+  fillTriangleRgb565(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    color: number,
+  ): void
+  fillCirclesRgb565(
+    xs: ArrayLike<number>,
+    ys: ArrayLike<number>,
+    radius: number,
+    colors: ArrayLike<number>,
+    count?: number,
+  ): void
+  fillCirclesRgb565Uniform(
+    xs: ArrayLike<number>,
+    ys: ArrayLike<number>,
+    radius: number,
+    color: number,
+  ): void
   /**
    * Batched opaque triangles as ONE recorded present command. `order[0..count)`
    * indexes the coordinate/colour arrays in paint (depth) order; colours are
@@ -1000,9 +1185,39 @@ export interface CanvasRenderingContext2D {
   // with no alpha plane: the blit skips the pixels outside the shape rather
   // than blending them. A square opaque tile would otherwise paint its
   // corners over whatever it overlaps.
-  drawImageCircle(image: GeaEmbeddedImage, dx: number, dy: number, width: number, height: number): void
-  drawImageRotated90CW(image: GeaEmbeddedImage, dx: number, dy: number, width: number, height: number): void
+  drawImageCircle(
+    image: GeaEmbeddedImage,
+    dx: number,
+    dy: number,
+    width: number,
+    height: number,
+  ): void
+  drawImageRotated90CW(
+    image: GeaEmbeddedImage,
+    dx: number,
+    dy: number,
+    width: number,
+    height: number,
+  ): void
   drawImageTiledX(image: GeaEmbeddedImage, dx: number, dy: number, width: number): void
+  /**
+   * An RGB565 pixel buffer the app writes directly:
+   * `img.data16[i] = ((r & 0xf8) << 8) | ((g & 0xfc) << 3) | (b >> 3)`.
+   * Allocate once, write every frame, then draw with `putImageData`.
+   */
+  createImageData565(width: number, height: number): ImageData565
+  /** Draw an `ImageData565` with its top-left corner at (dx, dy): one blit. */
+  putImageData(image: ImageData565, dx: number, dy: number): void
+  /** Draw only the dirty rectangle of an `ImageData565`, at (dx + dirtyX, dy + dirtyY). */
+  putImageData(
+    image: ImageData565,
+    dx: number,
+    dy: number,
+    dirtyX: number,
+    dirtyY: number,
+    dirtyWidth: number,
+    dirtyHeight: number,
+  ): void
   flush(): void
   beginBatch(): void
   endBatch(): void
@@ -1047,7 +1262,8 @@ export interface DisplayEpaperRefreshConfig {
   fullOnCover?: boolean
 }
 
-export type DisplayOrientation = 'portrait-primary' | 'portrait-secondary' | 'landscape-primary' | 'landscape-secondary'
+export type DisplayOrientation =
+  'portrait-primary' | 'portrait-secondary' | 'landscape-primary' | 'landscape-secondary'
 
 export type DisplayOrientationSupport = DisplayOrientation | 'portrait' | 'landscape' | 'all'
 
@@ -1074,7 +1290,9 @@ export interface DisplayController {
   getOrientation(): DisplayOrientation
   setOrientation(orientation: DisplayOrientation): void
   getSupportedOrientations(): DisplayOrientationSupport[]
-  setSupportedOrientations(orientations: DisplayOrientationSupport | DisplayOrientationSupport[]): void
+  setSupportedOrientations(
+    orientations: DisplayOrientationSupport | DisplayOrientationSupport[],
+  ): void
   getAutoRotate(): boolean
   setAutoRotate(enabled: boolean): void
   /**
@@ -1203,6 +1421,59 @@ export interface GpioController {
 
 export declare const Gpio: GpioController
 
+export interface UartOptions {
+  tx: number
+  rx: number
+  baudRate: number
+  /** Receive/transmit queue bytes. Defaults to 4096 each. */
+  rxBufferSize?: number
+  txBufferSize?: number
+}
+
+/** Hardware UART, 8 data bits, no parity, one stop bit (8N1). */
+export interface UartController {
+  /** Claims a free controller and pins. False on conflict/invalid configuration. */
+  open(port: number, options: UartOptions): boolean
+  isOpen(port: number): boolean
+  close(port: number): void
+  /** Nonblocking read into the supplied view; returns bytes read, or -1 on error. */
+  read(port: number, buffer: Uint8Array): number
+  /** Nonblocking whole-buffer enqueue; 0 means backpressure, -1 means error. */
+  write(port: number, buffer: Uint8Array): number
+  /** Queued readable bytes, or -1 when unavailable. */
+  available(port: number): number
+  /** Writable queue capacity, or -1 when unavailable. */
+  writable(port: number): number
+}
+
+export declare const Uart: UartController
+
+/** ESP-NOW v2 datagrams; addresses are six-byte MACs. Unsupported targets return false/-1. */
+export interface EspNowController {
+  /** Integer quarter-dBm cap, 8..84; fails on closed/borrowed radios. The SDK quantizes it. */
+  setMaxTxPower(quarterDbm: number): boolean
+  /** Actual cap in quarter-dBm, or -1 when unavailable. */
+  getMaxTxPower(): number
+  /**
+   * Channel 0 borrows running Wi-Fi. Other channels claim an idle radio.
+   * Default 54; rates 24/36/54 use OFDM, 65 uses HT20 MCS7.
+   * ESP32-S31 also accepts 115 for HE20 MCS9 short GI (nominal 114.7 Mbps).
+   * Unsupported rates/protocols return false without changing a borrowed radio.
+   */
+  open(channel: number, rateMbps?: number): boolean
+  isOpen(): boolean
+  /** True when the previous radio send has completed. */
+  canSend(): boolean
+  close(): void
+  /** Optional key is a 16-byte LMK; omit only for unencrypted traffic. */
+  addPeer(address: Uint8Array, key?: Uint8Array): boolean
+  /** Whole datagram admission: bytes, 0 when busy, -1 for invalid/unavailable. */
+  send(address: Uint8Array, bytes: Uint8Array): number
+  /** source must be 6 bytes, buffer at least 1470. Returns received length, 0, or -1. */
+  receive(source: Uint8Array, buffer: Uint8Array): number
+}
+export declare const EspNow: EspNowController
+
 export interface LedController {
   // A WS2812/NeoPixel strand on one pin — what "the onboard LED" is on most
   // modern ESP32 modules.
@@ -1224,6 +1495,9 @@ export interface LedController {
 export declare const Led: LedController
 
 export interface ClockController {
+  /** Set wall time and persist to the board RTC when present. */
+  setEpochMs(timestamp: number): boolean
+
   // Milliseconds since the Unix epoch from the platform real-time clock
   // (gettimeofday). Reflects a host-set time (GEADEV SETTIME / the companion
   // app on launch). Unlike Date.now() — which reads a monotonic clock on
@@ -1263,11 +1537,20 @@ declare global {
 }
 
 export interface BatteryController {
+  /** External power is present. */
+  charging(): boolean
+
   // Battery charge percentage (0-100) read from the platform PMU.
   level(): number
 }
 
 export declare const Battery: BatteryController
+
+export interface HapticsController {
+  vibrate(durationMs: number, strength?: number): boolean
+}
+
+export declare const Haptics: HapticsController
 
 export interface NotifyController {
   // Transient host->app notification channel (e.g. pushed from the companion
@@ -1307,9 +1590,17 @@ export interface AudioBuffer {
   readonly length: number
   readonly duration: number
   readonly numberOfChannels: number
-  copyFromChannel(destination: Float32Array<ArrayBuffer>, channelNumber: number, bufferOffset?: number): void
-  copyToChannel(source: Float32Array<ArrayBuffer>, channelNumber: number, bufferOffset?: number): void
-  getChannelData(channel: number): Float32Array<ArrayBuffer>
+  copyFromChannel(
+    destination: Float32Array<ArrayBufferLike>,
+    channelNumber: number,
+    bufferOffset?: number,
+  ): void
+  copyToChannel(
+    source: Float32Array<ArrayBufferLike>,
+    channelNumber: number,
+    bufferOffset?: number,
+  ): void
+  getChannelData(channel: number): Float32Array<ArrayBufferLike>
 }
 
 export interface AudioBufferSourceNode {
@@ -1338,6 +1629,7 @@ export interface AudioContext {
   readonly currentTime: number
   readonly destination: AudioDestinationNode
   createOscillator(): OscillatorNode
+  createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBuffer
   createBufferSource(): AudioBufferSourceNode
   decodeAudioData(audioData: ArrayBuffer | Uint8Array | GeaAudioBlob): Promise<AudioBuffer>
   createMediaStreamSource(stream: MediaStream): MediaStreamAudioSourceNode
@@ -1382,6 +1674,29 @@ export interface AccelerometerController {
 }
 
 export declare const Accelerometer: AccelerometerController
+
+export interface MagnetometerReading {
+  /** Compensated whole microtesla; saturated axes retain their sensor sentinel. */
+  x: number
+  y: number
+  z: number
+  /** False for an unavailable sensor or failed I2C read. */
+  valid: boolean
+  /** Saturated-axis bits: X=1, Y=2, Z=4. Those values are not field strength. */
+  saturatedAxes: number
+  timestampUs: number
+}
+
+export interface MagnetometerController {
+  /** Initializes the board's sensors. Idempotent; false when unavailable. */
+  open(): boolean
+  close(): void
+  /** Number of board-defined sensors, whether open or closed. */
+  count(): number
+  /** Board-defined sensor index, 0 to count() - 1. */
+  read(index: number): MagnetometerReading
+}
+export declare const Magnetometer: MagnetometerController
 
 export type CameraFacing = 'front' | 'back' | 'external'
 export type CameraFlashMode = 'off' | 'on' | 'auto' | 'torch'
@@ -1466,6 +1781,8 @@ export interface CameraController {
   /** Capture a still frame. `capturePhoto` is the preferred alias of `capture`. */
   capture(options?: CameraCaptureOptions): Promise<CameraPhoto>
   capturePhoto(options?: CameraCaptureOptions): Promise<CameraPhoto>
+  /** Take the newest encoded JPEG data URL without waiting; empty when no fresh frame is ready. */
+  captureFrame(): string
   /** Record a video clip (esp32-p4: Motion-JPEG; iOS movie: later). */
   startRecording(options: CameraRecordOptions): Promise<void>
   stopRecording(): Promise<CameraClip>
@@ -1525,12 +1842,12 @@ export interface GeolocationController {
   getCurrentPosition(
     success: (position: GeolocationPosition) => void,
     error?: (error: GeolocationPositionError) => void,
-    options?: PositionOptions
+    options?: PositionOptions,
   ): void
   watchPosition(
     success: (position: GeolocationPosition) => void,
     error?: (error: GeolocationPositionError) => void,
-    options?: PositionOptions
+    options?: PositionOptions,
   ): number
   clearWatch(id: number): void
 }
@@ -1539,6 +1856,12 @@ export declare const Geolocation: GeolocationController
 export declare const geolocation: GeolocationController
 
 export interface WiFiController {
+  accessPointMac(): string
+  startCaptivePortal(): boolean
+  stopCaptivePortal(): void
+  startAccessPoint(ssid: string, password?: string): boolean
+  stopAccessPoint(): void
+
   enabled(): boolean
   setEnabled(enabled: boolean): void
   connected(): boolean
@@ -1569,7 +1892,8 @@ export interface ButtonProps {
   children?: any
 }
 
-export interface NativeButtonProps extends NativeEventAttributes {
+export interface NativeButtonProps extends DataAttributes, NativeEventAttributes {
+  id?: string
   disabled?: boolean
   key?: string | number
   class?: ClassValue
@@ -1601,12 +1925,9 @@ export interface NativeVirtualListProps extends NativeEventAttributes {
 export interface InputElementProps {
   class?: ClassValue
   style?: Style
-  // The three shapes the renderer actually materializes: `range` becomes an
-  // NSSlider and `checkbox` an NSSwitch, everything else an NSTextField
-  // (`apple/targets/macos/main/macos_renderer.mm`, `makeViewForType`). The union
-  // had drifted to the text-field spellings alone, so an app writing the switch
-  // the renderer has always drawn did not typecheck.
-  type?: 'text' | 'password' | 'button' | 'range' | 'checkbox'
+  // macOS uses NSSlider for range, NSButton for radio, and NSSwitch for checkbox.
+  // Add data-control="checkbox" for an AppKit checkbox button.
+  type?: 'text' | 'password' | 'button' | 'range' | 'checkbox' | 'radio'
   // Optional, because the renderer treats it as one: every reader guards with
   // `if (value && value[0])`, and `applySwitchProps` never reads it at all --
   // a switch's state is `checked`. Requiring it made `<input type="checkbox">`
@@ -1619,7 +1940,11 @@ export interface InputElementProps {
   // switch's state and is written back on toggle.
   min?: number | string
   max?: number | string
+  step?: number | string
   checked?: boolean | string
+  disabled?: boolean
+  readOnly?: boolean
+  name?: string
   placeholder?: string
   autoFocus?: boolean | number
   pressId?: number
@@ -1629,13 +1954,16 @@ export interface InputElementProps {
   onFocus?: () => void
   onBlur?: () => void
   onKeyDown?: (event: KeyEvent) => void
+  onKeyUp?: (event: KeyEvent) => void
   input?: (value: string) => void
   focus?: () => void
   blur?: () => void
   keydown?: (keyCode: number) => void
+  keyup?: (keyCode: number) => void
 }
 
-export interface NativeInputElementProps extends InputElementProps {
+export interface NativeInputElementProps extends Omit<InputElementProps, 'input' | 'keydown' | 'keyup'>, NativeEventAttributes, DataAttributes {
+  id?: string
   ref?: GeaElement | null
 }
 
@@ -1649,8 +1977,38 @@ export interface TextAreaElementProps {
   onBlur?: () => void
 }
 
-export interface NativeTextAreaElementProps extends TextAreaElementProps {
+export interface NativeTextAreaElementProps extends TextAreaElementProps, NativeEventAttributes, DataAttributes {
+  id?: string
+  disabled?: boolean
+  readOnly?: boolean
   ref?: GeaElement | null
+}
+
+export interface NativeSelectProps extends NativeViewProps {
+  value?: string
+  disabled?: boolean
+  onInput?: (event: InputEvent) => void
+}
+
+export interface NativeOptionProps extends TextProps {
+  value?: string
+  selected?: boolean
+  disabled?: boolean
+}
+
+export interface NativeStepperProps extends NativeViewProps {
+  value?: string
+  min?: number | string
+  max?: number | string
+  step?: number | string
+  disabled?: boolean
+  onInput?: (event: InputEvent) => void
+}
+
+export interface NativeProgressProps extends NativeViewProps {
+  value?: number | string
+  max?: number | string
+  indeterminate?: boolean
 }
 
 export declare function mount(component: new () => Component): void
@@ -1715,7 +2073,7 @@ export declare function fetchUploadFileAsync(
   contentType: string,
   prefix: string,
   filePath: string,
-  suffix: string
+  suffix: string,
 ): number
 
 /**
@@ -1744,7 +2102,7 @@ declare global {
     contentType: string,
     prefix: string,
     filePath: string,
-    suffix: string
+    suffix: string,
   ): number
   function fetchDownloadFileAsync(url: string, auth: string, destPath: string): number
   function fetchUploadProgress(id: number): number
@@ -1788,11 +2146,16 @@ export interface WebSocketInstance {
 }
 
 export interface WebSocketConstructor {
-  new (url: string, protocols?: string | string[]): WebSocketInstance
+  new (url: string, protocols?: string | string[], options?: WebSocketOptions): WebSocketInstance
   readonly CONNECTING: 0
   readonly OPEN: 1
   readonly CLOSING: 2
   readonly CLOSED: 3
+}
+
+/** Native connection headers. Browser WebSockets do not support this option. */
+export interface WebSocketOptions {
+  headers: { name: string; value: string }[]
 }
 
 declare global {
@@ -1810,7 +2173,16 @@ declare global {
  * off disk — a reply that sets `file` streams that path on the server worker
  * without ever loading the bytes into JS.
  */
+export interface HttpHeader {
+  name: string
+  value: string
+}
+
 export interface IncomingMessage {
+  readonly headers: HttpHeader[]
+  /** Raw request body, limited to 2 MiB by the native server. */
+  readonly body: Uint8Array
+
   /** "GET", "POST", ... */
   readonly method: string
   /** Full request target including the query string (e.g. "/n/3.wav?x=1"). */
@@ -1822,6 +2194,7 @@ export interface IncomingMessage {
 }
 
 export interface HttpReply {
+  headers?: HttpHeader[]
   /** HTTP status code. Defaults to 200. */
   status?: number
   /** Response Content-Type. Defaults to "text/plain". */
@@ -1879,7 +2252,13 @@ export interface MediaStreamConstructor {
 }
 
 export interface MediaStreamConstraints {
-  audio?: boolean | { sampleRate?: number; channelCount?: number; echoCancellation?: boolean }
+  audio?:
+    | boolean
+    | {
+        sampleRate?: number
+        channelCount?: number
+        echoCancellation?: boolean
+      }
   video?: false
 }
 
@@ -2075,7 +2454,9 @@ export interface RTCDataChannelInit {
   negotiated?: boolean
   id?: number
 }
-export interface RTCDataChannelMessageEvent { readonly data: string | ArrayBuffer }
+export interface RTCDataChannelMessageEvent {
+  readonly data: string | ArrayBuffer
+}
 export interface RTCDataChannel {
   readonly label: string
   readonly protocol: string
@@ -2098,8 +2479,12 @@ export interface RTCRtpSender {
   readonly track: MediaStreamTrack | null
   replaceTrack(track: MediaStreamTrack | null): Promise<void>
 }
-export interface RTCRtpReceiver { readonly track: MediaStreamTrack | null }
-export interface RTCRtpTransceiverInit { direction?: 'sendrecv' | 'sendonly' | 'recvonly' | 'inactive' }
+export interface RTCRtpReceiver {
+  readonly track: MediaStreamTrack | null
+}
+export interface RTCRtpTransceiverInit {
+  direction?: 'sendrecv' | 'sendonly' | 'recvonly' | 'inactive'
+}
 export interface RTCRtpTransceiver {
   readonly sender: RTCRtpSender
   readonly receiver: RTCRtpReceiver
@@ -2111,8 +2496,10 @@ export interface RTCRtpTransceiver {
 }
 
 export interface RTCPeerConnectionInstance {
-  readonly connectionState: 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed'
-  readonly iceConnectionState: 'new' | 'checking' | 'connected' | 'completed' | 'failed' | 'disconnected' | 'closed'
+  readonly connectionState:
+    'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed'
+  readonly iceConnectionState:
+    'new' | 'checking' | 'connected' | 'completed' | 'failed' | 'disconnected' | 'closed'
 
   onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null
   ontrack: ((event: RTCTrackEvent) => void) | null
@@ -2127,7 +2514,10 @@ export interface RTCPeerConnectionInstance {
   ondatachannel: ((event: { channel: RTCDataChannel }) => void) | null
   addTrack(track: MediaStreamTrack, stream?: MediaStream): RTCRtpSender
   removeTrack(sender: RTCRtpSender): void
-  addTransceiver(trackOrKind: MediaStreamTrack | 'audio', init?: RTCRtpTransceiverInit): RTCRtpTransceiver
+  addTransceiver(
+    trackOrKind: MediaStreamTrack | 'audio',
+    init?: RTCRtpTransceiverInit,
+  ): RTCRtpTransceiver
   getTransceivers(): RTCRtpTransceiver[]
   getSenders(): RTCRtpSender[]
   getReceivers(): RTCRtpReceiver[]
@@ -2149,15 +2539,15 @@ declare global {
   function Image(props: ImageProps): GeaJsxElement
 }
 
-
 /** Streaming mono signed PCM16, little endian, carried as base64 text. */
 export interface PcmAudioStream {
   setInput(stream: MediaStream): void
   /** Capture and upload on the native socket worker, independently of UI callbacks. */
   pipeTo(socket: WebSocketInstance, prefix: string, suffix: string): void
   /** Decode matching PCM packets on the native receive worker; control messages still reach JS. */
-  receiveFrom(socket: WebSocketInstance, prefix: string, suffix: string): void
-  /** Read the next 40ms capture block, or an empty string if not ready. */
+  /** Startup delay defaults to 200 ms; use zero for an upstream A/V playback clock. */
+  receiveFrom(socket: WebSocketInstance, prefix: string, suffix: string, startupMs?: number): void
+  /** Read the next 20ms capture block, or an empty string if not ready. */
   readBase64(): string
   writeBase64(data: string): void
   resetPlayback(interrupted?: boolean): void

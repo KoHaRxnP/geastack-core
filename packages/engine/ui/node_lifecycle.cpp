@@ -191,6 +191,9 @@ constexpr ComputedStyle makeDefaultStyle()
 #endif
 	// transform / perspective / filter / box-shadow moved to RareStyle; a fresh
 	// node (rare_style = -1) reads their correct defaults from the zero entry.
+#if GEA_CSS_FONT_STRETCH
+	style.font_stretch = 1000;
+#endif
 	style.font_id = -1;
 	style.font_size = 0;
 #if GEA_CSS_FONT_WEIGHT
@@ -349,6 +352,12 @@ void Node::resetComputedStyle() { NodeLifecycle::resetStyle(style); }
 
 void NodeLifecycle::init(Node *n, NodeType type)
 {
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+	static uint32_t nextDebuggerIdentity = 0;
+	// Two protocol ids per native node (element and optional text child).
+	if (nextDebuggerIdentity >= 0x3fffffff) std::abort();
+	n->debugger_identity = ++nextDebuggerIdentity;
+#endif
 	n->type = type;
 #if GEA_EMBEDDED_SHARED_STYLES && !GEA_CSS_CUSTOM_PROPERTIES
 	n->class_style_tracked = false;
@@ -421,6 +430,7 @@ void NodeLifecycle::init(Node *n, NodeType type)
 #endif
 	n->render.inline_baseline = 0;
 	n->render.dirty = 0;
+	n->render.canvas_pixels_only_dirty = 0;
 #if GEA_CSS_SCROLLING
 	n->render.scroll_dirty = 0;
 #endif

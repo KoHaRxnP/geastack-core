@@ -367,3 +367,8 @@
 #ifndef GEA_CSS_DISPLAY_EXPLICIT
 #define GEA_CSS_DISPLAY_EXPLICIT 1
 #endif
+
+// Desktop targets opt in; embedded node storage remains unchanged by default.
+#ifndef GEA_CSS_FONT_STRETCH
+#define GEA_CSS_FONT_STRETCH 0
+#endif

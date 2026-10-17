@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "display_invalidation.h"
+#include <image.h>
 #include "internal.h"
 #include "node_lifecycle.h"
 #include "refresh_perf.h"
@@ -167,6 +168,7 @@ bool isLayoutProperty(Property prop)
 	case Property::Overflow:
 	case Property::OverflowX:
 	case Property::OverflowY:
+	case Property::FontStretch:
 	case Property::FontId:
 	case Property::FontSize:
 	case Property::FontWeight:
@@ -937,6 +939,9 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		}
 		break;
 #endif
+#if GEA_CSS_FONT_STRETCH
+	case Property::FontStretch: if (style.font_stretch != value) { style.font_stretch = value; changed = 1; } break;
+#endif
 	case Property::FontId:          if (style.font_id != value) { style.font_id = value; changed = 1; } break;
 	case Property::FontSize:        if (style.font_size != value) { style.font_size = value; changed = 1; } break;
 #if GEA_CSS_FONT_WEIGHT
@@ -1052,7 +1057,15 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 	}
 #endif
 #if GEA_UI_IMAGE_NODES
-	case Property::ImageId:         if (n->image_id != value) { n->image_id = value; changed = 1; } break;
+	case Property::ImageId:
+		if (n->image_id != value) {
+			auto &images = gea::framework::graphics::ImageStore::instance();
+			images.retain(value);
+			images.release(n->image_id);
+			n->image_id = value;
+			changed = 1;
+		}
+		break;
 #endif
 #if GEA_CSS_IMAGE_FIT
 	case Property::ImageFit:        if (style.image_fit != value) { style.image_fit = value; changed = 1; } break;
@@ -1155,6 +1168,7 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 		GEA_REFRESH_PERF(perf.treeSetStylePaintChanged++);
 	if (state.styleInvalidationSuppressionDepth > 0) return;
 	if (!nodeParticipatesInMountedTree(state, node)) return;
+	n->render.canvas_pixels_only_dirty = 0;
 	const bool hadRecolor = n->render.bg_recolor_pending;
 	const bool canRecolor = !n->render.dirty || hadRecolor;
 	n->render.text_partial_dirty = 0;
@@ -1238,7 +1252,13 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			// and recreating it during a fade. patchNodeAlpha returns false when
 			// no scope exists (for example, an initially opaque or culled node),
 			// so those cases still take the ordinary recording path below.
-			if (stayLocal &&
+			const auto *textCommand = n->type == NodeType::Text && n->first_child < 0 &&
+			                         DisplayList::instance().nodeCommandCount(node) == 1
+			                             ? DisplayList::instance().nodeCommandAt(node, 0) : nullptr;
+			const bool plainText = textCommand && textCommand->type == DisplayCommandType::DrawText &&
+			                       n->layout.height >= std::max(16, static_cast<int>(style.font_size)) &&
+			                       n->layout.height >= style.line_height;
+			if ((stayLocal || plainText) &&
 			    DisplayList::instance().patchNodeAlpha(node, static_cast<uint8_t>(style.opacity)))
 				return;
 			// Crossing the 255 boundary (scope appears/disappears) or a non-leaf:
@@ -1264,7 +1284,12 @@ void setStyleValue(Tree &tree, int node, Property prop, int value, bool recordIn
 			// full-viewport repaint). Display toggles (visibility/order) and
 			// filter/box-shadow (pixel spillover past the node box) keep the
 			// conservative full repaint.
-			if (prop == Property::Opacity)
+			// Undersized text boxes can paint glyphs outside their layout damage
+			// region. Their opacity fallback must clear that overflow as well.
+			const bool overflowingText = n->type == NodeType::Text &&
+			                            (n->layout.height < std::max(16, static_cast<int>(style.font_size)) ||
+			                             n->layout.height < style.line_height);
+			if (prop == Property::Opacity && !overflowingText)
 				tree.markDisplayListContentDirty();
 			else
 				tree.markDisplayListDirty();
@@ -1315,6 +1340,7 @@ void Tree::resetStyleForClassRecompute(int node)
 
 	state.nodes[node].resetComputedStyle();
 #if GEA_UI_IMAGE_NODES
+	gea::framework::graphics::ImageStore::instance().release(state.nodes[node].image_id);
 	state.nodes[node].image_id = -1;
 #endif
 	if (state.styleInvalidationSuppressionDepth > 0) return;

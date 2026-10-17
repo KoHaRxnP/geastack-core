@@ -205,7 +205,10 @@ struct GridTrackLayout {
 	int columnOrigin = 0, rowOrigin = 0;
 };
 
+struct ChildNodeListIdentity;
+
 struct NodeRareData {
+	std::shared_ptr<const ChildNodeListIdentity> childNodeListIdentity;
 	// Reuse the listener record's tail padding for inline-position metadata.
 	// Both members remain ordinary embedded fields with fixed-offset access.
 	[[no_unique_address]] NodeEventListeners listeners;
@@ -245,6 +248,7 @@ struct NodeRareData {
 
 	void clear()
 	{
+		childNodeListIdentity.reset();
 		attributes.clear();
 		listeners.clear();
 		customProperties.clear();

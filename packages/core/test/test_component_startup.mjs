@@ -15,7 +15,9 @@ assert.equal(new ReactiveComponent().onAfterRender(), undefined)
 
 // An override must type-check against both the public API and compiler runtime.
 for (const specifier of ['../index', '../runtime/compiler']) {
-  const filename = fileURLToPath(new URL('./component-startup-check.ts', import.meta.url))
+  // TypeScript hands the host forward-slash paths on every platform, so the
+  // in-memory root is named in that spelling too (a no-op on POSIX).
+  const filename = ts.normalizePath(fileURLToPath(new URL('./component-startup-check.ts', import.meta.url)))
   const source = `import { ReactiveComponent } from '${specifier}'
 class Example extends ReactiveComponent {
   override onAfterRender(): void { super.onAfterRender() }

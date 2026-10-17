@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "display.h"
+#include <display.h>
 #include "host/backends.h"
 #include "host/fetch.h"
 #include "geolocation.h"
@@ -23,14 +23,18 @@
 #include "host/memory.h"
 #include "host/input.h"
 #include "host/gpio.h"
+#include "host/uart.h"
+#include "host/esp_now.h"
+#include "host/magnetometer.h"
 #include "host/clock.h"
 #include "host/profiler.h"
 #include "host/storage.h"
 #include "host/battery.h"
 #include "host/notify.h"
 #include "host/device_control.h"
-#include "input.h"
+#include <input.h>
 #include "host/audio.h"
+#include "host/video.h"
 #include "host/display.h"
 #include "host/navigator.h"
 #include "host/camera.h"

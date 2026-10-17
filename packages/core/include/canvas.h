@@ -213,6 +213,7 @@ public:
 	void drawText(const char *text, int x, int y, pixel::native_t color, float scale);
 	void drawTextFont(const char *text, int x, int y, pixel::native_t color, int font_id);
 	void drawTextFontFamily(const char *text, int x, int y, pixel::native_t color, int family_id, int size_px);
+	void drawTextFontFamily(const char *text, int x, int y, pixel::native_t color, int family_id, int size_px,int weight,int stretch);
 	// Rotated 90deg for panel-native landscape rendering: the anchor and the
 	// text advance are in LANDSCAPE coordinates; every glyph pixel writes to
 	// the portrait panel address (panel_x = ly, panel_y = height-1-lx). The

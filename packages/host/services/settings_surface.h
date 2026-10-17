@@ -20,8 +20,8 @@
 #include <cstdio>
 #include <cstring>
 
-#include "display.h"
-#include "apps.h"
+#include <display.h>
+#include <apps.h>
 #include "ui/document.h"
 #include "ui/node.h"
 #include "ui/style.h"

@@ -169,5 +169,85 @@ int main()
 	if (!expectEqual(stretch.scale_y, 2000, "nonuniform y scale interpolation")) return 1;
 	if (!expectEqual(stretch.scale_z, 1500, "independent depth scale interpolation")) return 1;
 
+	// Conditional content is mounted after the application's first frame.
+	// New CSS tracks must start then, while unrelated renders preserve phase.
+	resetNativeHost(); StyleSheet::instance().clear();
+	auto &loading = StyleSheet::instance();
+	loading.registerKeyframeRule("bounce", 0, "transform", "translateY(0)");
+	loading.registerKeyframeRule("bounce", 400, "transform", "translateY(-7px)");
+	loading.registerKeyframeRule("bounce", 800, "transform", "translateY(0)");
+	loading.registerKeyframeRule("bounce", 1000, "transform", "translateY(0)");
+	loading.registerRule("dot", "animation", "bounce 900ms linear infinite");
+	loading.registerRule("second", "animation", "bounce 900ms linear 150ms infinite");
+	loading.registerRule("third", "animation", "bounce 900ms linear 300ms infinite");
+	loading.startCssAnimations(1000); // Initial tree contains no loading dots.
+	const int firstDot = Tree::instance().createView(); NodeHandle(firstDot).classList().set("dot");
+	const int secondDot = Tree::instance().createView(); NodeHandle(secondDot).classList().set("dot second");
+	const int thirdDot = Tree::instance().createView(); NodeHandle(thirdDot).classList().set("dot third");
+	loading.startCssAnimations(2000);
+	const auto count = gea::css::AnimationEngine::instance().count();
+	if (!expectTrue(count > 0, "late-mounted dots start")) return 1;
+	loading.startCssAnimations(2360); gea::css::AnimationEngine::instance().tick(2360);
+	if (!expectEqual(rstyle(Tree::instance().node(firstDot).style).transform_translate_y, -7, "late dot reaches bounce peak")) return 1;
+	if (!expectEqual(rstyle(Tree::instance().node(secondDot).style).transform_translate_y, -4, "second dot stagger")) return 1;
+	if (!expectEqual(rstyle(Tree::instance().node(thirdDot).style).transform_translate_y, -1, "third dot stagger")) return 1;
+	NodeHandle(firstDot).classList().set("dot unrelated");
+	if (!expectEqual(rstyle(Tree::instance().node(firstDot).style).transform_translate_y, -7, "style recompute preserves current pose")) return 1;
+	loading.startCssAnimations(2540); gea::css::AnimationEngine::instance().tick(2540);
+	if (!expectEqual(rstyle(Tree::instance().node(firstDot).style).transform_translate_y, -4, "repeated frames preserve animation clock")) return 1;
+	if (!expectEqual(static_cast<int>(gea::css::AnimationEngine::instance().count()), static_cast<int>(count), "tracks are not duplicated")) return 1;
+	NodeHandle(firstDot).classList().set("plain");
+	if (!expectTrue(gea::css::AnimationEngine::instance().count() < count, "removing animation class cancels tracks")) return 1;
+	Tree::instance().removeNode(secondDot); Tree::instance().removeNode(thirdDot);
+	if (!expectEqual(static_cast<int>(gea::css::AnimationEngine::instance().count()), 0, "removed dots release all tracks")) return 1;
+	const int reused = Tree::instance().createView(); NodeHandle(reused).classList().set("dot");
+	loading.startCssAnimations(3000); loading.startCssAnimations(3360); gea::css::AnimationEngine::instance().tick(3360);
+	if (!expectEqual(rstyle(Tree::instance().node(reused).style).transform_translate_y, -7, "reused node slot starts a fresh timeline")) return 1;
+
+	// Pausing holds the sampled frame, survives an unrelated class update and
+	// resumes from the same phase instead of advancing through paused time.
+	loading.registerRule("paused", "animation-play-state", "paused");
+	NodeHandle(reused).classList().set("dot paused");
+	loading.startCssAnimations(4000); gea::css::AnimationEngine::instance().tick(4000);
+	if (!expectEqual(rstyle(Tree::instance().node(reused).style).transform_translate_y, -7, "paused keyframe holds pose")) return 1;
+	NodeHandle(reused).classList().set("dot paused unrelated");
+	if (!expectEqual(rstyle(Tree::instance().node(reused).style).transform_translate_y, -7, "paused recompute holds pose")) return 1;
+	NodeHandle(reused).classList().set("dot");
+	loading.startCssAnimations(4180); gea::css::AnimationEngine::instance().tick(4180);
+	if (!expectEqual(rstyle(Tree::instance().node(reused).style).transform_translate_y, -4, "resume excludes paused time")) return 1;
+
+	resetNativeHost(); StyleSheet::instance().clear();
+	auto &transitions = StyleSheet::instance();
+	transitions.registerRule("button", "width", "160px");
+	transitions.registerRule("button", "border-radius", "8px");
+	transitions.registerRule("button", "transition", "width 1s linear, border-radius 1s linear");
+	transitions.registerRule("expanded", "width", "220px");
+	transitions.registerRule("expanded", "border-radius", "20px");
+	const int button = Tree::instance().createView(); NodeHandle(button).classList().set("button");
+	if (!expectEqual(static_cast<int>(gea::css::AnimationEngine::instance().count()), 0, "first style does not transition")) return 1;
+	transitions.startCssAnimations(1000);
+	NodeHandle(button).classList().set("button expanded");
+	if (!expectEqual(Tree::instance().node(button).style.width, 160, "transition begins at current width")) return 1;
+	transitions.startCssAnimations(1500); gea::css::AnimationEngine::instance().tick(1500);
+	if (!expectEqual(Tree::instance().node(button).style.width, 190, "transition interpolates width")) return 1;
+	if (!expectEqual(Tree::instance().node(button).style.border_radius[0], 14, "transition interpolates corners")) return 1;
+	const auto transitionCount = gea::css::AnimationEngine::instance().count();
+	NodeHandle(button).classList().set("button expanded unrelated");
+	if (!expectEqual(Tree::instance().node(button).style.width, 190, "unrelated recompute preserves transition pose")) return 1;
+	if (!expectEqual(static_cast<int>(gea::css::AnimationEngine::instance().count()), static_cast<int>(transitionCount), "recompute does not duplicate transitions")) return 1;
+	NodeHandle(button).classList().set("button");
+	transitions.startCssAnimations(2000); gea::css::AnimationEngine::instance().tick(2000);
+	if (!expectEqual(Tree::instance().node(button).style.width, 175, "interrupted transition starts at current pose")) return 1;
+	transitions.startCssAnimations(2500); gea::css::AnimationEngine::instance().tick(2500);
+	if (!expectEqual(Tree::instance().node(button).style.width, 160, "completed transition holds target")) return 1;
+	Tree::instance().node(button).layout.width = 160;
+	NodeHandle(button).style().width(240);
+	transitions.startCssAnimations(3000); gea::css::AnimationEngine::instance().tick(3000);
+	if (!expectEqual(Tree::instance().node(button).style.width, 200, "inline property uses the same transition timeline")) return 1;
+	NodeHandle(button).classList().set("button unrelated");
+	if (!expectEqual(Tree::instance().node(button).style.width, 200, "inline target survives class recompute during a transition")) return 1;
+	Tree::instance().removeNode(button);
+	if (!expectEqual(static_cast<int>(gea::css::AnimationEngine::instance().count()), 0, "removed controls release transitions")) return 1;
+
 	return 0;
 }

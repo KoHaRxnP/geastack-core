@@ -229,7 +229,8 @@ int main()
 		assert((calls == std::vector<int>{1, 3}));
 		event.type = PointerEventType::TouchStart;
 		assert(tree.dispatchEvent(event) && touch == 1);
-		assert(tree.removeEventListener(node, "touchstart", touchId));
+		assert(!tree.removeEventListener(node, "touchstart", touchId));
+		assert(tree.removeEventListener(node, "pointerdown", touchId));
 		assert(!tree.hasListenersForType("pointerdown"));
 		assert(tree.hasListenersForType("input"));
 		tree.setEventListener(node, "click", [&](PointerEvent &) { tree.removeNode(node); });

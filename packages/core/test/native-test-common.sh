@@ -44,6 +44,7 @@ gea_native_sources() {
     "$host_root/host/fetch.cpp"
     "$host_root/host/http.cpp"
     "$host_root/host/timers.cpp"
+    "$host_root/host/worker.cpp"
     "$engine_root/rasterized_font.cpp"
     "$engine_root/touch_runtime.cpp"
     "$engine_root/ui/absolute_leaf_refresh.cpp"
@@ -61,6 +62,7 @@ gea_native_sources() {
     "$engine_root/ui/layout.cpp"
     "$engine_root/ui/layout_snapshot.cpp"
     "$engine_root/ui/node.cpp"
+    "$engine_root/ui/selector.cpp"
     "$engine_root/ui/node_lifecycle.cpp"
     "$engine_root/ui/render.cpp"
     "$engine_root/ui/root_scroll_refresh.cpp"
@@ -124,6 +126,7 @@ gea_read_geatsc_sources() {
 }
 
 source "$ROOT/packages/core/scripts/native-object-cache.sh"
+source "$ROOT/packages/core/test/native-host.sh"
 
 gea_build_native_test() {
   local build_dir="$1"
@@ -153,10 +156,19 @@ gea_build_native_test() {
     echo "no generated geatsc C++ sources found in $build_dir" >&2
     return 1
   fi
-  if [[ -f "$build_dir/gea_embedded_font_generated.cpp" ]]; then
+  # Engine-only tests supply this exact top-level stub and own their font
+  # fixtures. A previous compiler pipeline may have left generated assets in
+  # this shared output directory; their existence does not make them inputs to
+  # the new stub program (and links duplicate ensureLinked definitions).
+  local engine_only_stub=0
+  if [[ ${#generated_sources[@]} -eq 1 && "${generated_sources[0]}" == "$build_dir/program.cpp" ]] &&
+     [[ "$(tr -d '[:space:]' < "$build_dir/program.cpp")" == 'void__gea_top_level(){}' ]]; then
+    engine_only_stub=1
+  fi
+  if [[ "$engine_only_stub" == 0 && -f "$build_dir/gea_embedded_font_generated.cpp" ]]; then
     generated_sources+=("$build_dir/gea_embedded_font_generated.cpp")
   fi
-  if [[ -f "$build_dir/gea_embedded_assets_generated.cpp" ]]; then
+  if [[ "$engine_only_stub" == 0 && -f "$build_dir/gea_embedded_assets_generated.cpp" ]]; then
     generated_sources+=("$build_dir/gea_embedded_assets_generated.cpp")
   fi
   # No `gea_runtime.cpp` wrapper. It used to be written here as a one-line
@@ -177,8 +189,15 @@ gea_build_native_test() {
   # compiler emits those wrappers as part of the module's object graph. See the
   # note at the top of native_host_backends.cpp.
   local -a test_host_sources=("$ROOT/packages/core/test/native_host_backends.cpp")
+  # The display hooks' strong definitions, linked FIRST: every unit that
+  # includes host/display_orientation.h references them weakly, and on Windows
+  # lld-link takes a second such unit's weak reference for a duplicate
+  # definition unless the strong one has been seen before it (see
+  # native_test_platform_display.cpp). Order does not matter elsewhere.
+  local -a platform_display_sources=()
   if [[ "${GEA_NATIVE_TEST_INCLUDE_HOST:-1}" != "0" ]]; then
     test_host_sources+=("$ROOT/packages/core/test/native_test_host.cpp")
+    platform_display_sources+=("$ROOT/packages/core/test/native_test_platform_display.cpp")
     # Host camera bridge; backed by the null platform camera stub in
     # native_test_host.cpp (camera apps link CameraBackend from generated code).
     test_host_sources+=("$ROOT/packages/core/test/native_camera_bridge.cpp")
@@ -278,6 +297,7 @@ gea_build_native_test() {
     ${extra_c_sources[@]+"${extra_c_sources[@]}"}
   )
   GEA_NATIVE_CXX_SOURCES=(
+    ${platform_display_sources[@]+"${platform_display_sources[@]}"}
     ${generated_sources[@]+"${generated_sources[@]}"}
     ${native_sources[@]+"${native_sources[@]}"}
     ${test_host_sources[@]+"${test_host_sources[@]}"}
@@ -291,19 +311,25 @@ gea_build_native_test() {
   GEA_NATIVE_CFLAGS=(
     -DGEA_EMBEDDED_GIF_C_API
     -I "$engine_vendor/AnimatedGIF"
+    ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"}
     ${extra_compile_flags[@]+"${extra_compile_flags[@]}"}
   )
   GEA_NATIVE_CXXFLAGS=(
     ${common_cxx_flags[@]+"${common_cxx_flags[@]}"}
+    ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"}
     ${extra_compile_flags[@]+"${extra_compile_flags[@]}"}
   )
   GEA_NATIVE_MMFLAGS=(
     ${common_cxx_flags[@]+"${common_cxx_flags[@]}"}
     ${extra_compile_flags[@]+"${extra_compile_flags[@]}"}
   )
+  # Section GC at link time, in this host's spelling (native-host.sh).
+  local -a symbol_map_flags=()
+  mapfile -t symbol_map_flags < <(gea_native_symbol_map_flags "$output_bin")
   GEA_NATIVE_LINK_FLAGS=(
     ${extra_link_flags[@]+"${extra_link_flags[@]}"}
-    -Wl,-dead_strip
+    ${GEA_HOST_LINK_GC[@]+"${GEA_HOST_LINK_GC[@]}"}
+    ${symbol_map_flags[@]+"${symbol_map_flags[@]}"}
   )
   gea_native_compile_and_link
 }

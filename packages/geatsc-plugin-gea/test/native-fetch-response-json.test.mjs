@@ -16,7 +16,8 @@ test('native FetchResponse.json decodes response bytes and rejects malformed JSO
   )
   assert.ok(method, 'FetchResponse.json must have a native binding')
   const expression = method.emit.replaceAll('{receiver}', 'response')
-  const binary = resolve(packageRoot, 'dist/native-fetch-response-json-test')
+  // Windows starts only a file with an executable suffix.
+  const binary = resolve(packageRoot, `dist/native-fetch-response-json-test${process.platform === 'win32' ? '.exe' : ''}`)
   const includes = [
     resolve(packages, 'core/include'),
     resolve(packages, 'host/include'),

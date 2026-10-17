@@ -7,6 +7,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
 #include <set>
 #include <vector>
 
@@ -247,7 +250,10 @@ OscillatorNode AudioContext::createOscillator() const {
   return OscillatorNode(2.0);
 }
 
-HTMLAudioElement::HTMLAudioElement(const gea::embedded::ui::NodeHandle &node) : nodeId_(node.id()) {}
+struct HTMLAudioElement::State {
+  int nodeId = -1;
+};
+HTMLAudioElement::HTMLAudioElement(const gea::embedded::ui::NodeHandle &node) : state_(std::make_shared<State>()) { state_->nodeId = node.id(); }
 bool HTMLAudioElement::play() const { return true; }
 void HTMLAudioElement::pause() const {}
 }  // namespace gea::host
@@ -292,6 +298,23 @@ void DisplayBackend::invalidate() {
 }  // namespace gea::framework::display
 
 namespace gea::framework::memory {
+#if defined(_WIN32)
+// The Windows CRT has no posix_memalign, and memory from its _aligned_malloc
+// must go back through _aligned_free, so on Windows every allocation here is
+// an aligned one and all three operations use the aligned family.
+void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment) {
+  if (size == 0) size = 1;
+  return _aligned_malloc(size, alignment < alignof(std::max_align_t) ? alignof(std::max_align_t) : alignment);
+}
+
+void *Allocator::reallocatePreferSpiram(void *ptr, std::size_t size) {
+  return _aligned_realloc(ptr, size, alignof(std::max_align_t));
+}
+
+void Allocator::free(void *ptr) noexcept {
+  _aligned_free(ptr);
+}
+#else
 void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment) {
   if (size == 0) size = 1;
   if (alignment <= alignof(std::max_align_t)) return std::malloc(size);
@@ -306,6 +329,7 @@ void *Allocator::reallocatePreferSpiram(void *ptr, std::size_t size) {
 void Allocator::free(void *ptr) noexcept {
   std::free(ptr);
 }
+#endif
 }  // namespace gea::framework::memory
 
 namespace gea::framework::services {

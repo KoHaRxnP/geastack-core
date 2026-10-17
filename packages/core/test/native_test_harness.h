@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "events.h"
+#include "pixel.h"
 #include "ui/node_model.h"
 
 namespace gea::embedded::test {
@@ -43,7 +44,7 @@ int flushCallCount();
 int flushRectCount();
 int flushPixelCount();
 int displayNonzeroPixelCount();
-std::uint16_t displayPixelAt(int x, int y);
-std::uint16_t presentedPixelAt(int x, int y);
+gea::framework::graphics::pixel::native_t displayPixelAt(int x, int y);
+gea::framework::graphics::pixel::native_t presentedPixelAt(int x, int y);
 
 }  // namespace gea::embedded::test

@@ -1,4 +1,4 @@
-const geaHostDeclarations = [
+export const geaHostDeclarations = [
   '#ifndef GEA_HOST_DECLARED',
   '#define GEA_HOST_DECLARED 1',
   '#include "gea/embedded.h"',
@@ -23,6 +23,7 @@ const geaDeviceInfoDeclarations = [...geaHostDeclarations, '#include "device_inf
 // beside it need nothing extra: `Tree::instance().scrollTop` IS reachable
 // through the public header.
 const geaVirtualListDeclarations = [...geaHostDeclarations, '#include "ui/internal.h"']
+const geaBase64Declarations = [...geaHostDeclarations, '#include "gea/base64-runtime.h"']
 
 /**
  * The `<virtual-list>` row-height getter's template, stated once.
@@ -36,6 +37,7 @@ export const geaVirtualListRowHeightEmit =
   'static_cast<double>(gea::embedded::ui::VirtualListRenderer::rowHeight(({receiver}).id()))'
 export const geaHostHeaderDeclarationToken = '__gea_cpp_api_header'
 const geaImageHostMethods = [
+  'removeFile',
   'loadBytes',
   'loadBytesOpaque',
   'draw',
@@ -62,11 +64,14 @@ const geaGeolocationHostMethods = [
 ]
 const geaInputHostMethods = ['consumeBackButton']
 const geaGpioHostMethods = ['configureOutput', 'configureInput', 'write', 'read']
+const geaMagnetometerHostMethods = ['open', 'close', 'count', 'read']
+const geaEspNowHostMethods = ['open', 'isOpen', 'canSend', 'setMaxTxPower', 'getMaxTxPower', 'close', 'addPeer', 'send', 'receive']
+const geaUartHostMethods = ['open', 'isOpen', 'close', 'read', 'write', 'available', 'writable']
 const geaLedHostMethods = ['set', 'off', 'attach', 'setPixel', 'show', 'detach']
-const geaClockHostMethods = ['epochMs']
+const geaClockHostMethods = ['epochMs', 'setEpochMs']
 const geaProfilerHostMethods = ['nowUs', 'nowCycles']
 const geaStorageHostMethods = ['getItem', 'setItem', 'removeItem', 'clear', 'key']
-const geaBatteryHostMethods = ['level']
+const geaBatteryHostMethods = ['level', 'charging']
 const geaNotifyHostMethods = ['text', 'seq']
 const geaDeviceControlHostMethods = ['exec']
 const geaNativeBenchHostMethods = [
@@ -88,6 +93,13 @@ const geaDeviceInfoHostMethods = ['deviceId', 'platform', 'chipModel', 'chipArch
 const geaGea3dHostMethods = [
   'createBuffer', 'bufferDataF32', 'bufferDataU32', 'beginFrame',
   'ambientLight', 'directionalLight', 'drawElements', 'endFrame', 'stat',
+  // scene graph
+  'deleteBuffer', 'createGeometry', 'deleteGeometry', 'geometryBuffers',
+  'createMaterial', 'deleteMaterial', 'materialSet', 'createNode',
+  'deleteNode', 'nodeParent', 'nodeTransform', 'nodeMatrix', 'nodeFlags',
+  'nodeGeometry', 'nodeInstances', 'nodeLight', 'nodeLightTarget',
+  'cameraProjection', 'sceneEnvironment', 'renderOptions', 'renderTarget',
+  'createSurface', 'drawScene', 'raycast', 'rayResult',
 ]
 const geaGea3dDeclarations = [...geaHostDeclarations, '#include "gea3d_native.h"']
 const geaMemoryHostMethods = [
@@ -115,6 +127,8 @@ const geaMemoryHostMethods = [
 ]
 
 const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntries([
+      ['gea::runtime::hostbase64::encode', geaBase64Declarations],
+      ['gea::runtime::hostbase64::decode', geaBase64Declarations],
       [geaHostHeaderDeclarationToken, geaHostDeclarations],
       ['gea::host::navigator', geaHostDeclarations],
       ['gea::host::window', geaHostDeclarations],
@@ -123,6 +137,10 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ['gea::host::Storage', geaHostDeclarations],
       ['gea::host::window.innerWidth', geaHostDeclarations],
       ['gea::host::window.innerHeight', geaHostDeclarations],
+      ['gea::host::window.addEventListener', geaHostDeclarations],
+      ['gea::host::window.removeEventListener', geaHostDeclarations],
+      ['gea::embedded::ui::Document::instance().addEventListener({args})', geaHostDeclarations],
+      ['gea::embedded::ui::Document::instance().removeEventListener({args})', geaHostDeclarations],
       ['gea::host::navigator.userAgent', geaHostDeclarations],
       ['gea::host::navigator.language', geaHostDeclarations],
       ['gea::host::navigator.platform', geaHostDeclarations],
@@ -132,6 +150,9 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ...geaMemoryHostMethods.map((method): [string, string[]] => [`gea::host::Memory.${method}`, geaHostDeclarations]),
       ...geaInputHostMethods.map((method): [string, string[]] => [`gea::host::Input.${method}`, geaHostDeclarations]),
       ...geaGpioHostMethods.map((method): [string, string[]] => [`gea::host::Gpio.${method}`, geaHostDeclarations]),
+      ...geaMagnetometerHostMethods.map((method): [string, string[]] => [`gea::host::Magnetometer.${method}`, geaHostDeclarations]),
+      ...geaEspNowHostMethods.map((method): [string, string[]] => [`gea::host::EspNow.${method}`, geaHostDeclarations]),
+      ...geaUartHostMethods.map((method): [string, string[]] => [`gea::host::Uart.${method}`, geaHostDeclarations]),
       ...geaLedHostMethods.map((method): [string, string[]] => [`gea::host::Led.${method}`, geaHostDeclarations]),
       ...geaClockHostMethods.map((method): [string, string[]] => [`gea::host::Clock.${method}`, geaHostDeclarations]),
       ...geaProfilerHostMethods.map((method): [string, string[]] => [`gea::host::Profiler.${method}`, geaHostDeclarations]),
@@ -159,7 +180,8 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ['gea::host::fetchRelease', geaHostDeclarations],
       ['gea::host::websocket::create_handle', geaHostDeclarations],
       ['gea::host::WebSocket', geaHostDeclarations],
-      ['gea::host::http::create_server', geaHostDeclarations],
+      ['gea::host::http::create_typed_server', [...geaHostDeclarations, '#include "gea/http-native-runtime.h"']],
+      ['gea::host::Haptics.vibrate', geaHostDeclarations],
       ['gea::host::HttpServer', geaHostDeclarations],
       ['gea::host::media::get_user_media_audio', geaHostDeclarations],
       ...geaGeolocationHostMethods.map((method): [string, string[]] => [`gea::host::navigator.geolocation.${method}`, geaHostDeclarations]),
@@ -178,12 +200,15 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ['gea::host::RTCPeerConnection', geaHostDeclarations],
       ['gea::host::Math.random', geaHostDeclarations],
       ['gea::host::HTMLAudioElement', geaHostDeclarations],
-      ['gea::host::audioContext', geaHostDeclarations],
-      ['gea::host::audioContext.createOscillator', geaHostDeclarations],
-      ['gea::host::audioContext.createBufferSource', geaHostDeclarations],
-      ['gea::host::audioContext.decodeAudioData', geaHostDeclarations],
-      ['gea::host::audioContext.currentTime', geaHostDeclarations],
-      ['gea::host::audioContext.destination', geaHostDeclarations],
+      ['gea::host::PcmAudioStream', geaHostDeclarations],
+      ['gea::host::HTMLVideoElement', geaHostDeclarations],
+      ['gea::host::sharedAudioContext()', geaHostDeclarations],
+      ['gea::host::sharedAudioContext().createOscillator', geaHostDeclarations],
+      ['gea::host::sharedAudioContext().createBufferSource', geaHostDeclarations],
+      ['gea::host::sharedAudioContext().createBuffer', geaHostDeclarations],
+      ['gea::host::sharedAudioContext().decodeAudioData', geaHostDeclarations],
+      ['gea::host::sharedAudioContext().currentTime', geaHostDeclarations],
+      ['gea::host::sharedAudioContext().destination', geaHostDeclarations],
       ['gea::host::apps.launch', geaHostDeclarations],
       ['gea::host::Audio.getVolume', geaHostDeclarations],
       ['gea::host::Audio.setVolume', geaHostDeclarations],
@@ -318,6 +343,7 @@ const rawGeaHostExternDeclarations: Record<string, string[]> = Object.fromEntrie
       ['gea::host::Camera.draw', geaHostDeclarations],
       ['gea::host::Camera.capture', geaHostDeclarations],
       ['gea::host::Camera.captureMirrored', geaHostDeclarations],
+      ['gea::host::Camera.captureFrame', geaHostDeclarations],
       ['gea::host::Camera.setFlash', geaHostDeclarations],
       ['gea::host::Camera.setZoom', geaHostDeclarations],
       ['gea::host::Camera.setMirror', geaHostDeclarations]

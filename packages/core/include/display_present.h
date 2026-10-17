@@ -2,6 +2,7 @@
 
 #include "canvas.h"
 #include "display.h"
+#include "image.h"
 
 #include <algorithm>
 #include <array>
@@ -96,6 +97,7 @@ struct HeapCapsFree {
 static constexpr int kInlineCircleEntryCapacity = 32;
 
 struct Command {
+	gea::framework::graphics::ImageReference imageReference;
 	using CircleEntry = gea::framework::graphics::CircleEntry;
 
 	gea::platform::display::DisplayPresentCommandType type =
@@ -148,6 +150,9 @@ struct Command {
 
 struct Frame {
 	std::vector<Command> commands;
+	// Embedded canvas batches preserve bitmap drawing semantics: circle painter
+	// order and the established triangle edge rasterization remain observable.
+	bool bitmapSemantics = false;
 
 	void clear()
 	{
@@ -284,6 +289,13 @@ inline void addCommandBounds(const Command &command, Rect *rects, int *count, in
 	addRect(rects, count, capacity, commandBounds(command, width, height), width, height);
 }
 
+// An app-registered buffer (native surface, ImageData565, video frame) is
+// rewritten in place, so equal pointers say nothing about equal pixels.
+inline bool imagePixelsStable(const Command &command)
+{
+	return !gea::framework::graphics::ImageStore::instance().pixelsMayChange(command.pixels);
+}
+
 inline bool commandsEqual(const Command &a, const Command &b)
 {
 	if (a.type != b.type || a.alpha != b.alpha) return false;
@@ -300,36 +312,51 @@ inline bool commandsEqual(const Command &a, const Command &b)
 	case Type::FillCircleRgb565:
 	case Type::StrokeCircleRgb565:
 		return a.x == b.x && a.y == b.y && a.radius == b.radius && a.color == b.color;
-	case Type::FillCirclesRgb565: {
-		if (a.radius != b.radius || a.circlesCount != b.circlesCount) return false;
-		if (a.circlesCount == 0) return true;
+	case Type::FillCirclesRgb565:
+	{
+		if (a.radius != b.radius || a.circlesCount != b.circlesCount)
+			return false;
+		if (a.circlesCount == 0)
+			return true;
 		const auto *ap = a.circleEntries();
 		const auto *bp = b.circleEntries();
-		if (!ap || !bp) return ap == bp;
-		return std::memcmp(ap, bp,
-		                   static_cast<std::size_t>(a.circlesCount) *
-		                       sizeof(gea::framework::graphics::CircleEntry)) == 0;
+		if (!ap || !bp)
+			return ap == bp;
+		for (int i = 0; i < a.circlesCount; ++i)
+			if (ap[i].x != bp[i].x || ap[i].y != bp[i].y || ap[i].color != bp[i].color)
+				return false;
+		return true;
 	}
-	case Type::FillTrianglesRgb565: {
-		if (a.trianglesCount != b.trianglesCount) return false;
-		if (a.trianglesCount == 0) return true;
+	case Type::FillTrianglesRgb565:
+	{
+		if (a.trianglesCount != b.trianglesCount)
+			return false;
+		if (a.trianglesCount == 0)
+			return true;
 		const auto *ap = a.trianglesBuffer.get();
 		const auto *bp = b.trianglesBuffer.get();
-		if (!ap || !bp) return ap == bp;
-		return std::memcmp(ap, bp,
-		                   static_cast<std::size_t>(a.trianglesCount) *
-		                       sizeof(gea::framework::graphics::TriangleEntry)) == 0;
+		if (!ap || !bp)
+			return ap == bp;
+		for (int i = 0; i < a.trianglesCount; ++i)
+		{
+			const auto &x = ap[i];
+			const auto &y = bp[i];
+			if (x.x0 != y.x0 || x.y0 != y.y0 || x.x1 != y.x1 || x.y1 != y.y1 || x.x2 != y.x2 ||
+				x.y2 != y.y2 || x.color != y.color || x.rowY0 != y.rowY0 || x.rowY1 != y.rowY1)
+				return false;
+		}
+		return true;
 	}
 	case Type::DrawImage:
-		return a.pixels == b.pixels && a.alphaPixels == b.alphaPixels &&
-		       a.srcWidth == b.srcWidth && a.srcHeight == b.srcHeight && a.x == b.x && a.y == b.y;
+		return a.pixels == b.pixels && a.alphaPixels == b.alphaPixels && imagePixelsStable(a) &&
+			   a.srcWidth == b.srcWidth && a.srcHeight == b.srcHeight && a.x == b.x && a.y == b.y;
 	case Type::DrawImageScaled:
 	case Type::DrawImageRotated90CW:
-		return a.pixels == b.pixels && a.alphaPixels == b.alphaPixels &&
+		return a.pixels == b.pixels && a.alphaPixels == b.alphaPixels && imagePixelsStable(a) &&
 		       a.srcWidth == b.srcWidth && a.srcHeight == b.srcHeight &&
 		       a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
 	case Type::DrawImageTiledX:
-		return a.pixels == b.pixels && a.alphaPixels == b.alphaPixels &&
+		return a.pixels == b.pixels && a.alphaPixels == b.alphaPixels && imagePixelsStable(a) &&
 		       a.srcWidth == b.srcWidth && a.srcHeight == b.srcHeight &&
 		       a.x == b.x && a.y == b.y && a.w == b.w;
 	case Type::FillText:
@@ -339,8 +366,9 @@ inline bool commandsEqual(const Command &a, const Command &b)
 	return false;
 }
 
-inline bool extractFrame(const gea::platform::display::DisplayPresentCommand *commands, int commandCount, Frame &frame)
+inline bool extractFrame(const gea::platform::display::DisplayPresentCommand *commands, int commandCount, Frame &frame, bool bitmapSemantics = false)
 {
+	frame.bitmapSemantics = bitmapSemantics;
 	frame.clear();
 	if (!commands || commandCount <= 0) return false;
 	frame.commands.reserve(static_cast<std::size_t>(commandCount));
@@ -427,7 +455,7 @@ inline bool extractFrame(const gea::platform::display::DisplayPresentCommand *co
 					}
 					bool sortedByBucket = false;
 					constexpr int kCircleBucketSortMaxYRange = 2048;
-					if (count <= 65535) {
+					if (!bitmapSemantics && count <= 65535) {
 						int minY = static_cast<int>(src.ys[0]);
 						int maxY = minY;
 						for (int i = 1; i < count; i++) {
@@ -458,8 +486,9 @@ inline bool extractFrame(const gea::platform::display::DisplayPresentCommand *co
 						for (int i = 0; i < count; i++) {
 							buffer[i] = CircleEntry{src.ys[i], src.xs[i], src.colors[i]};
 						}
-						std::sort(buffer, buffer + count,
-							[](const CircleEntry &a, const CircleEntry &b) { return a.y < b.y; });
+						if (!bitmapSemantics)
+							std::sort(buffer, buffer + count,
+								[](const CircleEntry &a, const CircleEntry &b) { return a.y < b.y; });
 					}
 					if (!out.circlesInline) out.circlesBuffer.reset(buffer);
 				}
@@ -563,6 +592,8 @@ inline bool extractFrame(const gea::platform::display::DisplayPresentCommand *co
 			out.alpha = command.fillText.alpha;
 			break;
 		}
+		out.imageReference = gea::framework::graphics::ImageReference(
+			gea::framework::graphics::ImageStore::instance().idForPixels(out.pixels));
 		frame.commands.push_back(std::move(out));
 	}
 	return true;
@@ -574,8 +605,17 @@ inline bool frameHasOpaqueBase(const Frame &frame, int width, int height)
 	const Command &first = frame.commands.front();
 	using Type = gea::platform::display::DisplayPresentCommandType;
 	if (first.type == Type::Clear) return true;
-	if (first.type != Type::FillRectRgb565 || first.alpha != 255) return false;
-	const Rect bounds = rectFromBox(first.x, first.y, first.w, first.h);
+	if (first.alpha != 255) return false;
+	Rect bounds;
+	if (first.type == Type::FillRectRgb565) {
+		bounds = rectFromBox(first.x, first.y, first.w, first.h);
+	} else if (first.type == Type::DrawImage && first.alphaPixels == nullptr) {
+		// A full-panel opaque image (putImageData of a whole-screen buffer)
+		// paints every pixel, the same as a full-panel fill.
+		bounds = rectFromBox(first.x, first.y, first.srcWidth, first.srcHeight);
+	} else {
+		return false;
+	}
 	return bounds.x0 <= 0 && bounds.y0 <= 0 && bounds.x1 >= width - 1 && bounds.y1 >= height - 1;
 }
 
@@ -679,7 +719,8 @@ inline void rasterCommandRows(gea::framework::graphics::Canvas &canvas,
                               int row,
                               int chunkRows,
                               int displayHeight,
-                              const Command &command)
+                              const Command &command,
+                              bool bitmapSemantics = false)
 {
 	if (!buffer) return;
 	using Type = gea::platform::display::DisplayPresentCommandType;
@@ -748,6 +789,13 @@ inline void rasterCommandRows(gea::framework::graphics::Canvas &canvas,
 		canvas.strokeCircle(command.x - ox, command.y - oy, command.radius, command.color);
 		break;
 	case Type::FillCirclesRgb565: {
+		if (bitmapSemantics) {
+			const auto *circles = command.circleEntries();
+			for (int i = 0; circles && i < command.circlesCount; ++i)
+				canvas.fillCircle(int(circles[i].x) - ox, int(circles[i].y) - oy,
+				    command.radius, circles[i].color);
+			break;
+		}
 		// Hand the whole sorted batch to Canvas's optimized batch entrypoint.
 		// It inlines fillCircleNoDirty's hot path and uses [chunkY0, chunkY1]
 		// as a world-Y band to skip leading + break trailing in one loop.
@@ -760,21 +808,28 @@ inline void rasterCommandRows(gea::framework::graphics::Canvas &canvas,
 		break;
 	}
 	case Type::FillTrianglesRgb565: {
-		// Depth-ordered batch (farthest-first). OPAQUE batches take the span-
-		// occlusion path (front-to-back, each pixel written once); it band-rejects
-		// per chunk internally. TRANSLUCENT must stay painter's back-to-front.
+		// Full-display opaque 3D batches retain their front-to-back occlusion
+		// optimization. Bitmap canvas batches and translucent geometry replay
+		// in producer order, rejecting triangles outside this strip first.
 		const gea::framework::graphics::TriangleEntry *tris = command.trianglesBuffer.get();
 		const int count = command.trianglesCount;
 		if (!tris) break;
-		if (command.alpha == 255) {
+		if (command.alpha == 255 && !bitmapSemantics) {
 			canvas.fillTrianglesOpaqueOccluded(tris, count, ox, oy);
 		} else {
+			// Retained canvas batches preserve producer order. Sparse numeric
+			// geometry needs no coverage bitset; opaque spans avoid per-pixel
+			// comparisons while sharing the public triangle edge definition.
 			const int chunkY1 = row + chunkRows - 1;
 			for (int i = 0; i < count; i++) {
 				const auto &t = tris[i];
 				if (t.rowY1 < row || t.rowY0 > chunkY1) continue;
-				canvas.fillTriangle(t.x0 - ox, t.y0 - oy, t.x1 - ox, t.y1 - oy,
-				                    t.x2 - ox, t.y2 - oy, t.color);
+				if (command.alpha == 255)
+					canvas.fillTriangleOpaque(t.x0 - ox, t.y0 - oy, t.x1 - ox, t.y1 - oy,
+					                         t.x2 - ox, t.y2 - oy, t.color);
+				else
+					canvas.fillTriangle(t.x0 - ox, t.y0 - oy, t.x1 - ox, t.y1 - oy,
+					                    t.x2 - ox, t.y2 - oy, t.color);
 			}
 		}
 		break;
@@ -834,7 +889,7 @@ inline void rasterFrameRows(gea::framework::graphics::pixel::native_t *buffer,
 	gea::framework::graphics::Canvas canvas;
 	canvas.bindPixels(buffer, regionWidth, chunkRows);
 	for (const Command &command : frame.commands) {
-		rasterCommandRows(canvas, buffer, regionX0, regionWidth, row, chunkRows, displayHeight, command);
+		rasterCommandRows(canvas, buffer, regionX0, regionWidth, row, chunkRows, displayHeight, command, frame.bitmapSemantics);
 	}
 }
 
@@ -862,7 +917,7 @@ inline void rasterFrameRowsStrided(gea::framework::graphics::pixel::native_t *bu
 			}
 			continue;
 		}
-		rasterCommandRows(canvas, buffer, regionX0, regionWidth, row, chunkRows, displayHeight, command);
+		rasterCommandRows(canvas, buffer, regionX0, regionWidth, row, chunkRows, displayHeight, command, frame.bitmapSemantics);
 	}
 }
 

@@ -7,6 +7,8 @@
 // below. lib.dom's GeolocationPositionError also carries PERMISSION_DENIED /
 // POSITION_UNAVAILABLE / TIMEOUT, which our host object never sets.
 import type {
+  UartOptions,
+  MagnetometerReading,
   CanvasRenderingContext2D,
   GeolocationCoordinates,
   GeolocationPosition,
@@ -30,7 +32,11 @@ import type {
   EmbeddedMemoryConfig,
   EmbeddedMemoryStats,
   HttpReply,
-  AudioContext
+  IncomingMessage,
+  HttpModule,
+  HttpServer,
+  AudioContext,
+  WiFiController,
 } from '../index'
 
 // These 17 used to be declared HERE as well as in `../index`, byte for byte.
@@ -56,7 +62,7 @@ export type {
   CameraWhiteBalanceOptions,
   EmbeddedMemoryConfig,
   EmbeddedMemoryStats,
-  HttpReply
+  HttpReply,
 } from '../index'
 
 declare const apps: {
@@ -86,32 +92,16 @@ declare const navigator: {
     getCurrentPosition(
       success: (position: GeolocationPosition) => void,
       error?: (error: GeolocationPositionError) => void,
-      options?: PositionOptions
+      options?: PositionOptions,
     ): void
     watchPosition(
       success: (position: GeolocationPosition) => void,
       error?: (error: GeolocationPositionError) => void,
-      options?: PositionOptions
+      options?: PositionOptions,
     ): number
     clearWatch(id: number): void
   }
-  wifi: {
-    enabled(): boolean
-    setEnabled(enabled: boolean): void
-    connected(): boolean
-    rssi(): number
-    ssid(): string
-    ip(): string
-    mac(): string
-    configure(ssid: string, password: string): void
-    waitForConnection(timeoutMs: number): boolean
-    startScan(): void
-    scanning(): boolean
-    scanCount(): number
-    scanSsidAt(index: number): string
-    scanRssiAt(index: number): number
-    scanSecuredAt(index: number): boolean
-  }
+  wifi: WiFiController
   bluetooth: {
     keyboard: {
       tap(hidCode: number): void
@@ -209,6 +199,7 @@ declare const __gea_Camera: {
   draw(x: number, y: number, destWidth: number, destHeight: number): void
   capture(): number
   captureMirrored(): number
+  captureFrame(): string
   startRecording(path: string, fps: number): boolean
   stopRecording(): number
   isRecording(): boolean
@@ -239,9 +230,11 @@ declare const __gea_Audio: {
   setVolume(volume: number): void
 }
 
-type EmbeddedDisplayOrientation = 'portrait-primary' | 'portrait-secondary' | 'landscape-primary' | 'landscape-secondary'
+type EmbeddedDisplayOrientation =
+  'portrait-primary' | 'portrait-secondary' | 'landscape-primary' | 'landscape-secondary'
 
-type EmbeddedDisplayOrientationSupport = EmbeddedDisplayOrientation | 'portrait' | 'landscape' | 'all'
+type EmbeddedDisplayOrientationSupport =
+  EmbeddedDisplayOrientation | 'portrait' | 'landscape' | 'all'
 
 type EmbeddedDisplayPixelFormat = 'rgb565' | 'rgb888' | 'rgb8888' | 'argb8888'
 
@@ -262,7 +255,9 @@ declare const __gea_Display: {
   getOrientation(): EmbeddedDisplayOrientation
   setOrientation(orientation: EmbeddedDisplayOrientation): void
   getSupportedOrientations(): EmbeddedDisplayOrientationSupport[]
-  setSupportedOrientations(orientations: EmbeddedDisplayOrientationSupport | EmbeddedDisplayOrientationSupport[]): void
+  setSupportedOrientations(
+    orientations: EmbeddedDisplayOrientationSupport | EmbeddedDisplayOrientationSupport[],
+  ): void
   getAutoRotate(): boolean
   setAutoRotate(enabled: boolean): void
   setVSync(on: boolean): void
@@ -361,6 +356,32 @@ declare const __gea_Gpio: {
   write(pin: number, level: boolean): boolean
   read(pin: number): boolean
 }
+declare const __gea_Magnetometer: {
+  open(): boolean
+  close(): void
+  count(): number
+  read(index: number, values: Float64Array): boolean
+}
+declare const __gea_Uart: {
+  open(port: number, tx: number, rx: number, baud: number, rxBytes: number, txBytes: number): boolean
+  isOpen(port: number): boolean
+  close(port: number): void
+  read(port: number, buffer: Uint8Array): number
+  write(port: number, buffer: Uint8Array): number
+  available(port: number): number
+  writable(port: number): number
+}
+declare const __gea_EspNow: {
+  open(channel: number, rate: number): boolean
+  setMaxTxPower(quarterDbm: number): boolean
+  getMaxTxPower(): number
+  isOpen(): boolean
+  canSend(): boolean
+  close(): void
+  addPeer(address: Uint8Array, key: Uint8Array): boolean
+  send(address: Uint8Array, bytes: Uint8Array): number
+  receive(source: Uint8Array, bytes: Uint8Array): number
+}
 declare const __gea_Led: {
   // A WS2812/NeoPixel strand on one pin — what "the onboard LED" is on most
   // modern ESP32 modules. set() is the one-call default (attach if needed,
@@ -375,6 +396,7 @@ declare const __gea_Led: {
   detach(): void
 }
 declare const __gea_Clock: {
+  setEpochMs(timestamp: number): boolean
   // Milliseconds since the Unix epoch from the platform real-time clock
   // (gettimeofday). Reflects a host-set time (GEADEV SETTIME); unlike
   // Date.now() — monotonic on this ESP32 build — it tracks real wall-clock
@@ -384,8 +406,14 @@ declare const __gea_Clock: {
 declare const __gea_Profiler: {
   // Monotonic microseconds from the platform high-resolution timer.
   nowUs(): number
+  // Hardware cycle count on ESP32; nanoseconds on desktop hosts.
+  nowCycles(): number
+}
+declare const __gea_Haptics: {
+  vibrate(durationMs: number, strength: number): boolean
 }
 declare const __gea_Battery: {
+  charging(): boolean
   // Battery charge percentage (0-100) from the platform PMU.
   level(): number
 }
@@ -420,13 +448,13 @@ export const defaults = {}
 export const touch = {
   read(): TouchSample {
     return { touching: false, x: 0, y: 0 }
-  }
+  },
 }
 
 export const Apps = {
   launch(appId: string): number {
     return apps.launch(appId)
-  }
+  },
 }
 
 // Case-variant aliases for host accessors. Keep these lazy: direct top-level
@@ -442,7 +470,7 @@ export const BLE: typeof navigator.bluetooth = {
     },
     up(): void {
       navigator.bluetooth.keyboard.up()
-    }
+    },
   },
   mouse: {
     move(dx: number, dy: number, buttons?: number, wheel?: number): void {
@@ -450,7 +478,7 @@ export const BLE: typeof navigator.bluetooth = {
     },
     click(button: number): void {
       navigator.bluetooth.mouse.click(button)
-    }
+    },
   },
   // BLE-MIDI (MIDI over GATT). `enable()` registers the MIDI service +
   // advertises its UUID; `send()` transmits ONE already-framed BLE-MIDI
@@ -487,7 +515,7 @@ export const BLE: typeof navigator.bluetooth = {
     },
     disconnect(): void {
       navigator.bluetooth.midi.disconnect()
-    }
+    },
   },
   // HID host role: this device is the central; a remote HID peripheral (a
   // keyboard/macro pad like the XPPen ACK05) is the input source. Raw input
@@ -531,7 +559,7 @@ export const BLE: typeof navigator.bluetooth = {
     },
     clearReports(): void {
       navigator.bluetooth.hidHost.clearReports()
-    }
+    },
   },
   // Live connection registry across every concurrent BLE role. kind: 0 =
   // HID central peer (desktop), 1 = MIDI central peer (DAW), 2 = HID
@@ -546,7 +574,7 @@ export const BLE: typeof navigator.bluetooth = {
     },
     nameAt(index: number): string {
       return navigator.bluetooth.connections.nameAt(index)
-    }
+    },
   },
   // Config service (custom GATT). A Web Bluetooth portal live-programs the
   // device: it reads the app's current config blob and, once paired with the
@@ -581,7 +609,7 @@ export const BLE: typeof navigator.bluetooth = {
     // highlight it live. No-op on the device when no portal is subscribed.
     pushActivity(index: number): void {
       navigator.bluetooth.config.pushActivity(index)
-    }
+    },
   },
   enabled(): boolean {
     return navigator.bluetooth.enabled()
@@ -612,10 +640,29 @@ export const BLE: typeof navigator.bluetooth = {
   },
   stopAdvertising(): void {
     navigator.bluetooth.stopAdvertising()
-  }
+  },
 }
 export const bluetooth = BLE
 export const WiFi: typeof navigator.wifi = {
+  accessPointMac(): string {
+    return navigator.wifi.accessPointMac()
+  },
+
+  startCaptivePortal(): boolean {
+    return navigator.wifi.startCaptivePortal()
+  },
+
+  stopCaptivePortal(): void {
+    navigator.wifi.stopCaptivePortal()
+  },
+
+  startAccessPoint(ssid: string, password = ''): boolean {
+    return navigator.wifi.startAccessPoint(ssid, password)
+  },
+
+  stopAccessPoint(): void {
+    navigator.wifi.stopAccessPoint()
+  },
   enabled(): boolean {
     return navigator.wifi.enabled()
   },
@@ -660,39 +707,33 @@ export const WiFi: typeof navigator.wifi = {
   },
   scanSecuredAt(index: number): boolean {
     return navigator.wifi.scanSecuredAt(index)
-  }
+  },
 }
 export const wifi = WiFi
 
 // Device-hosted HTTP server. On hardware, geatsc lowers `http.createServer(...)`
 // to the native esp_http_server facade (packages/core/host/http.cpp); this JS
-// stub is the web/simulator fallback — browsers can't open a listening socket,
-// so it accepts the handler and reports a no-op server (listen() returns false).
-export interface HttpIncomingMessage {
-  method: string
-  url: string
-  path: string
-  query: string
-}
+// fallback reports unsupported use because browsers cannot open a listening socket.
+export type HttpIncomingMessage = IncomingMessage
 export interface HttpServerInstance {
   listen(port: number): boolean
   close(): void
   id(): number
 }
+declare const __gea_http: HttpModule
+
 export const http = {
-  createServer(_handler: (req: HttpIncomingMessage) => HttpReply): HttpServerInstance {
-    return {
-      listen(_port: number): boolean {
-        return false
-      },
-      close(): void {},
-      id(): number {
-        return 0
-      }
+  createServer(handler: (req: HttpIncomingMessage) => HttpReply): HttpServer {
+    if (typeof __gea_http !== 'undefined') {
+      return __gea_http.createServer(handler)
     }
+    throw new Error('HTTP servers are unavailable in this browser runtime')
   },
-  close(_handle: number): void {}
+  close(handle: number): void {
+    if (typeof __gea_http !== 'undefined') __gea_http.close(handle)
+  },
 }
+
 export const Geolocation: typeof navigator.geolocation = {
   hasFix(): boolean {
     return navigator.geolocation.hasFix()
@@ -715,20 +756,20 @@ export const Geolocation: typeof navigator.geolocation = {
   getCurrentPosition(
     success: (position: GeolocationPosition) => void,
     error?: (error: GeolocationPositionError) => void,
-    options?: PositionOptions
+    options?: PositionOptions,
   ): void {
     navigator.geolocation.getCurrentPosition(success, error, options)
   },
   watchPosition(
     success: (position: GeolocationPosition) => void,
     error?: (error: GeolocationPositionError) => void,
-    options?: PositionOptions
+    options?: PositionOptions,
   ): number {
     return navigator.geolocation.watchPosition(success, error, options)
   },
   clearWatch(id: number): void {
     navigator.geolocation.clearWatch(id)
-  }
+  },
 }
 export const geolocation = Geolocation
 // `__gea_Accelerometer` is only injected by the vite plugin when an app actually
@@ -739,7 +780,9 @@ export const geolocation = Geolocation
 // whether or not the global was injected, and apps that do use it still get the
 // real binding.
 export const Accelerometer =
-  typeof __gea_Accelerometer !== 'undefined' ? __gea_Accelerometer : (undefined as unknown as typeof __gea_Accelerometer)
+  typeof __gea_Accelerometer !== 'undefined'
+    ? __gea_Accelerometer
+    : (undefined as unknown as typeof __gea_Accelerometer)
 
 // Remembers the most recent recording sink so stopRecording can report it on
 // the resolved CameraClip (the host only returns a duration).
@@ -797,12 +840,15 @@ export const Camera = {
       orientation: __gea_Camera.orientation,
       dispose(): void {
         image.dispose(id)
-      }
+      },
     }
     return Promise.resolve(photo)
   },
   capturePhoto(options?: CameraCaptureOptions): Promise<CameraPhoto> {
     return this.capture(options)
+  },
+  captureFrame(): string {
+    return __gea_Camera.captureFrame()
   },
   startRecording(options: CameraRecordOptions): Promise<void> {
     cameraRecordingPath = options.path
@@ -828,13 +874,26 @@ export const Camera = {
     __gea_Camera.setMirror(mirror)
   },
   setExposure(options: CameraExposureOptions): void {
-    __gea_Camera.setExposure(options.mode ?? 'continuous', options.bias ?? 0, options.iso ?? 0, options.durationMs ?? 0)
+    __gea_Camera.setExposure(
+      options.mode ?? 'continuous',
+      options.bias ?? 0,
+      options.iso ?? 0,
+      options.durationMs ?? 0,
+    )
   },
   setWhiteBalance(options: CameraWhiteBalanceOptions): void {
-    __gea_Camera.setWhiteBalance(options.mode ?? 'auto', options.temperature ?? 0, options.tint ?? 0)
+    __gea_Camera.setWhiteBalance(
+      options.mode ?? 'auto',
+      options.temperature ?? 0,
+      options.tint ?? 0,
+    )
   },
   setFocus(options: CameraFocusOptions): void {
-    __gea_Camera.setFocus(options.mode ?? 'continuous', options.point?.x ?? 0, options.point?.y ?? 0)
+    __gea_Camera.setFocus(
+      options.mode ?? 'continuous',
+      options.point?.x ?? 0,
+      options.point?.y ?? 0,
+    )
   },
   setTorch(mode: 'off' | 'on' | 'auto', level?: number): void {
     __gea_Camera.setTorch(mode, level ?? 0)
@@ -849,11 +908,11 @@ export const Camera = {
     for (let i = 0; i < count; i++) {
       out.push({
         id: __gea_Camera.deviceIdAt(i),
-        facing: __gea_Camera.deviceFacingAt(i) as CameraFacing
+        facing: __gea_Camera.deviceFacingAt(i) as CameraFacing,
       })
     }
     return out
-  }
+  },
 }
 
 // Same guard as Accelerometer above: these embedded host globals are not injected
@@ -861,7 +920,9 @@ export const Camera = {
 // reference ReferenceErrors at module load and blanks the page. `typeof` keeps the
 // real binding on embedded targets where the plugin injects them.
 export const audioContext: AudioContext =
-  typeof __gea_audioContext !== 'undefined' ? __gea_audioContext : (undefined as unknown as AudioContext)
+  typeof __gea_audioContext !== 'undefined'
+    ? __gea_audioContext
+    : (undefined as unknown as AudioContext)
 // Method wrapper, NOT the `typeof … ? … : undefined as …` guard the
 // property-bearing host objects above use. Two reasons. (1) The guard exists
 // only to stop a bare top-level reference from ReferenceError-ing at module
@@ -879,9 +940,12 @@ export const Audio = {
   },
   setVolume(volume: number): void {
     __gea_Audio.setVolume(volume)
-  }
+  },
 }
-export const Display = typeof __gea_Display !== 'undefined' ? __gea_Display : (undefined as unknown as typeof __gea_Display)
+export const Display =
+  typeof __gea_Display !== 'undefined'
+    ? __gea_Display
+    : (undefined as unknown as typeof __gea_Display)
 export const Memory = {
   internalFree(): number {
     return __gea_Memory.internalFree()
@@ -958,7 +1022,7 @@ export const Memory = {
       allocationSramBytes: __gea_Memory.allocationSramBytes(),
       allocationPsramBytes: __gea_Memory.allocationPsramBytes(),
       allocationSramPeakBytes: __gea_Memory.allocationSramPeakBytes(),
-      allocationPsramPeakBytes: __gea_Memory.allocationPsramPeakBytes()
+      allocationPsramPeakBytes: __gea_Memory.allocationPsramPeakBytes(),
     }
   },
   config(): EmbeddedMemoryConfig {
@@ -972,14 +1036,14 @@ export const Memory = {
       displayFlushBufferMaxBytes: __gea_Memory.displayFlushBufferMaxBytes(),
       displayFlushRows: __gea_Memory.displayFlushRows(),
       displayFlushDepth: __gea_Memory.displayFlushDepth(),
-      displayFlushBufferBytes: __gea_Memory.displayFlushBufferBytes()
+      displayFlushBufferBytes: __gea_Memory.displayFlushBufferBytes(),
     }
-  }
+  },
 }
 export const Input = {
   consumeBackButton(): boolean {
     return __gea_Input.consumeBackButton()
-  }
+  },
 }
 export const Gpio = {
   configureOutput(pin: number): boolean {
@@ -993,7 +1057,74 @@ export const Gpio = {
   },
   read(pin: number): boolean {
     return __gea_Gpio.read(pin)
-  }
+  },
+}
+export const Uart = {
+  open(port: number, options: UartOptions): boolean {
+    if (typeof __gea_Uart === 'undefined') return false
+    return __gea_Uart.open(port, options.tx, options.rx, options.baudRate,
+      options.rxBufferSize ?? 4096, options.txBufferSize ?? 4096)
+  },
+  isOpen(port: number): boolean {
+    return typeof __gea_Uart !== 'undefined' && __gea_Uart.isOpen(port)
+  },
+  close(port: number): void {
+    if (typeof __gea_Uart !== 'undefined') __gea_Uart.close(port)
+  },
+  read(port: number, buffer: Uint8Array): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.read(port, buffer) : -1
+  },
+  write(port: number, buffer: Uint8Array): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.write(port, buffer) : -1
+  },
+  available(port: number): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.available(port) : -1
+  },
+  writable(port: number): number {
+    return typeof __gea_Uart !== 'undefined' ? __gea_Uart.writable(port) : -1
+  },
+}
+export const Magnetometer = {
+  open(): boolean {
+    return typeof __gea_Magnetometer !== 'undefined' && __gea_Magnetometer.open()
+  },
+  close(): void {
+    if (typeof __gea_Magnetometer !== 'undefined') __gea_Magnetometer.close()
+  },
+  count(): number {
+    return typeof __gea_Magnetometer !== 'undefined' ? __gea_Magnetometer.count() : 0
+  },
+  read(index: number): MagnetometerReading {
+    const values = new Float64Array(5)
+    const valid = typeof __gea_Magnetometer !== 'undefined' && __gea_Magnetometer.read(index, values)
+    return { x: values[0], y: values[1], z: values[2], valid, saturatedAxes: values[3], timestampUs: values[4] }
+  },
+}
+
+export const EspNow = {
+  // 115 selects S31 HE20 MCS9 short GI (114.7 Mbps); target validation owns
+  // availability. Other rates and the default retain their existing meaning.
+  open(channel: number, rateMbps: number = 54): boolean {
+    return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.open(channel, rateMbps)
+  },
+  setMaxTxPower(quarterDbm: number): boolean {
+    return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.setMaxTxPower(quarterDbm)
+  },
+  getMaxTxPower(): number {
+    return typeof __gea_EspNow !== 'undefined' ? __gea_EspNow.getMaxTxPower() : -1
+  },
+  isOpen(): boolean { return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.isOpen() },
+  canSend(): boolean { return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.canSend() },
+  close(): void { if (typeof __gea_EspNow !== 'undefined') __gea_EspNow.close() },
+  addPeer(address: Uint8Array, key: Uint8Array = new Uint8Array(0)): boolean {
+    return typeof __gea_EspNow !== 'undefined' && __gea_EspNow.addPeer(address, key)
+  },
+  send(address: Uint8Array, bytes: Uint8Array): number {
+    return typeof __gea_EspNow !== 'undefined' ? __gea_EspNow.send(address, bytes) : -1
+  },
+  receive(source: Uint8Array, bytes: Uint8Array): number {
+    return typeof __gea_EspNow !== 'undefined' ? __gea_EspNow.receive(source, bytes) : -1
+  },
 }
 export const Led = {
   set(pin: number, r: number, g: number, b: number): boolean {
@@ -1013,12 +1144,16 @@ export const Led = {
   },
   detach(): void {
     __gea_Led.detach()
-  }
+  },
 }
 export const Clock = {
+  setEpochMs(timestamp: number): boolean {
+    return __gea_Clock.setEpochMs(timestamp)
+  },
+
   epochMs(): number {
     return __gea_Clock.epochMs()
-  }
+  },
 }
 // Same method-wrapper reasoning as `Audio` above: the host global is only
 // touched when the method runs, and the conditional form has no plannable
@@ -1028,12 +1163,27 @@ export const Profiler = {
   nowUs(): number {
     if (typeof __gea_Profiler === 'undefined') return Date.now() * 1000
     return __gea_Profiler.nowUs()
-  }
+  },
+
+  nowCycles(): number {
+    // Desktop native hosts also expose nanoseconds instead of CPU cycles.
+    if (typeof __gea_Profiler === 'undefined') return Date.now() * 1000000
+    return __gea_Profiler.nowCycles()
+  },
+}
+export const Haptics = {
+  vibrate(durationMs: number, strength = 100): boolean {
+    return __gea_Haptics.vibrate(durationMs, strength)
+  },
 }
 export const Battery = {
+  charging(): boolean {
+    return __gea_Battery.charging()
+  },
+
   level(): number {
     return __gea_Battery.level()
-  }
+  },
 }
 export const Notify = {
   text(): string {
@@ -1041,12 +1191,12 @@ export const Notify = {
   },
   seq(): number {
     return __gea_Notify.seq()
-  }
+  },
 }
 export const DeviceControl = {
   exec(command: string): string {
     return __gea_DeviceControl.exec(command)
-  }
+  },
 }
 // Method wrapper for the same two reasons as `Audio`/`Profiler` above: a
 // reference inside a method body cannot ReferenceError at module load, and the
@@ -1079,5 +1229,5 @@ export const imageHost = {
   },
   dispose(id: number): void {
     image.dispose(id)
-  }
+  },
 }

@@ -4,7 +4,7 @@
 # no bash, so `execute_process(COMMAND bash -c ...)` failed and no ESP32 target
 # could configure. Node is already a hard requirement of every path that gets
 # here (the CLI and geatsc are Node), so reading it from Node costs no new
-# dependency, and keeping these three function names means shell callers that
+# dependency, and keeping the existing function names means shell callers that
 # `source` this file (simulator build-web.sh, core's own test) do not change.
 #
 # Caller must export GEA_CORE = the @geastack/core package dir, plus
@@ -33,4 +33,9 @@ gea_fw_c_sources() {
 
 gea_fw_cxx_sources() {
   __gea_sources_run cxx-sources
+}
+
+# Apple-only framework sources (ARC/Foundation); ordinary C++ targets do not call this.
+gea_fw_objcxx_sources() {
+  __gea_sources_run objcxx-sources
 }

@@ -1,11 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "native_identity.h"
 #include <cstdint>
 #include <initializer_list>
 #include <string>
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+#include <vector>
+#endif
 
 namespace gea::embedded::ui {
+
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+struct DebuggerCssRule {
+	std::string selector, property, value, media;
+	bool userAgent;
+};
+std::vector<DebuggerCssRule> debuggerMatchedCssRules(int nodeId);
+std::vector<DebuggerCssRule> debuggerCssRules();
+bool debuggerSetCssRule(const std::string &selector, const std::string &media, const std::string &property, const std::string &value);
+#endif
 
 int resolveLayoutSizeExpression(int nodeId, int expression, bool horizontal);
 int resolveLineHeightExpression(int nodeId, int expression);
@@ -199,6 +213,7 @@ enum class Property : int {
 	BorderBottomRelief,
 	BorderLeftRelief,
 	BorderRelief,
+	FontStretch,
 	Count
 };
 
@@ -331,14 +346,18 @@ enum class StyleDeclaration : std::uint8_t {
 	BackgroundRepeat,
 	BackgroundAttachment,
 	BackgroundOrigin,
-	MarginTrim
+	MarginTrim,
+	Transition,
+	AnimationPlayState,
+	FontStretch
 };
 
 class Style {
 public:
-	explicit Style(int nodeId = -1) : nodeId_(nodeId) {}
+	explicit Style(int nodeId = -1)
+	  : nodeId_(nodeId), identity_(gea::framework::identity::node(nodeId)) {}
 
-	int nodeId() const { return nodeId_; }
+	int nodeId() const { return gea::framework::identity::current(nodeId_, identity_) ? nodeId_ : -1; }
 	void set(Property property, int value) const;
 
 	void width(int value) const { set(Property::Width, value); }
@@ -372,6 +391,7 @@ public:
 
 private:
 	int nodeId_;
+	gea::framework::identity::Owner identity_;
 };
 
 class NodeHandle;
@@ -861,5 +881,8 @@ void setDevicePixelRatio(double devicePixelRatio);
 void applyAnimatedStyleValue(int nodeId, Property property, int value);
 void setSafeAreaInsetBottom(int inset);
 int safeAreaInsetBottom();
+
+// Drop animation timelines before a node slot can be reused.
+void forgetNodeCssAnimations(int node);
 
 }  // namespace gea::embedded::ui

@@ -3,6 +3,7 @@
 #include "pixel.h"
 
 #include <cstdint>
+#include <utility>
 
 #if GEA_EMBEDDED_SINGLE_THREAD_IMAGE_STORE
 namespace gea::framework::graphics {
@@ -26,7 +27,10 @@ using ImageStoreMutex = std::mutex;
 // tile-grid app (maps) keep ~4 screens of decoded tiles resident in PSRAM for
 // instant pan-back, on top of its persistent SD cache. ~128 KiB/tile (RGB565
 // 256x256) when full → ~12 MiB; the P4 has ample PSRAM.
-inline constexpr int kImageMax = 96;
+#ifndef GEA_EMBEDDED_MAX_IMAGES
+#define GEA_EMBEDDED_MAX_IMAGES 96
+#endif
+inline constexpr int kImageMax = GEA_EMBEDDED_MAX_IMAGES;
 
 enum class ImageFit {
 	Fill = 0,
@@ -61,6 +65,9 @@ struct ImageSlot {
 	pixel::native_t *pixels = nullptr;
 	std::uint8_t *alpha = nullptr;
 	bool ownsPixels = false;
+	// Registered by the app (registerBuffer): the app writes these pixels in
+	// place between frames, so the same pointer does not mean the same image.
+	bool mutablePixels = false;
 
 	void *gifDecoder = nullptr;
 	std::uint8_t *gifData = nullptr;
@@ -98,6 +105,11 @@ public:
 	// camera capture, which hands over a freshly-allocated RGBA8888 still.
 	int registerBuffer(pixel::native_t *pixels, int width, int height, int preferredSlot = -1, bool takeOwnership = false);
 
+	// True when `pixels` point into a registerBuffer() image, whose content the
+	// app rewrites in place. The present diff never treats such an image as
+	// unchanged from the previous frame.
+	bool pixelsMayChange(const pixel::native_t *pixels) const;
+
 	int width(int id) const;
 	int height(int id) const;
 	int frameCount(int id) const;
@@ -111,6 +123,10 @@ public:
 	const pixel::native_t *framePixels(int id, int frame) const;
 	const pixel::native_t *currentPixels(int id) const;
 	const std::uint8_t *currentAlpha(int id) const;
+	// Pins keep decoded pixels alive for nodes and retained render commands.
+	bool retain(int id);
+	void release(int id);
+	int idForPixels(const pixel::native_t *pixels) const;
 	void dispose(int id);
 	void disposeAll();
 	ImageFormat detectFormat(const std::uint8_t *data, int length) const;
@@ -142,6 +158,8 @@ private:
 
 	ImageSlot images_[kImageMax]{};
 	bool used_[kImageMax]{};
+	unsigned references_[kImageMax]{};
+	bool retired_[kImageMax]{};
 	// Guards slot ALLOCATION and DISPOSAL only (reservation-style): the async
 	// tile loader decodes on the second core while the frame task blits and
 	// evicts. A decode reserves its slot under the lock, then fills it
@@ -149,6 +167,34 @@ private:
 	// delivers it, so nothing reads a half-decoded slot. Pixel READS of
 	// already-delivered slots stay lock-free.
 	mutable ImageStoreMutex slotMutex_;
+};
+
+// Copyable ownership for retained commands; raw pixel pointers alone do not
+// keep a decoded slot alive.
+class ImageReference {
+public:
+	ImageReference() = default;
+	explicit ImageReference(int id) : id_(ImageStore::instance().retain(id) ? id : -1) {}
+	ImageReference(const ImageReference &other) : ImageReference(other.id_) {}
+	ImageReference(ImageReference &&other) noexcept : id_(other.id_) { other.id_ = -1; }
+	~ImageReference() { ImageStore::instance().release(id_); }
+	ImageReference &operator=(const ImageReference &other) {
+		if (this != &other) {
+			ImageReference next(other);
+			std::swap(id_, next.id_);
+		}
+		return *this;
+	}
+	ImageReference &operator=(ImageReference &&other) noexcept {
+		if (this != &other) {
+			ImageStore::instance().release(id_);
+			id_ = other.id_;
+			other.id_ = -1;
+		}
+		return *this;
+	}
+private:
+	int id_ = -1;
 };
 
 }  // namespace gea::framework::graphics

@@ -2,6 +2,10 @@
 
 #include <cstdint>
 
+#ifndef GEA_EMBEDDED_TTF_FREETYPE
+#define GEA_EMBEDDED_TTF_FREETYPE 0
+#endif
+
 namespace gea::framework::graphics {
 
 struct Glyph {
@@ -13,6 +17,7 @@ struct Glyph {
 	int advance = 0;
 	int bearingX = 0;
 	int bearingY = 0;
+	int advance16 = -1;
 };
 
 class Font {
@@ -25,6 +30,12 @@ public:
 	virtual int ascender() const = 0;
 	virtual bool glyph(int codepoint, Glyph *out) const = 0;
 	virtual std::uint8_t coverage(const Glyph &glyph, int row, int col) const = 0;
+	virtual int advance(int codepoint, int nextCodepoint = 0) const
+	{
+		(void)nextCodepoint;
+		Glyph value{};
+		return glyph(codepoint, &value) ? value.advance : sizePx() / 2;
+	}
 };
 
 class BitmapFont : public Font {
@@ -63,6 +74,13 @@ private:
 	static const std::uint8_t glyphs[kGlyphCount][kHeight];
 };
 
+struct FontKerningPair
+{
+	int left = 0;
+	int right = 0;
+	int adjustment16 = 0;
+};
+
 struct RasterizedFontData {
 	int id = 0;
 	int sizePx = 0;
@@ -80,6 +98,16 @@ struct RasterizedFontData {
 	// byte-aligned (stride = (atlasWidth + 3) / 4) and the leftmost pixel of a
 	// byte sits in the most significant bit pair.
 	int atlasBits = 8;
+	int kerningCount = 0;
+	const FontKerningPair *kerning = nullptr;
+	bool strictGlyphLookup = false;
+	int fallbackCodepoint = -1;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ // Runtime slot reuse must not reuse Canvas sprite/glyph-cache identity.
+ std::uint64_t generation = 0;
+#else
+ static constexpr std::uint64_t generation = 0;
+#endif
 };
 
 class RasterizedFont final : public Font {
@@ -93,6 +121,7 @@ public:
 	int ascender() const final;
 	bool glyph(int codepoint, Glyph *out) const final;
 	std::uint8_t coverage(const Glyph &glyph, int row, int col) const final;
+	int advance(int codepoint, int nextCodepoint = 0) const final;
 	const RasterizedFontData *data() const { return data_; }
 
 private:
@@ -103,6 +132,7 @@ class FontRegistry {
 public:
 	static RasterizedFont rasterized(int fontId);
 	static RasterizedFont rasterizedFamily(int familyId, int sizePx);
+	static RasterizedFont rasterizedFamily(int familyId, int sizePx, int weight, int stretch);
 	static const BitmapFont8x16 &bitmap8x16();
 	static int familyId(const char *family);
 	static const char *familyName(int familyId);

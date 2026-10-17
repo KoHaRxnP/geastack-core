@@ -356,6 +356,7 @@ public:
 	static void drawText(const char *text, int x, int y, gea::framework::graphics::pixel::native_t color, float scale);
 	static void drawTextFont(const char *text, int x, int y, gea::framework::graphics::pixel::native_t color, int font_id);
 	static void drawTextFontFamily(const char *text, int x, int y, gea::framework::graphics::pixel::native_t color, int family_id, int size_px);
+	static void drawTextFontFamily(const char *text,int x,int y,gea::framework::graphics::pixel::native_t color,int family_id,int size_px,int weight,int stretch);
 	static void setPixel(int x, int y, gea::framework::graphics::pixel::native_t color);
 	static void fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br, int bl, gea::framework::graphics::pixel::native_t color);
 	static void fillRoundedRectBoxesRgb565(const int16_t *xs, const int16_t *ys, int count,

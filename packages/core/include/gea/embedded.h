@@ -10,4 +10,7 @@
 // includes gea/embedded-host.h instead (no engine/reactive dependency).
 #include "gea/embedded-host.h"
 #include "ui/document.h"
+#include "ui/child_node_list.h"
 #include "ui/signal.h"
+// Debug builds: attributes JSX listeners to nodes for DevTools.
+#include "ui/debugger_listeners.h"

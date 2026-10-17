@@ -68,6 +68,8 @@ void rootScrollImageHoldTick();
 		DrawText,
 		BlitImage,
 		BlitImageScaled,
+		BlitImageProjected,
+		ReplayCanvasBatch,
 		BeginFilterBlur,
 		ApplyFilterBlur,
 		FillTransformedLinearGradient,
@@ -108,6 +110,7 @@ void rootScrollImageHoldTick();
 				int16_t x, y, w, h;
 				gea::framework::graphics::pixel::native_t color;
 			} fill;
+			struct { int16_t nodeId, x, y, width, height; std::uint32_t identity; } canvasBatch;
 			struct
 			{
 				int16_t cx, cy, r;
@@ -188,6 +191,7 @@ void rootScrollImageHoldTick();
 				int16_t lineHeight;
 				int16_t containerWidth;
 				int16_t fontId;
+				int16_t fontWeight,fontStretch;
 				// CSS white-space / text-overflow, carried so the deferred draw
 				// can reproduce single-line truncation. whiteSpace==1 => nowrap
 				// (no width-based wrapping); textOverflow==1 => ellipsis ("...").
@@ -207,6 +211,7 @@ void rootScrollImageHoldTick();
 				int16_t srcX, srcY, srcW, srcH;
 				int16_t x0, y0, x1, y1, x2, y2, x3, y3;
 				int16_t fontId, fontSize;
+				int16_t fontWeight,fontStretch;
 				gea::framework::graphics::pixel::native_t color;
 				uint8_t alpha;
 				int8_t textTransform;
@@ -275,6 +280,15 @@ void rootScrollImageHoldTick();
 			} scaledBlit;
 			struct
 			{
+				const gea::framework::graphics::pixel::native_t *pixels;
+				const uint8_t *alpha;
+				int16_t sourceWidth, sourceHeight, x, y, width, height;
+				int16_t xs[4], ys[4];
+				int16_t tl, tr, br, bl;
+				uint8_t backfaceHidden;
+			} projectedBlit;
+			struct
+			{
 				int16_t nodeId;
 				int16_t radius;
 				int16_t radiusX;
@@ -301,6 +315,8 @@ void rootScrollImageHoldTick();
 		DisplayCommand *append();
 		int setRecordingTextClipOwner(int owner);
 		void clear();
+		void retainImage(int id);
+		void pruneImageReferences();
 		void resetStorage();
 		// allowSkipStatic: caller guarantees this frame will use the direct
 		// (backdrop-blit) replay path, so recordNode may skip re-recording fully-static
@@ -365,6 +381,7 @@ void rootScrollImageHoldTick();
 		void replayDirectDirtyRegion(int x0, int y0, int x1, int y1, int origin = -1);
 		void replayDirectDirtyRegions(const DisplayReplayRegion *regions, int count);
 		bool canReplaySimpleDirtyRegions(int width, int height) const;
+		bool canReplaySimpleDirtyRegions(int width, int height, const DisplayReplayRegion *regions, int count) const;
 		void replaySimpleClippedDirtyRegion(int x0, int y0, int x1, int y1, int origin = -1);
 		// Static-backdrop cache: bake every non-dirty (static) node into the bg cache
 		// buffer once it's stable, so the dirty-region replay can blit that backdrop and
@@ -555,7 +572,7 @@ void rootScrollImageHoldTick();
 		                             int width, uint8_t *outCoverage);
 		static void drawWrapped(const char *text, int x, int y, int maxWidth, gea::framework::graphics::pixel::native_t color, float scale, int textAlign,
 														int containerWidth, int fontId, int textTransform = 0, int lineHeight = 0, int whiteSpace = 0, int textOverflow = 0, int maxHeight = 0,
-														int firstLineIndent = 0);
+														int firstLineIndent = 0, int fontWeight = 400, int fontStretch = 1000);
 		// Single-line width measure for places that don't go through layout()
 		// — used by InputRenderer to position the caret at the end of the value.
 		static int measureWidth(const char *text, int fontId, int fontSize, int textTransform = 0);
@@ -569,6 +586,11 @@ void rootScrollImageHoldTick();
 		// keepBoxWidth re-wraps within the current layout.width (a cross-
 		// stretched block's box) and only updates the height.
 		static bool remeasureContentBox(int id, bool keepBoxWidth = false);
+		// Flex layout resized this text item's main (inline) size: re-wrap the
+		// run within the new layout.width and update layout.height. Returns the
+		// widest wrapped line's border-box width — larger than layout.width only
+		// when an unbreakable run overflows the box. One measurement.
+		static int reflowToBoxWidth(int id);
 	};
 
 	// Materializes `<input>` JSX elements. They emit View nodes (tag_name=="input")

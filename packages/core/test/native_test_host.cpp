@@ -42,6 +42,9 @@ class gea_cpp_value;
 #include <vector>
 
 #include <unistd.h>
+#if defined(_WIN32)
+#include <malloc.h> // _aligned_malloc, _aligned_realloc, _aligned_free
+#endif
 
 namespace gea::framework::app::generated {
 void drainMicrotasks();
@@ -49,17 +52,19 @@ void drainMicrotasks();
 
 namespace {
 
+using NativePixel = gea::framework::graphics::pixel::native_t;
+
 gea::framework::graphics::Canvas gDisplayCanvas;
 int gDisplayWidth = gea::platform::display::kWidth;
 int gDisplayHeight = gea::platform::display::kHeight;
-std::vector<std::uint16_t> gDisplayPixels(static_cast<std::size_t>(gDisplayWidth * gDisplayHeight));
-std::vector<std::uint16_t> gPresentedPixels(static_cast<std::size_t>(gDisplayWidth * gDisplayHeight));
+std::vector<NativePixel> gDisplayPixels(static_cast<std::size_t>(gDisplayWidth * gDisplayHeight));
+std::vector<NativePixel> gPresentedPixels(static_cast<std::size_t>(gDisplayWidth * gDisplayHeight));
 std::uint8_t gDisplayAlpha = 255;
 int gFlushCalls = 0;
 int gFlushRects = 0;
 int gFlushPixels = 0;
 int gImageLoads = 0;
-std::vector<std::vector<std::uint16_t>> gTestImagePixels;
+std::vector<std::vector<NativePixel>> gTestImagePixels;
 std::unordered_map<std::string, std::string> gStorage;
 std::unordered_map<const void *, int> gAssetDataImageCache;
 std::unordered_map<std::string, int> gAssetPathImageCache;
@@ -77,8 +82,8 @@ void resetDisplay()
 	if (gDisplayHeight < 1) gDisplayHeight = 1;
 	gDisplayPixels.resize(static_cast<std::size_t>(gDisplayWidth * gDisplayHeight));
 	gPresentedPixels.resize(static_cast<std::size_t>(gDisplayWidth * gDisplayHeight));
-	std::fill(gDisplayPixels.begin(), gDisplayPixels.end(), static_cast<std::uint16_t>(0));
-	std::fill(gPresentedPixels.begin(), gPresentedPixels.end(), static_cast<std::uint16_t>(0));
+	std::fill(gDisplayPixels.begin(), gDisplayPixels.end(), static_cast<NativePixel>(0));
+	std::fill(gPresentedPixels.begin(), gPresentedPixels.end(), static_cast<NativePixel>(0));
 	gDisplayCanvas.bindPixels(gDisplayPixels.data(), gDisplayWidth, gDisplayHeight);
 	gDisplayCanvas.resetClip();
 	gDisplayCanvas.setGlobalAlpha(255);
@@ -116,7 +121,7 @@ int registerSyntheticImage()
 		0xf800,
 		0x001f,
 	};
-	const std::uint16_t color = colors[static_cast<std::size_t>(gImageLoads) % (sizeof(colors) / sizeof(colors[0]))];
+	const NativePixel color = gea::framework::graphics::pixel::toNative(colors[static_cast<std::size_t>(gImageLoads) % (sizeof(colors) / sizeof(colors[0]))]);
 
 	gTestImagePixels.emplace_back(static_cast<std::size_t>(kImageSize * kImageSize));
 	std::fill(gTestImagePixels.back().begin(), gTestImagePixels.back().end(), color);
@@ -429,18 +434,18 @@ int flushPixelCount()
 
 int displayNonzeroPixelCount()
 {
-	return static_cast<int>(std::count_if(gDisplayPixels.begin(), gDisplayPixels.end(), [](std::uint16_t pixel) {
+	return static_cast<int>(std::count_if(gDisplayPixels.begin(), gDisplayPixels.end(), [](NativePixel pixel) {
 		return pixel != 0;
 	}));
 }
 
-std::uint16_t displayPixelAt(int x, int y)
+gea::framework::graphics::pixel::native_t displayPixelAt(int x, int y)
 {
 	if (x < 0 || y < 0 || x >= gDisplayWidth || y >= gDisplayHeight) return 0;
 	return gDisplayPixels[static_cast<std::size_t>(y * gDisplayWidth + x)];
 }
 
-std::uint16_t presentedPixelAt(int x, int y)
+gea::framework::graphics::pixel::native_t presentedPixelAt(int x, int y)
 {
 	if (x < 0 || y < 0 || x >= gDisplayWidth || y >= gDisplayHeight) return 0;
 	return gPresentedPixels[static_cast<std::size_t>(y * gDisplayWidth + x)];
@@ -448,14 +453,22 @@ std::uint16_t presentedPixelAt(int x, int y)
 
 	}  // namespace gea::embedded::test
 
+#ifndef GEA_NATIVE_TEST_REAL_IMAGE_HOST
 namespace gea::platform::storage {
 void setMountProvider(bool (*)(void)) {}
 bool ensureMounted() { return false; }
 }  // namespace gea::platform::storage
+#endif
 
 namespace gea::platform::power {
 int Power::batteryPercent() { return 100; }
+bool Power::charging() { return false; }
 }  // namespace gea::platform::power
+
+// A test must never set the machine's clock, so the host refuses the request.
+namespace gea::platform::clock {
+bool setEpochMs(double) { return false; }
+}  // namespace gea::platform::clock
 
 // Null platform camera: the native test host has no capture hardware, so the
 // host camera bridge (packages/host/host/camera.cpp) links against a camera
@@ -519,18 +532,34 @@ void OscillatorNode::connect(AudioDestinationProperty /*destination*/) const {}
 void OscillatorNode::connect(double /*destinationHandle*/) const {}
 void OscillatorNode::start(double /*when*/) const {}
 void OscillatorNode::stop(double /*when*/) const {}
+// The null host has no audio clock or worklet state; the context only carries its rate.
+AudioContext::AudioContext(double rate) : sampleRate(rate) {}
 OscillatorNode AudioContext::createOscillator() const { return OscillatorNode(2.0); }
 
 // Null HTMLAudioElement: the test host has no audio output; construction and
 // control succeed silently.
-HTMLAudioElement::HTMLAudioElement(const char *src) : src_(src ? src : "") {}
-HTMLAudioElement::HTMLAudioElement(const std::string &src) : src_(src) {}
-HTMLAudioElement::HTMLAudioElement(const gea::embedded::ui::NodeHandle &node) : nodeId_(node.id()) {}
-std::string HTMLAudioElement::src() const { return src_; }
-void HTMLAudioElement::setSrc(const std::string &src) { src_ = src; }
+struct HTMLAudioElement::State {
+  std::string src;
+  int nodeId = -1;
+};
+HTMLAudioElement HTMLAudioElement::create() {
+	HTMLAudioElement result;
+	result.state_ = std::make_shared<State>();
+	return result;
+}
+HTMLAudioElement HTMLAudioElement::create(const std::string &src) { return HTMLAudioElement(src); }
+HTMLAudioElement::HTMLAudioElement(const char *src) : HTMLAudioElement(std::string(src ? src : "")) {}
+HTMLAudioElement::HTMLAudioElement(const std::string &src) : state_(std::make_shared<State>()) { state_->src = src; }
+HTMLAudioElement::HTMLAudioElement(const gea::embedded::ui::NodeHandle &node) : state_(std::make_shared<State>()) { state_->nodeId = node.id(); }
+std::string HTMLAudioElement::src() const { return state_ ? state_->src : std::string{}; }
+void HTMLAudioElement::setSrc(const std::string &src) {
+  if (!state_) state_ = std::make_shared<State>();
+  state_->src = src;
+}
 bool HTMLAudioElement::play() const { return true; }
 void HTMLAudioElement::pause() const {}
 
+#ifndef GEA_NATIVE_TEST_REAL_IMAGE_HOST
 double ImageService::loadBytes(std::vector<std::uint8_t> /*bytes*/) const { return loadSyntheticImage(); }
 double ImageService::loadBytesOpaque(std::vector<std::uint8_t> /*bytes*/) const { return loadSyntheticImage(); }
 double ImageService::loadBytesPtr(const std::uint8_t *data, std::size_t length) const
@@ -591,6 +620,8 @@ GeaEmbeddedImage ImageService::make(double id) const
 	return handle;
 }
 
+#endif
+
 double Apps::launch(const std::string &appId) const
 {
 	gLastLaunchedApp = appId;
@@ -599,10 +630,18 @@ double Apps::launch(const std::string &appId) const
 
 }  // namespace gea::host
 
+#ifndef GEA_NATIVE_TEST_REAL_IMAGE_HOST
 extern "C" double gea_host_image_load_asset_path(const char *path)
 {
 	return gea::host::image.loadAssetPath(path);
 }
+
+extern "C" double gea_host_image_acquire_asset_path(const char *path, bool *owned)
+{
+	if (owned) *owned = false;
+	return gea::host::image.loadAssetPath(path);
+}
+#endif
 
 namespace gea::framework::app {
 void Application::init(int width, int height, double devicePixelRatio)
@@ -715,10 +754,8 @@ void DisplayBackend::updateAutoRotation(double acceleration_x, double accelerati
 }
 }  // namespace gea::framework::display
 
-namespace gea::platform::display {
-void applyOrientation(gea::framework::display::DisplayOrientation /*orientation*/) {}
-bool autoRotateAllowed() { return true; }
-}  // namespace gea::platform::display
+// gea::platform::display::applyOrientation and autoRotateAllowed are defined in
+// native_test_platform_display.cpp; see there for why not here.
 
 namespace gea::framework::services {
 EventQueue FrameScheduler::createEventQueue() { return EventQueue(); }
@@ -774,6 +811,26 @@ void StorageService::saveKv(const std::string &blob)
 }  // namespace gea::framework::services
 
 namespace gea::framework::memory {
+#if defined(_WIN32)
+// The Windows CRT has no posix_memalign, and memory from its _aligned_malloc
+// must go back through _aligned_free, so on Windows every allocation here is
+// an aligned one and all three operations use the aligned family.
+void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment)
+{
+	if (size == 0) size = 1;
+	return _aligned_malloc(size, alignment < alignof(std::max_align_t) ? alignof(std::max_align_t) : alignment);
+}
+
+void *Allocator::reallocatePreferSpiram(void *ptr, std::size_t size)
+{
+	return _aligned_realloc(ptr, size, alignof(std::max_align_t));
+}
+
+void Allocator::free(void *ptr) noexcept
+{
+	_aligned_free(ptr);
+}
+#else
 void *Allocator::allocatePreferSpiram(std::size_t size, std::size_t alignment)
 {
 	if (size == 0) size = 1;
@@ -791,6 +848,7 @@ void Allocator::free(void *ptr) noexcept
 {
 	std::free(ptr);
 }
+#endif
 
 double MemoryBackend::internalFree() { return 1024.0 * 1024.0; }
 double MemoryBackend::internalLargestFreeBlock() { return 512.0 * 1024.0; }
@@ -1021,7 +1079,7 @@ bool gea::platform::display::Display::present(const DisplayPresentCommand *comma
 void gea::platform::display::Display::setFlushConfig(int /*chunk_rows*/, int /*queue_depth*/) {}
 int gea::platform::display::Display::flushChunkRows() { return 32; }
 int gea::platform::display::Display::flushQueueDepth() { return 2; }
-int gea::platform::display::Display::flushBufferBytes() { return 410 * 32 * 2 * 2; }
+int gea::platform::display::Display::flushBufferBytes() { return 410 * 32 * sizeof(NativePixel) * 2; }
 void gea::platform::display::Display::pushClip(int x, int y, int w, int h) { gDisplayCanvas.pushClip(x, y, w, h); }
 void gea::platform::display::Display::popClip() { gDisplayCanvas.popClip(); }
 void gea::platform::display::Display::resetClip() { gDisplayCanvas.resetClip(); }
@@ -1041,33 +1099,33 @@ void gea::platform::display::Display::invalidate() {}
 bool gea::platform::display::Display::vsyncEnabled() { return false; }
 void gea::platform::display::Display::vsyncWaitForFrame() {}
 void gea::platform::display::Display::clip(int *x0, int *y0, int *x1, int *y1) { gDisplayCanvas.currentClip(x0, y0, x1, y1); }
-void gea::platform::display::Display::fillRect(int x, int y, int w, int h, uint16_t color) { gDisplayCanvas.fillRect(x, y, w, h, color); }
+void gea::platform::display::Display::fillRect(int x, int y, int w, int h, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.fillRect(x, y, w, h, color); }
 void gea::platform::display::Display::scrollRect(int x, int y, int w, int h, int dx, int dy) { gDisplayCanvas.scrollRect(x, y, w, h, dx, dy); }
 void gea::platform::display::Display::resetScrollRegion() { gDisplayCanvas.setScrollRegion(0, 0, 0); }
-void gea::platform::display::Display::strokeRect(int x, int y, int w, int h, uint16_t color) { gDisplayCanvas.strokeRect(x, y, w, h, color); }
-void gea::platform::display::Display::fillCircle(int cx, int cy, int r, uint16_t color) { gDisplayCanvas.fillCircle(cx, cy, r, color); }
-void gea::platform::display::Display::strokeCircle(int cx, int cy, int r, uint16_t color) { gDisplayCanvas.strokeCircle(cx, cy, r, color); }
-void gea::platform::display::Display::drawLine(int x0, int y0, int x1, int y1, uint16_t color) { gDisplayCanvas.drawLine(x0, y0, x1, y1, color); }
-void gea::platform::display::Display::drawArc(int cx, int cy, int r, int startDeg, int endDeg, uint16_t color) { gDisplayCanvas.drawArc(cx, cy, r, startDeg, endDeg, color); }
-void gea::platform::display::Display::fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint16_t color) { gDisplayCanvas.fillTriangle(x0, y0, x1, y1, x2, y2, color); }
-void gea::platform::display::Display::drawText(const char *text, int x, int y, uint16_t color, float scale) { gDisplayCanvas.drawText(text, x, y, color, scale); }
-void gea::platform::display::Display::drawTextFont(const char *text, int x, int y, uint16_t color, int fontId) { gDisplayCanvas.drawTextFont(text, x, y, color, fontId); }
-void gea::platform::display::Display::drawTextFontFamily(const char *text, int x, int y, uint16_t color, int familyId, int sizePx)
+void gea::platform::display::Display::strokeRect(int x, int y, int w, int h, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.strokeRect(x, y, w, h, color); }
+void gea::platform::display::Display::fillCircle(int cx, int cy, int r, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.fillCircle(cx, cy, r, color); }
+void gea::platform::display::Display::strokeCircle(int cx, int cy, int r, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.strokeCircle(cx, cy, r, color); }
+void gea::platform::display::Display::drawLine(int x0, int y0, int x1, int y1, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.drawLine(x0, y0, x1, y1, color); }
+void gea::platform::display::Display::drawArc(int cx, int cy, int r, int startDeg, int endDeg, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.drawArc(cx, cy, r, startDeg, endDeg, color); }
+void gea::platform::display::Display::fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.fillTriangle(x0, y0, x1, y1, x2, y2, color); }
+void gea::platform::display::Display::drawText(const char *text, int x, int y, gea::framework::graphics::pixel::native_t color, float scale) { gDisplayCanvas.drawText(text, x, y, color, scale); }
+void gea::platform::display::Display::drawTextFont(const char *text, int x, int y, gea::framework::graphics::pixel::native_t color, int fontId) { gDisplayCanvas.drawTextFont(text, x, y, color, fontId); }
+void gea::platform::display::Display::drawTextFontFamily(const char *text, int x, int y, gea::framework::graphics::pixel::native_t color, int familyId, int sizePx)
 {
 	gDisplayCanvas.drawTextFontFamily(text, x, y, color, familyId, sizePx);
 }
-void gea::platform::display::Display::setPixel(int x, int y, uint16_t color) { gDisplayCanvas.fillRect(x, y, 1, 1, color); }
-void gea::platform::display::Display::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br, int bl, uint16_t color)
+void gea::platform::display::Display::setPixel(int x, int y, gea::framework::graphics::pixel::native_t color) { gDisplayCanvas.fillRect(x, y, 1, 1, color); }
+void gea::platform::display::Display::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br, int bl, gea::framework::graphics::pixel::native_t color)
 {
 	gDisplayCanvas.fillRoundedRect(x, y, w, h, tl, tr, br, bl, color);
 }
 void gea::platform::display::Display::fillRoundedRectBoxesRgb565(const int16_t *xs, const int16_t *ys, int count,
                                                                  int w, int h, int tl, int tr, int br, int bl,
-                                                                 const uint16_t *colors)
+                                                                 const gea::framework::graphics::pixel::native_t *colors)
 {
 	gDisplayCanvas.fillRoundedRectBoxesRgb565(xs, ys, count, w, h, tl, tr, br, bl, colors);
 }
-void gea::platform::display::Display::strokeRoundedRect(int x, int y, int w, int h, int tl, int tr, int br, int bl, int lw, uint16_t color)
+void gea::platform::display::Display::strokeRoundedRect(int x, int y, int w, int h, int tl, int tr, int br, int bl, int lw, gea::framework::graphics::pixel::native_t color)
 {
 	gDisplayCanvas.strokeRoundedRect(x, y, w, h, tl, tr, br, bl, lw, color);
 }
@@ -1099,7 +1157,34 @@ void gea::platform::display::Display::flushStatsReset()
 }
 const char *gea::platform::display::Display::flushStageName() { return "idle"; }
 int gea::platform::display::Display::flushStageChunk() { return 0; }
-void gea::platform::display::Display::rebindCanvasToFramebuffer() {}
+void gea::platform::display::Display::rebindCanvasToFramebuffer() {
+  gDisplayCanvas.bindPixels(gDisplayPixels.data(), gDisplayWidth, gDisplayHeight);
+}
+void gea::platform::display::Display::flushRectsRasterized(const DisplayFlushRect *rects, int count, DisplayStreamRasterFn raster, void *user, bool) {
+  if (!rects || !raster || count <= 0) return;
+  ++gFlushCalls;
+  for (int i = 0; i < count; ++i) {
+    const int x0 = std::max(0, rects[i].x0);
+    const int x1 = std::min(gDisplayWidth - 1, rects[i].x1);
+    const int y0 = std::max(0, rects[i].y0);
+    const int y1 = std::min(gDisplayHeight - 1, rects[i].y1);
+    if (x1 < x0 || y1 < y0) continue;
+    const int width = x1 - x0 + 1;
+    for (int y = y0; y <= y1; y += 16) {
+      const int height = std::min(16, y1 - y + 1);
+      // DMA staging starts with old garbage, and never updates the PSRAM canvas.
+      std::vector<NativePixel> chunk(width * height, 0xa55a);
+      raster(chunk.data(), width, height, x0, y, user);
+      for (int row = 0; row < height; ++row)
+        std::copy_n(chunk.data() + row * width, width,
+                    gPresentedPixels.data() + (y + row) * gDisplayWidth + x0);
+      rebindCanvasToFramebuffer();
+    }
+    ++gFlushRects;
+    gFlushPixels += width * (y1 - y0 + 1);
+  }
+  gDisplayCanvas.resetDirty();
+}
 void gea::platform::display::Display::flushRects(const gea::platform::display::DisplayFlushRect *rects, int count, bool)
 {
 	if (!rects || count <= 0) return;
@@ -1140,7 +1225,7 @@ bool gea::platform::display::Display::streamRect(int x, int y, int w, int h, Dis
 
 	const int width = x1 - x0 + 1;
 	const int height = y1 - y0 + 1;
-	std::vector<std::uint16_t> pixels(static_cast<std::size_t>(width * height));
+	std::vector<NativePixel> pixels(static_cast<std::size_t>(width * height));
 	raster(pixels.data(), width, height, x0, y0, user);
 	for (int row = 0; row < height; row++) {
 		std::copy_n(&pixels[static_cast<std::size_t>(row * width)],

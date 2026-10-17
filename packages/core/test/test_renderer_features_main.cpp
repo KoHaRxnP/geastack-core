@@ -122,6 +122,39 @@ static void allCircleCacheSizes()
 	std::printf("all-circle-cache-sizes %016llx\n", static_cast<unsigned long long>(hash));
 }
 
+static void antialiasedRoundedRects()
+{
+	using gea::framework::graphics::Canvas;
+	// AA rounded fills and strokes skip per-pixel coverage on spans they can
+	// prove inside, outside or in a stroke's hole. Pills, near-pills, tiny
+	// dots, mixed radii, translucency and clips, at both AA kernel widths.
+	constexpr int width = 160, height = 120;
+	std::vector<pixel::native_t> pixels(width * height);
+	Canvas canvas;
+	canvas.bindPixels(pixels.data(), width, height);
+	Display::setAA(4);
+	const int shapes[][7]{{96, 30, 15, 15, 15, 15, 1}, {96, 30, 14, 14, 14, 14, 1}, {24, 6, 3, 3, 3, 3, 1},
+	                      {6, 6, 3, 3, 3, 3, 1},       {60, 24, 12, 12, 12, 12, 2}, {50, 40, 10, 6, 10, 6, 3},
+	                      {90, 80, 40, 0, 20, 7, 2},   {70, 70, 35, 35, 35, 35, 4}, {120, 100, 30, 30, 30, 30, 5},
+	                      {9, 7, 3, 3, 3, 3, 1},       {33, 17, 8, 2, 0, 8, 1}};
+	std::uint64_t hash = 1469598103934665603ull;
+	for (const auto &shape : shapes) for (int variant = 0; variant < 4; ++variant) {
+		canvas.clear(pixel::nativeColor(18, 24, 30));
+		canvas.setGlobalAlpha(variant & 1 ? 150 : 255);
+		if (variant & 2) canvas.pushClip(11, 7, width - 30, height - 21);
+		const int x = 5 + variant, y = 3 + variant * 2;
+		canvas.fillRoundedRect(x, y, shape[0], shape[1], shape[2], shape[3], shape[4], shape[5],
+		                       pixel::nativeColor(240, 200, 60));
+		canvas.strokeRoundedRect(x + 2, y + 1, shape[0], shape[1], shape[2], shape[3], shape[4], shape[5], shape[6],
+		                         pixel::nativeColor(30, 90, 250));
+		if (variant & 2) canvas.popClip();
+		for (const auto color : pixels) hash = (hash ^ color) * 1099511628211ull;
+	}
+	canvas.setGlobalAlpha(255);
+	Display::setAA(0);
+	std::printf("aa-rounded-rects %016llx\n", static_cast<unsigned long long>(hash));
+}
+
 int main(int argc, char **argv)
 {
 	resetNativeHost();
@@ -135,6 +168,7 @@ int main(int argc, char **argv)
 	if (!cssOnly) {
 		triangleOcclusionPixels();
 		allCircleCacheSizes();
+		antialiasedRoundedRects();
 		// Replay identical native commands, bypassing CSS fields whose absence
 		// is separately proven by whole-source analysis. This isolates scratch
 		// selection from intentional removal of unused gradient style storage.
@@ -235,6 +269,40 @@ int main(int argc, char **argv)
 			fingerprint(background);
 		}
 	}
+	// CSS rounded borders: the raster samples only the corner boxes; widths
+	// and radii either side of each other, and uneven corners.
+	const char *borders[][2]{
+		{"1px solid #e0c060", "14px"},
+		{"3px solid #40e0a0", "12px"},
+		{"6px solid #ff6040", "4px"},
+		{"2px solid rgba(255, 255, 255, 0.5)", "20px 6px 30px 0px"},
+		{"9px solid #6080ff", "45px"},
+		{"1px solid #ffffff", "0px"},
+		{"1px solid #e0c060", "50%"},
+		{"4px solid #40e0a0", "30% 10%"},
+		{"2px solid #ff6040", "80px"},
+	};
+	for (const auto &border : borders) {
+		card.style().setProperty("border", border[0]);
+		card.style().setProperty("border-radius", border[1]);
+		Document::instance().refresh(root, 120, 120);
+		DisplayList::instance().replay();
+		fingerprint(border[0]);
+	}
+	card.style().setProperty("border", "0px solid #000000");
+	// Small antialiased rounded fills take the per-pixel coverage path.
+	const char *pills[][3]{{"60px", "24px", "12px"}, {"24px", "6px", "3px"}, {"50px", "40px", "20% 6px"}, {"64px", "64px", "50%"}};
+	for (const auto &pill : pills) {
+		card.style().setProperty("width", pill[0]);
+		card.style().setProperty("height", pill[1]);
+		card.style().setProperty("border-radius", pill[2]);
+		card.style().setProperty("background-color", "#e0c060");
+		Document::instance().refresh(root, 120, 120);
+		DisplayList::instance().replay();
+		fingerprint(pill[2]);
+	}
+	card.style().width(90); card.style().height(90);
+	card.style().setProperty("border-radius", "12px");
 	if (cssOnly) card.style().setProperty("background", backgrounds[0]);
 	card.style().setProperty("transform", "rotate(17deg) scale(0.8)");
 	for (int frame = 0; frame < 3; ++frame) {

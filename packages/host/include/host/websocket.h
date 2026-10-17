@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -77,6 +79,7 @@ class WebSocket {
 
   std::string url() const;
   double readyState() const;
+  double bufferedAmount() const;
   void send(const std::string &data) const;
   void close() const;
   void close(double code) const;
@@ -93,9 +96,73 @@ struct CallbackTable {
 };
 
 std::unordered_map<NativeWebSocketHandle, CallbackTable> &callbackTable();
+// Owner-thread callback admission; closed process realms and destroyed handles refuse.
+bool callbackAdmissionOpen(NativeWebSocketHandle handle);
+// Owner-thread setters refuse retired handles and release replaced captures after mutation.
+void set_open_callback(NativeWebSocketHandle handle, std::function<void()> cb);
+void set_message_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb);
+void set_close_callback(NativeWebSocketHandle handle, std::function<void(int, const std::string &)> cb);
+void set_error_callback(NativeWebSocketHandle handle, std::function<void(const std::string &)> cb);
 
-NativeWebSocketHandle create_handle(const std::string &url);
+
+NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols = {},
+                                   const std::string &headers = {});
+// Typed records and arrays may be native values or identity-preserving Refs.
+template <typename T>
+decltype(auto) connectionValue(const T &value) {
+  if constexpr (requires { value.operator->(); }) return *value;
+  else return (value);
+}
+template <typename Options>
+NativeWebSocketHandle create_handle(const std::string &url, const std::string &protocols,
+                                   const Options &options) {
+  std::string headers;
+  const auto &entries = connectionValue(connectionValue(options).headers);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    const auto &header = connectionValue(entries.at(i));
+    if (header.name.empty() || header.name.find_first_not_of(
+            "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") != std::string::npos ||
+        header.value.find_first_of("\r\n") != std::string::npos ||
+        header.value.find('\0') != std::string::npos) {
+      throw std::invalid_argument("Invalid WebSocket connection header");
+    }
+    headers += header.name + ": " + header.value + "\r\n";
+  }
+  return create_handle(url, protocols, headers);
+}
+template <typename Protocols>
+  requires (!std::is_convertible_v<Protocols, std::string>)
+NativeWebSocketHandle create_handle(const std::string &url, const Protocols &protocols) {
+  std::string joined;
+  const auto &entries = connectionValue(protocols);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    if (i) joined += ",";
+    joined += entries.at(i);
+  }
+  return create_handle(url, joined);
+}
+template <typename Protocols, typename Options>
+  requires (!std::is_convertible_v<Protocols, std::string>)
+NativeWebSocketHandle create_handle(const std::string &url, const Protocols &protocols,
+                                   const Options &options) {
+  std::string joined;
+  const auto &entries = connectionValue(protocols);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    if (i) joined += ",";
+    joined += entries.at(i);
+  }
+  return create_handle(url, joined, options);
+}
 void destroy_handle(NativeWebSocketHandle handle);
+
+// Native streaming sources run on the socket's sender, never on the UI loop.
+// An empty result means no packet is ready yet. The producer must not call JS.
+using TextProducer = std::function<std::string()>;
+void setTextProducer(NativeWebSocketHandle handle, TextProducer producer);
+// A native sink can consume media before JS event dispatch. Returning false
+// leaves an ordinary control message for the owner's normal onmessage handler.
+using TextConsumer = std::function<bool(const std::string&)>;
+void setTextConsumer(NativeWebSocketHandle handle, TextConsumer consumer);
 
 void runCallbacks();
 
@@ -113,40 +180,43 @@ void test_set_error_callback(NativeWebSocketHandle handle, std::function<void(co
 #ifdef GEA_CPP_VALUE_AVAILABLE
 
 inline const WebSocketOnOpenProperty &WebSocketOnOpenProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_open = nullptr;
+    websocket::set_open_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_open = [callable]() {
+  websocket::set_open_callback(handle, [callable]() {
     (*callable)(std::vector<gea_cpp_value>{});
-  };
+  });
   return *this;
 }
 
 inline const WebSocketOnMessageProperty &WebSocketOnMessageProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_message = nullptr;
+    websocket::set_message_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_message = [callable](const std::string &data) {
+  websocket::set_message_callback(handle, [callable](const std::string &data) {
     gea_cpp_value event;
     event.kind = gea_cpp_value::kind_t::record;
     event.entries = std::make_shared<std::vector<std::pair<std::string, gea_cpp_value>>>();
     event.record_set_literal("data", gea_cpp_value(data));
     (*callable)(std::vector<gea_cpp_value>{event});
-  };
+  });
   return *this;
 }
 
 inline const WebSocketOnCloseProperty &WebSocketOnCloseProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_close = nullptr;
+    websocket::set_close_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_close = [callable](int code, const std::string &reason) {
+  websocket::set_close_callback(handle, [callable](int code, const std::string &reason) {
     gea_cpp_value event;
     event.kind = gea_cpp_value::kind_t::record;
     event.entries = std::make_shared<std::vector<std::pair<std::string, gea_cpp_value>>>();
@@ -154,23 +224,24 @@ inline const WebSocketOnCloseProperty &WebSocketOnCloseProperty::operator=(gea_c
     event.record_set_literal("reason", gea_cpp_value(reason));
     event.record_set_literal("wasClean", gea_cpp_value(code == 1000));
     (*callable)(std::vector<gea_cpp_value>{event});
-  };
+  });
   return *this;
 }
 
 inline const WebSocketOnErrorProperty &WebSocketOnErrorProperty::operator=(gea_cpp_value cb) const {
+  if (!websocket::callbackAdmissionOpen(handle)) return *this;
   if (cb.kind != gea_cpp_value::kind_t::callable || !cb.callable) {
-    websocket::callbackTable()[handle].on_error = nullptr;
+    websocket::set_error_callback(handle, {});
     return *this;
   }
   auto callable = cb.callable;
-  websocket::callbackTable()[handle].on_error = [callable](const std::string &message) {
+  websocket::set_error_callback(handle, [callable](const std::string &message) {
     gea_cpp_value event;
     event.kind = gea_cpp_value::kind_t::record;
     event.entries = std::make_shared<std::vector<std::pair<std::string, gea_cpp_value>>>();
     event.record_set_literal("message", gea_cpp_value(message));
     (*callable)(std::vector<gea_cpp_value>{event});
-  };
+  });
   return *this;
 }
 

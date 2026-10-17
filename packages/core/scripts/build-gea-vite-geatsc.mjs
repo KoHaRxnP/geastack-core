@@ -5,6 +5,7 @@ import process from 'node:process'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { resolveAppGeaVitePlugin } from './gea-vite-plugin-resolution.mjs'
 import { inlineJsonImports, transformGeaEmbeddedCompatSource } from './gea-embedded-compat-transform.mjs'
 import { normalizeEmbeddedJsxOptions, shouldIgnoreCompatStagingDirectory } from './gea-embedded-compat-staging.mjs'
 import { dotEnvDefines, inlineProcessEnv } from './dotenv-defines.mjs'
@@ -24,7 +25,8 @@ import {
 const nativeModules = new Map()
 let nativeModuleSources = new Map()
 const args = process.argv.slice(2)
-const requireFromLib = createRequire(new URL('../package.json', import.meta.url))
+const corePackageJson = new URL('../package.json', import.meta.url)
+const requireFromLib = createRequire(corePackageJson)
 const coreRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const elementsRoot = path.resolve(coreRoot, '..', 'elements')
 const engineRoot = path.resolve(coreRoot, '..', 'engine')
@@ -74,7 +76,6 @@ function readPackageName(dir) {
 // `paths` entry, so both consumers of the staged tree agree.
 const runtimePath = path.join(coreRoot, 'runtime.ts')
 const tryResolve = (m) => { try { return requireFromLib.resolve(m) } catch { return '' } }
-const geaPluginResolved = fileURLToPath(import.meta.resolve('@geajs/vite-plugin'))
 const { parse } = requireFromLib('@babel/parser')
 const traverseModule = requireFromLib('@babel/traverse')
 const t = requireFromLib('@babel/types')
@@ -211,7 +212,29 @@ function copyCssUrlAssets(srcCss, dstCss) {
     const dstAsset = path.resolve(dstDir, clean)
     if (dstAsset === srcAsset) continue
     fs.mkdirSync(path.dirname(dstAsset), { recursive: true })
-    fs.copyFileSync(srcAsset, dstAsset)
+    copyAssetAtomically(srcAsset, dstAsset)
+  }
+}
+
+// A url() that climbs out of the app lands outside this build's own directory
+// (`../../../assets/fonts/x.ttf` staged under `<build>/<app>/` is
+// `<build>/assets/fonts/x.ttf`), where other builds sharing the parent stage
+// the same file at the same time -- core's app pipelines all do. copyFileSync
+// truncates and rewrites in place, so a concurrent reader saw a partial font
+// ("Offset is outside the bounds of the DataView"). Identical bytes are left
+// alone, and new bytes appear in one rename, never half-written.
+function copyAssetAtomically(srcAsset, dstAsset) {
+  const bytes = fs.readFileSync(srcAsset)
+  if (fs.existsSync(dstAsset) && fs.readFileSync(dstAsset).equals(bytes)) return
+  const staged = `${dstAsset}.${process.pid}.tmp`
+  fs.writeFileSync(staged, bytes)
+  try {
+    fs.renameSync(staged, dstAsset)
+  } catch (error) {
+    // Windows refuses to replace a file another process has open; that
+    // process staged it first, so the bytes it holds are these bytes.
+    fs.rmSync(staged, { force: true })
+    if (!(fs.existsSync(dstAsset) && fs.readFileSync(dstAsset).equals(bytes))) throw error
   }
 }
 
@@ -253,7 +276,18 @@ function copyCompatSourceTree(srcDir, dstDir, envDefines = {}) {
         for (const module of native.modules) {
           nativeModules.set(`${module.kind}:${module.url}`, { ...module, stagedEntry: path.resolve(path.dirname(dst), path.relative(path.dirname(src), module.entry)) })
         }
-        fs.writeFileSync(dst, inlineProcessEnv(transformGeaEmbeddedCompatSource(inlineJsonImports(native.code, src), src), envDefines))
+        let debugMap
+        const preparedSource = inlineJsonImports(native.code, src)
+        const transformed = transformGeaEmbeddedCompatSource(preparedSource, src,
+          process.env.GEA_NATIVE_DEBUGGER === '1' ? map => { debugMap = map } : undefined)
+        fs.writeFileSync(dst, inlineProcessEnv(transformed, envDefines))
+        if (process.env.GEA_NATIVE_DEBUGGER === '1') {
+          fs.writeFileSync(dst + '.gea-source.json', JSON.stringify({
+            source: src, original: code, staged: fs.readFileSync(dst, 'utf8'),
+            map: debugMap || null, prepared: preparedSource,
+            unmappedTransforms: preparedSource !== code || transformed !== inlineProcessEnv(transformed, envDefines)
+          }))
+        }
       } else {
         fs.copyFileSync(src, dst)
         if (path.extname(entry.name) === '.css') copyCssUrlAssets(src, dst)
@@ -451,7 +485,73 @@ function resolveAppleNativeAliasModules(appDir) {
   return { threeSrcDir, threeUtilsModule, threeWebGLAnimationModule, threeWebXRManagerModule, troikaThreeTextModule }
 }
 
-function writeCompatViteConfig({ configPath, compatSrcDir, appDir, entry, viteOutDir, geaIrPath, appleNative, moduleGraphOutDir, envDefines }) {
+// `gea.moduleAliases` in the application's package.json: exact import
+// specifiers redirected to files inside the application, for a module whose
+// host exists on one target only (an app's macOS audio host, say) and that
+// another target replaces with its own implementation.
+// Each replacement names the app's STAGED copy when there is one: the compat
+// build compiles the staged tree, so an alias into the app directory itself
+// pulled a second copy of every module the replacement imports (a game's
+// board-specific index brought its own copy of a shared types module, and the
+// two copies of one record type refused to convert).
+function resolveAppModuleAliases(appDir, stagedAppDir = appDir) {
+  let manifest = {}
+  try {
+    manifest = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).gea ?? {}
+  } catch {
+    return []
+  }
+  const raw = manifest.moduleAliases
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const aliases = []
+  for (const [specifier, target] of Object.entries(raw)) {
+    if (typeof target !== 'string' || !target) fail(`gea.moduleAliases["${specifier}"] must name a file inside the application`)
+    if (!fs.existsSync(path.resolve(appDir, target))) fail(`gea.moduleAliases["${specifier}"] does not exist: ${target}`)
+    aliases.push({ specifier, replacement: path.resolve(stagedAppDir, target) })
+  }
+  return aliases
+}
+
+// The gea-threejs port, when the application depends on it: its src/ directory,
+// and the native troika text module when the application uses troika.
+// Opt-in: an application that sets `"gea": { "geaThreejs": true }` in its
+// package.json. Depending on the port is not enough on its own, so an app that
+// installs it for some other reason keeps compiling three.js itself.
+function resolveGeaThreeAliasModules(appDir) {
+  const appRequire = createRequire(path.join(appDir, 'package.json'))
+  let geaThreeSrcDir = ''
+  let troikaThreeTextModule = ''
+  let optedIn = false
+  try {
+    optedIn = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).gea?.geaThreejs === true
+  } catch {
+    // An unreadable manifest opts into nothing; the build reports it elsewhere.
+  }
+  if (!optedIn) return { geaThreeSrcDir, troikaThreeTextModule }
+  try {
+    geaThreeSrcDir = path.join(path.dirname(fs.realpathSync(appRequire.resolve('@geastack/gea-threejs/package.json'))), 'src')
+  } catch {
+    return { geaThreeSrcDir, troikaThreeTextModule }
+  }
+  try {
+    appRequire.resolve('troika-three-text')
+  } catch {
+    return { geaThreeSrcDir, troikaThreeTextModule }
+  }
+  try {
+    troikaThreeTextModule = fs.realpathSync(appRequire.resolve('@geastack/native-webgl-angle/troika-three-text'))
+  } catch {
+    fail(
+      `This build resolved "troika-three-text" and "@geastack/gea-threejs" from ${appDir}, but could not resolve ` +
+      '"@geastack/native-webgl-angle/troika-three-text", the native text module that replaces it. ' +
+      'Install @geastack/native-webgl-angle in the application.'
+    )
+  }
+  return { geaThreeSrcDir, troikaThreeTextModule }
+}
+
+function writeCompatViteConfig({ configPath, compatSrcDir, appDir, stagedAppDir, entry, viteOutDir, geaIrPath, appleNative, moduleGraphOutDir, envDefines }) {
+  const geaPluginResolved = resolveAppGeaVitePlugin(appDir, corePackageJson)
   const engineComponentsPath = path.join(engineRoot, 'components/index.ts')
   const engineComponentSubpath = path.join(engineRoot, 'components/$1')
   const elementsPath = path.join(elementsRoot, 'components/index.ts')
@@ -467,14 +567,20 @@ function writeCompatViteConfig({ configPath, compatSrcDir, appDir, entry, viteOu
   const { threeSrcDir, threeUtilsModule, threeWebGLAnimationModule, threeWebXRManagerModule, troikaThreeTextModule } = appleNative
     ? resolveAppleNativeAliasModules(appDir)
     : { threeSrcDir: '', threeUtilsModule: '', threeWebGLAnimationModule: '', threeWebXRManagerModule: '', troikaThreeTextModule: '' }
+  // Apple-native keeps three.js itself (it renders through ANGLE).
+  const geaThree = appleNative ? { geaThreeSrcDir: '', troikaThreeTextModule: '' } : resolveGeaThreeAliasModules(appDir)
   const q = (value) => JSON.stringify(value)
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+  const appModuleAliases = resolveAppModuleAliases(appDir, stagedAppDir)
+    .map(({ specifier, replacement }) => `      { find: new RegExp(${q('^' + escapeRegExp(specifier) + '$')}), replacement: ${q(replacement)} },\n`)
+    .join('')
   // Compile the @geajs/core reactive runtime (Component/Store/compiler-runtime)
   // from its TYPED SOURCE, not the minified dist. The minified build reuses short
   // identifiers across nested scopes, which the C++ symbol collector cannot
   // disambiguate, and — with all types erased — geatsc is forced to lower the
   // whole reactive runtime dynamically (gea_cpp_value, ill-formed auto-vectors,
   // proxy derefs). From source, everything is typed and lowers natively, exactly
-  // like three.js/hono/mongodb. The env var still wins when explicitly set;
+  // like the third-party libraries an app imports. The env var still wins when explicitly set;
   // otherwise follow ordinary package resolution, including hoisted installs.
   const compilerRuntimeEntry = process.env.GEA_COMPILER_RUNTIME_SOURCE || resolveCompilerRuntimeEntry([appDir, coreRoot])
   const compilerRuntimeAlias = compilerRuntimeEntry && fs.existsSync(compilerRuntimeEntry)
@@ -496,7 +602,7 @@ function writeCompatViteConfig({ configPath, compatSrcDir, appDir, entry, viteOu
   const config = `import { resolve } from 'node:path'
 import { geaPlugin } from ${q(geaPluginResolved)}
 import { geaNativeStylePlugin } from ${q(path.join(coreRoot, 'scripts/gea-native-style-plugin.mjs'))}
-import { geaAppleNativeModuleAliases, geaModuleGraphPlugins } from ${q(moduleGraphPluginPath)}
+import { geaAppleNativeModuleAliases, geaModuleGraphPlugins, geaThreeModuleAliases } from ${q(moduleGraphPluginPath)}
 
 const root = ${q(compatSrcDir)}
 const geaModuleGraph = geaModuleGraphPlugins({ outDir: ${q(moduleGraphOutDir || '')}, entryReachableOnly: true })
@@ -507,6 +613,10 @@ const geaAppleNativeAliases = geaAppleNativeModuleAliases({
   threeWebXRManagerModule: ${q(threeWebXRManagerModule)},
   troikaThreeTextModule: ${q(troikaThreeTextModule)},
 })
+const geaThreeAliases = geaThreeModuleAliases({
+  geaThreeSrcDir: ${q(geaThree.geaThreeSrcDir)},
+  troikaThreeTextModule: ${q(geaThree.troikaThreeTextModule)},
+})
 
 export default {
   root,
@@ -516,6 +626,7 @@ ${defineEntries}
   plugins: [geaNativeStylePlugin({ runtimeEntry: ${q(compilerRuntimeEntry)} }), geaPlugin({ ir: { enabled: true, outFile: ${q(geaIrPath)} } }), ...geaModuleGraph],
   resolve: {
     alias: [
+${appModuleAliases}      ...geaThreeAliases,
 ${compilerRuntimeAlias}
       { find: new RegExp('^@geastack/core$'), replacement: ${q(runtimePath)} },
       { find: new RegExp('^@geastack/engine$'), replacement: ${q(engineComponentsPath)} },
@@ -2011,7 +2122,6 @@ function cssIgnoredProperty(property) {
     'scroll-snap-type',
     'scrollbar-width',
     'text-shadow',
-    'transition',
     'cursor',
     '-webkit-tap-highlight-color',
   ]).has(property)
@@ -4428,7 +4538,7 @@ if (geaEmbeddedCompat) {
   }
   stagedEntryFile = path.join(compatSrcDir, compatEntry)
   fontSourceDir = compatSrcDir
-  writeCompatViteConfig({ configPath: viteConfig, compatSrcDir, appDir, entry: compatEntry, viteOutDir, geaIrPath, appleNative, moduleGraphOutDir, envDefines })
+  writeCompatViteConfig({ configPath: viteConfig, compatSrcDir, appDir, stagedAppDir: path.join(compatSrcDir, path.relative(stagingRoot, appDir)), entry: compatEntry, viteOutDir, geaIrPath, appleNative, moduleGraphOutDir, envDefines })
 } else if (appleNative) {
   const baseViteConfig = viteConfig
   viteConfig = path.join(outDir, 'gea-apple-native.vite.config.mjs')
@@ -4559,6 +4669,10 @@ const geatscArgs = [
   `gea.ir=${geaIrPath}`,
   '--plugin-option',
   `gea.microtasks-namespace=${microtasksNamespaceForEntry(entrySymbol)}`,
+  '--plugin-option',
+  `gea.native-signature-core-root=${coreRoot}`,
+  '--plugin-option',
+  `gea.native-signature-host-root=${process.env.GEA_HOST_DIR || path.resolve(coreRoot, '..', 'host')}`,
 ]
 if (!moduleGraphCompile) geatscArgs.push('--target', 'cpp')
 if (moduleGraphCompile) {
@@ -4578,6 +4692,7 @@ if (cxxStandard) geatscArgs.push('--cxx-standard', cxxStandard)
 if (hasFlag('--allow-any') || compilerSettings.allowAny) geatscArgs.push('--allow-any')
 if (entrySymbol) geatscArgs.push('--entry-symbol', entrySymbol)
 if (hasFlag('--isolate-symbols')) geatscArgs.push('--isolate-symbols')
+if (process.env.GEA_NATIVE_DEBUGGER === '1') geatscArgs.push('--debug-source')
 // One C++ unit per source module plus a shared header, instead of one unit for
 // the whole program. Every target already reads `geatsc-sources.txt` as a LIST,
 // so nothing downstream changes; see the compiler's docs/TRANSLATION-UNITS.md
@@ -4606,7 +4721,7 @@ if (nativeModules.size) {
     if (!fs.existsSync(module.stagedEntry)) fail(`missing ${module.kind} module: ${module.entry}`)
     if (module.kind === 'worklet') {
       const implementation = path.join(coreRoot, 'runtime/audio-worklet.ts')
-      const bindings = `import { AudioWorkletProcessor, registerProcessor } from ${JSON.stringify(implementation)}\n`
+      const bindings = `import { AudioWorkletProcessor, registerProcessor } from ${JSON.stringify(implementation.slice(0, -3))}\n`
       const source = fs.readFileSync(module.stagedEntry, 'utf8')
       fs.writeFileSync(module.stagedEntry, bindings + source)
       const compilerRequire = createRequire(pathToFileURL(geatscBin))

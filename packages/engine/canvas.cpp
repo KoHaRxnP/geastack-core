@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/renderer_features.h"
+#include "ui/state_init.h"
 #include "canvas.h"
 #include "display.h"
 #include "graphics/font.h"
@@ -11,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <type_traits>
 #include <vector>
 
@@ -104,6 +106,11 @@ std::uint8_t gTextStampBackdrop = 15;
 
 namespace {
 int nextUtf8Codepoint(const char *&p);  // defined below (same anon namespace); used by the text sprite cache
+int peekUtf8Codepoint(const char *p)
+{
+	if (!p || !*p || *p == '\n') return 0;
+	return nextUtf8Codepoint(p);
+}
 #if GEA_PIXEL_STORAGE_PACKED_BITS == 4
 void glyphStampCacheReset();  // defined below (same anon namespace); used by setTextSolidBackdrop
 #endif
@@ -142,9 +149,18 @@ constexpr int kTextSpriteMinSizePx = 40;
 constexpr std::size_t kTextSpriteMaxBytes = 768u * 1024u;
 
 struct TextSprite {
+#if GEA_EMBEDDED_UI_STATE_DYNAMIC_INIT
+	// Preserve the member defaults while keeping this cache in relocatable BSS.
+	__attribute__((noinline)) TextSprite() {}
+#endif
 	enum State { Empty, Seen, Cached };
 	char text[kTextSpriteMaxLen + 1] = {0};
 	const RasterizedFontData *fontData = nullptr;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ std::uint64_t fontGeneration=0;
+#else
+ static constexpr std::uint64_t fontGeneration=0;
+#endif
 	int sizePx = -1;
 	State state = Empty;
 	int minLX = 0;
@@ -250,7 +266,7 @@ TextSprite &textSpriteFor(const char *text, const RasterizedFont &font)
 	// such as "FPS: 59" and "FPS: 60" evict each other. Hits stay read-only;
 	// a four-byte replacement cursor advances only for a new cache key.
 	for (TextSprite &candidate : gTextSprites) {
-		if (candidate.fontData == font.data() && candidate.sizePx == font.sizePx() &&
+		if (candidate.fontData == font.data() && candidate.fontGeneration==font.data()->generation && candidate.sizePx == font.sizePx() &&
 		    std::strcmp(candidate.text, text) == 0)
 			return candidate;
 	}
@@ -265,7 +281,6 @@ bool buildTextSprite(TextSprite &sprite, const char *text, const RasterizedFont 
 {
 	const int lineH = font.lineHeight();
 	const int ascender = font.ascender();
-	const int fallbackAdvance = font.sizePx() / 2;
 
 	// Pass 1: bbox of all glyph ink relative to the pen origin (0,0).
 	int penX = 0, penY = 0;
@@ -274,7 +289,7 @@ bool buildTextSprite(TextSprite &sprite, const char *text, const RasterizedFont 
 		const int cp = nextUtf8Codepoint(p);
 		if (cp == '\n') { penX = 0; penY += lineH; continue; }
 		Glyph glyph{};
-		if (!font.glyph(cp, &glyph)) { penX += fallbackAdvance; continue; }
+		if (!font.glyph(cp, &glyph)) { penX += font.advance(cp, peekUtf8Codepoint(p)); continue; }
 		if (glyph.width > 0 && glyph.height > 0) {
 			const int gx = penX + glyph.bearingX;
 			const int gy = penY + ascender - glyph.bearingY;
@@ -283,7 +298,7 @@ bool buildTextSprite(TextSprite &sprite, const char *text, const RasterizedFont 
 			if (gx + glyph.width - 1 > maxLX) maxLX = gx + glyph.width - 1;
 			if (gy + glyph.height - 1 > maxLY) maxLY = gy + glyph.height - 1;
 		}
-		penX += glyph.advance;
+		penX += font.advance(cp, peekUtf8Codepoint(p));
 	}
 	if (maxLX < minLX || maxLY < minLY) return false;  // no ink
 
@@ -324,7 +339,7 @@ bool buildTextSprite(TextSprite &sprite, const char *text, const RasterizedFont 
 		const int cp = nextUtf8Codepoint(p);
 		if (cp == '\n') { penX = 0; penY += lineH; continue; }
 		Glyph glyph{};
-		if (!font.glyph(cp, &glyph)) { penX += fallbackAdvance; continue; }
+		if (!font.glyph(cp, &glyph)) { penX += font.advance(cp, peekUtf8Codepoint(p)); continue; }
 		const int gx = penX + glyph.bearingX;
 		const int gy = penY + ascender - glyph.bearingY;
 		for (int row = 0; row < glyph.height; row++) {
@@ -341,7 +356,7 @@ bool buildTextSprite(TextSprite &sprite, const char *text, const RasterizedFont 
 				if (bx > sprite.rowX1[by]) sprite.rowX1[by] = static_cast<std::int16_t>(bx);
 			}
 		}
-		penX += glyph.advance;
+		penX += font.advance(cp, peekUtf8Codepoint(p));
 	}
 
 	sprite.minLX = minLX;
@@ -547,74 +562,309 @@ static inline bool roundedRectSampleContains(int x,
 	return true;
 }
 
-static inline int roundedRectCoverage(int x,
-                                      int y,
-                                      int w,
-                                      int h,
-                                      int tl,
-                                      int tr,
-                                      int br,
-                                      int bl,
-                                      int px,
-                                      int py,
-                                      int samples,
-                                      float kernelWidth)
+// `roundedRectSampleContains` over a pixel's whole sample grid, as a bit
+// mask (bit iy * samples + ix). The same zone order and the same float
+// expressions, but each corner's scaled x and y distances are taken once per
+// sample column and row, not once per sample, and only for the corners the
+// grid reaches.
+static inline std::uint32_t roundedRectSampleMask(int x,
+                                                  int y,
+                                                  int w,
+                                                  int h,
+                                                  int tl,
+                                                  int tr,
+                                                  int br,
+                                                  int bl,
+                                                  int px,
+                                                  int py,
+                                                  int samples,
+                                                  float kernelWidth)
 {
-	int coverage = 0;
-	for (int iy = 0; iy < samples; ++iy) {
-		const float oy = antialiasOffsetWithKernel(iy, samples, kernelWidth);
-		for (int ix = 0; ix < samples; ++ix) {
-			const float ox = antialiasOffsetWithKernel(ix, samples, kernelWidth);
-			if (roundedRectSampleContains(x, y, w, h, tl, tr, br, bl,
-			                              static_cast<float>(px) + ox,
-			                              static_cast<float>(py) + oy))
-				++coverage;
+	const float left = static_cast<float>(x);
+	const float top = static_cast<float>(y);
+	const float right = left + static_cast<float>(w);
+	const float bottom = top + static_cast<float>(h);
+	float sx[4], sy[4];
+	for (int i = 0; i < samples; ++i) {
+		sx[i] = static_cast<float>(px) + antialiasOffsetWithKernel(i, samples, kernelWidth);
+		sy[i] = static_cast<float>(py) + antialiasOffsetWithKernel(i, samples, kernelWidth);
+	}
+	// Corner order matches the sample test: tl, tr, br, bl.
+	const int radii[4]{tl, tr, br, bl};
+	const bool leftSide[4]{true, false, false, true};
+	const bool topSide[4]{true, true, false, false};
+	std::uint32_t zoneX[4]{}, zoneY[4]{};
+	float dxs[4][4], dys[4][4];
+	for (int c = 0; c < 4; ++c) {
+		const int radius = radii[c];
+		if (radius <= 0) continue;
+		const float rf = static_cast<float>(radius);
+		const float cx = leftSide[c] ? left + rf : right - rf;
+		const float cy = topSide[c] ? top + rf : bottom - rf;
+		for (int i = 0; i < samples; ++i) {
+			if (leftSide[c] ? sx[i] < cx : sx[i] >= cx) zoneX[c] |= 1u << i;
+			if (topSide[c] ? sy[i] < cy : sy[i] >= cy) zoneY[c] |= 1u << i;
+		}
+		if (!zoneX[c] || !zoneY[c]) {
+			zoneX[c] = zoneY[c] = 0;
+			continue;
+		}
+		for (int i = 0; i < samples; ++i) {
+			dxs[c][i] = (sx[i] - cx) / rf;
+			dys[c][i] = (sy[i] - cy) / rf;
 		}
 	}
-	return coverage;
+	std::uint32_t mask = 0;
+	for (int iy = 0; iy < samples; ++iy) {
+		if (sy[iy] < top || sy[iy] >= bottom) continue;
+		for (int ix = 0; ix < samples; ++ix) {
+			if (sx[ix] < left || sx[ix] >= right) continue;
+			bool inside = true;
+			for (int c = 0; c < 4; ++c) {
+				if (!((zoneX[c] >> ix) & 1u) || !((zoneY[c] >> iy) & 1u)) continue;
+				const float dx = dxs[c][ix];
+				const float dy = dys[c][iy];
+				inside = dx * dx + dy * dy <= 1.0f;
+				break;
+			}
+			if (inside) mask |= 1u << (iy * samples + ix);
+		}
+	}
+	return mask;
 }
 
-static inline int roundedRectStrokeCoverage(int x,
-                                            int y,
-                                            int w,
-                                            int h,
-                                            int tl,
-                                            int tr,
-                                            int br,
-                                            int bl,
-                                            int lineWidth,
-                                            int px,
-                                            int py,
-                                            int samples,
-                                            float kernelWidth)
+static inline int roundedRectCoverage(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                      int px, int py, int samples, float kernelWidth)
 {
-	const int innerX = x + lineWidth;
-	const int innerY = y + lineWidth;
+	return __builtin_popcount(roundedRectSampleMask(x, y, w, h, tl, tr, br, bl, px, py, samples, kernelWidth));
+}
+
+static inline int roundedRectStrokeCoverage(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                            int lineWidth, int px, int py, int samples, float kernelWidth)
+{
+	std::uint32_t band = roundedRectSampleMask(x, y, w, h, tl, tr, br, bl, px, py, samples, kernelWidth);
 	const int innerW = w - lineWidth * 2;
 	const int innerH = h - lineWidth * 2;
-	const int innerTl = std::max(0, tl - lineWidth);
-	const int innerTr = std::max(0, tr - lineWidth);
-	const int innerBr = std::max(0, br - lineWidth);
-	const int innerBl = std::max(0, bl - lineWidth);
-	const bool hasInner = innerW > 0 && innerH > 0;
-	int coverage = 0;
-	for (int iy = 0; iy < samples; ++iy) {
-		const float oy = antialiasOffsetWithKernel(iy, samples, kernelWidth);
-		for (int ix = 0; ix < samples; ++ix) {
-			const float ox = antialiasOffsetWithKernel(ix, samples, kernelWidth);
-			const float sx = static_cast<float>(px) + ox;
-			const float sy = static_cast<float>(py) + oy;
-			if (!roundedRectSampleContains(x, y, w, h, tl, tr, br, bl, sx, sy)) continue;
-			if (hasInner &&
-			    roundedRectSampleContains(innerX, innerY, innerW, innerH,
-			                              innerTl, innerTr, innerBr, innerBl,
-			                              sx, sy))
-				continue;
-			++coverage;
+	if (band && innerW > 0 && innerH > 0)
+		band &= ~roundedRectSampleMask(x + lineWidth, y + lineWidth, innerW, innerH, std::max(0, tl - lineWidth),
+		                               std::max(0, tr - lineWidth), std::max(0, br - lineWidth),
+		                               std::max(0, bl - lineWidth), px, py, samples, kernelWidth);
+	return __builtin_popcount(band);
+}
+
+// Whether every sample in [x0, x1] x [y0, y1] passes
+// `roundedRectSampleContains` (1), none does (0), or it varies (-1). Outside
+// the corner zones the shape is its bounds; a span wholly inside one corner
+// zone is decided by its nearest and farthest distance from that corner's
+// centre, with a margin far wider than the float rounding of the per-sample
+// test. Zones are taken in the sample test's order, so overlapping zones
+// resolve the same way.
+static inline int roundedRectSamplesDecided(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                            float x0, float y0, float x1, float y1)
+{
+	const float left = static_cast<float>(x);
+	const float top = static_cast<float>(y);
+	const float right = left + static_cast<float>(w);
+	const float bottom = top + static_cast<float>(h);
+	if (x1 < left || x0 >= right || y1 < top || y0 >= bottom) return 0;
+	if (x0 < left || x1 >= right || y0 < top || y1 >= bottom) return -1;
+	auto circle = [&](float cx, float cy, int radius) {
+		const float r2 = static_cast<float>(radius) * static_cast<float>(radius);
+		const float nx = cx < x0 ? x0 - cx : cx > x1 ? cx - x1 : 0.0f;
+		const float ny = cy < y0 ? y0 - cy : cy > y1 ? cy - y1 : 0.0f;
+		const float fx = std::max(std::fabs(x0 - cx), std::fabs(x1 - cx));
+		const float fy = std::max(std::fabs(y0 - cy), std::fabs(y1 - cy));
+		if (fx * fx + fy * fy <= r2 * 0.999f) return 1;
+		if (nx * nx + ny * ny >= r2 * 1.001f) return 0;
+		return -1;
+	};
+	if (tl > 0 && x0 < left + static_cast<float>(tl) && y0 < top + static_cast<float>(tl)) {
+		if (x1 >= left + static_cast<float>(tl) || y1 >= top + static_cast<float>(tl)) return -1;
+		return circle(left + static_cast<float>(tl), top + static_cast<float>(tl), tl);
+	}
+	if (tr > 0 && x1 >= right - static_cast<float>(tr) && y0 < top + static_cast<float>(tr)) {
+		if (x0 < right - static_cast<float>(tr) || y1 >= top + static_cast<float>(tr)) return -1;
+		return circle(right - static_cast<float>(tr), top + static_cast<float>(tr), tr);
+	}
+	if (br > 0 && x1 >= right - static_cast<float>(br) && y1 >= bottom - static_cast<float>(br)) {
+		if (x0 < right - static_cast<float>(br) || y0 < bottom - static_cast<float>(br)) return -1;
+		return circle(right - static_cast<float>(br), bottom - static_cast<float>(br), br);
+	}
+	if (bl > 0 && x0 < left + static_cast<float>(bl) && y1 >= bottom - static_cast<float>(bl)) {
+		if (x1 >= left + static_cast<float>(bl) || y0 < bottom - static_cast<float>(bl)) return -1;
+		return circle(left + static_cast<float>(bl), bottom - static_cast<float>(bl), bl);
+	}
+	return 1;
+}
+
+// `roundedRectCoverage` without sampling where its answer is decided. -1 =
+// sample it. `o0`/`o1` are the first and last sample offsets.
+static inline int roundedRectCoverageDecided(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                             int px, int py, float o0, float o1, int sampleCount)
+{
+	const float x0 = static_cast<float>(px) + o0, x1 = static_cast<float>(px) + o1;
+	const float y0 = static_cast<float>(py) + o0, y1 = static_cast<float>(py) + o1;
+	const int decided = roundedRectSamplesDecided(x, y, w, h, tl, tr, br, bl, x0, y0, x1, y1);
+	return decided < 0 ? -1 : decided ? sampleCount : 0;
+}
+
+// `roundedRectStrokeCoverage` without sampling where its answer is decided:
+// a pixel whose samples are all inside the outer contour and all outside the
+// inner one is fully covered, one whose samples all miss the band is not.
+// -1 = sample it. `o0`/`o1` are the first and last sample offsets.
+static inline int roundedRectStrokeCoverageDecided(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                                   int lineWidth, int px, int py, float o0, float o1, int sampleCount)
+{
+	const float x0 = static_cast<float>(px) + o0, x1 = static_cast<float>(px) + o1;
+	const float y0 = static_cast<float>(py) + o0, y1 = static_cast<float>(py) + o1;
+	const int outer = roundedRectSamplesDecided(x, y, w, h, tl, tr, br, bl, x0, y0, x1, y1);
+	if (outer <= 0) return outer;
+	const int innerW = w - lineWidth * 2;
+	const int innerH = h - lineWidth * 2;
+	if (innerW <= 0 || innerH <= 0) return sampleCount;
+	const int inner = roundedRectSamplesDecided(x + lineWidth, y + lineWidth, innerW, innerH, std::max(0, tl - lineWidth),
+	                                            std::max(0, tr - lineWidth), std::max(0, br - lineWidth),
+	                                            std::max(0, bl - lineWidth), x0, y0, x1, y1);
+	return inner < 0 ? -1 : inner ? 0 : sampleCount;
+}
+
+// The columns of row `py` whose every sample passes `roundedRectSampleContains`,
+// as [*inX0, *inX1] (empty when *inX0 > *inX1). Conservative: a column it
+// leaves out is merely sampled. Each corner insets the row by its chord at the
+// sample row deepest into it, widened by a margin far beyond the per-sample
+// test's float rounding, so whichever zone the test picks, the sample is
+// inside that zone's circle.
+static inline void roundedRectInsideSpan(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                         int py, float o0, float o1, int *inX0, int *inX1)
+{
+	*inX0 = 0;
+	*inX1 = -1;
+	const float left = static_cast<float>(x);
+	const float top = static_cast<float>(y);
+	const float right = left + static_cast<float>(w);
+	const float bottom = top + static_cast<float>(h);
+	const float y0 = static_cast<float>(py) + o0;
+	const float y1 = static_cast<float>(py) + o1;
+	if (y0 < top || y1 >= bottom) return;
+	auto inset = [](int radius, float depth) {
+		if (radius <= 0 || depth <= 0.0f) return 0.0f;
+		const float r = static_cast<float>(radius);
+		const float chord2 = r * r - depth * depth;
+		return r - (chord2 > 0.0f ? std::sqrt(chord2) : 0.0f) + 0.01f;
+	};
+	const float leftInset = std::max(inset(tl, top + static_cast<float>(tl) - y0),
+	                                 inset(bl, y1 - (bottom - static_cast<float>(bl))));
+	const float rightInset = std::max(inset(tr, top + static_cast<float>(tr) - y0),
+	                                  inset(br, y1 - (bottom - static_cast<float>(br))));
+	// px + o0 >= left + leftInset and px + o1 < right - rightInset.
+	*inX0 = static_cast<int>(std::ceil(left + leftInset - o0));
+	*inX1 = static_cast<int>(std::ceil(right - rightInset - o1)) - 1;
+}
+
+// Columns of row `py` whose samples ([px + o0, px + o1] squared) can reach the
+// rounded rect [x, x + w) x [y, y + h); every other pixel has zero coverage.
+// The widest the shape gets over the row's sample band is at the band edge
+// nearest each corner's centre; a pixel of margin keeps it conservative.
+static inline bool roundedRectReachSpan(int x, int y, int w, int h, int tl, int tr, int br, int bl,
+                                        int py, float o0, float o1, int *outX0, int *outX1)
+{
+	const float left = static_cast<float>(x);
+	const float top = static_cast<float>(y);
+	const float right = left + static_cast<float>(w);
+	const float bottom = top + static_cast<float>(h);
+	const float y0 = static_cast<float>(py) + o0;
+	const float y1 = static_cast<float>(py) + o1;
+	if (y1 < top - 1.0f || y0 > bottom + 1.0f) return false;
+	auto inset = [&](int topRadius, int bottomRadius) {
+		const float rt = static_cast<float>(topRadius);
+		const float rb = static_cast<float>(bottomRadius);
+		if (y1 < top + rt) {
+			const float d = top + rt - y1;
+			return rt - std::sqrt(std::max(0.0f, rt * rt - d * d));
+		}
+		if (y0 > bottom - rb) {
+			const float d = y0 - (bottom - rb);
+			return rb - std::sqrt(std::max(0.0f, rb * rb - d * d));
+		}
+		return 0.0f;
+	};
+	const float reachLeft = left + inset(tl, bl);
+	const float reachRight = right - inset(tr, br);
+	*outX0 = static_cast<int>(std::floor(reachLeft - o1)) - 1;
+	*outX1 = static_cast<int>(std::ceil(reachRight - o0)) + 1;
+	return *outX0 <= *outX1;
+}
+
+// Antialiased coverage of a rounded rect depends only on its size, radii and
+// sample count and on the pixel's offset inside it: the sample offsets are
+// exact binary fractions and every test works on exact differences, so the same
+// shape at another integer position samples identically. A shape repainted every
+// frame (Ember's glow discs under a pulsing ring, ~2500 edge pixels at ~4 us
+// each on the S31) keeps its edge coverage here, filled lazily per pixel.
+//
+// The band rasterizer runs on both cores. The lock guards only lookup and
+// eviction; an entry in use is pinned by its refcount, and two cores filling
+// the same byte write the same value.
+namespace {
+struct RoundedCoverageTable {
+	int key[7] = {};
+	std::atomic<int> refs{0};
+	std::uint32_t stamp = 0;
+	std::uint8_t *cells = nullptr;
+	int capacity = 0;
+};
+constexpr int kRoundedCoverageTables = 4;
+constexpr int kRoundedCoverageMaxCells = 160 * 160;
+RoundedCoverageTable gRoundedCoverage[kRoundedCoverageTables];
+std::atomic_flag gRoundedCoverageLock = ATOMIC_FLAG_INIT;
+std::uint32_t gRoundedCoverageClock = 0;
+
+void *allocRoundedCoverageCells(int bytes)
+{
+#ifdef ESP_PLATFORM
+	void *cells = heap_caps_malloc(static_cast<std::size_t>(bytes), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+	if (cells) return cells;
+#endif
+	return std::malloc(static_cast<std::size_t>(bytes));
+}
+
+RoundedCoverageTable *acquireRoundedCoverage(int w, int h, int tl, int tr, int br, int bl, int samples)
+{
+	const int cells = w * h;
+	if (cells < 32 * 32 || cells > kRoundedCoverageMaxCells) return nullptr;
+	const int key[7] = {w, h, tl, tr, br, bl, samples};
+	while (gRoundedCoverageLock.test_and_set(std::memory_order_acquire)) {}
+	RoundedCoverageTable *found = nullptr;
+	RoundedCoverageTable *victim = nullptr;
+	for (auto &table : gRoundedCoverage) {
+		if (table.cells && std::memcmp(table.key, key, sizeof(key)) == 0) { found = &table; break; }
+		if (table.refs.load(std::memory_order_relaxed) == 0 && (!victim || table.stamp < victim->stamp)) victim = &table;
+	}
+	if (!found && victim) {
+		if (victim->capacity < cells) {
+			std::free(victim->cells);
+			victim->cells = static_cast<std::uint8_t *>(allocRoundedCoverageCells(cells));
+			victim->capacity = victim->cells ? cells : 0;
+		}
+		if (victim->cells) {
+			std::memset(victim->cells, 0xff, static_cast<std::size_t>(cells));
+			std::memcpy(victim->key, key, sizeof(key));
+			found = victim;
 		}
 	}
-	return coverage;
+	if (found) {
+		found->refs.fetch_add(1, std::memory_order_relaxed);
+		found->stamp = ++gRoundedCoverageClock;
+	}
+	gRoundedCoverageLock.clear(std::memory_order_release);
+	return found;
 }
+
+void releaseRoundedCoverage(RoundedCoverageTable *table)
+{
+	if (table) table->refs.fetch_sub(1, std::memory_order_release);
+}
+} // namespace
 
 static inline int coverageAlpha(int alpha, int coverage, int sampleCount)
 {
@@ -753,6 +1003,10 @@ struct SolidGlyphRow {
 };
 
 struct SolidGlyphCacheEntry {
+#if GEA_EMBEDDED_UI_STATE_DYNAMIC_INIT
+	// Preserve the member defaults while keeping this cache in relocatable BSS.
+	__attribute__((noinline)) SolidGlyphCacheEntry() {}
+#endif
 	const RasterizedFontData *font = nullptr;
 	pixel::native_t color = 0;
 	pixel::native_t background = 0;
@@ -1382,7 +1636,10 @@ void Canvas::clear(pixel::native_t color)
 #if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
 	if (landscapeRot_) clearPixels = static_cast<std::size_t>(stride_) * width_;
 #endif
-	std::fill_n(pixels_, clearPixels, color);
+	if (clearPixels <= static_cast<std::size_t>(std::numeric_limits<int>::max()))
+		pixel::fillNative(pixels_, static_cast<int>(clearPixels), color);
+	else
+		std::fill_n(pixels_, clearPixels, color);
 #endif
 	markDirty(0, 0, width_ - 1, height_ - 1);
 }
@@ -1513,6 +1770,17 @@ void Canvas::fillRect(int x, int y, int w, int h, pixel::native_t color)
 		}
 #endif
 #if !GEA_PIXEL_STORAGE_PACKED
+		// Entire physical rows are one contiguous span. In particular, an owned
+		// canvas background needs one PIE pattern setup rather than one per row.
+		const std::size_t fillPixels = static_cast<std::size_t>(count) * (y1 - y0 + 1);
+		if (x0 == 0 && count == stride_ && regionH_ <= 0 &&
+		    fillPixels >= static_cast<std::size_t>(width_) * height_ / 4 &&
+		    fillPixels <= static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+			pixel::fillNative(pixels_ + static_cast<std::size_t>(y0) * stride_,
+			                  static_cast<int>(fillPixels), c);
+			markDirty(x0, y0, x1, y1);
+			return;
+		}
 		// Large opaque fills (e.g. a full-screen page/paper background) skip the
 		// per-pixel occlusion scan below. That scan READS every pixel just to
 		// minimize the dirty rect — worth it for a small changed region, but pure
@@ -1673,6 +1941,16 @@ void Canvas::fillRectOpaque(int x, int y, int w, int h, pixel::native_t color)
 #endif
 
 	const int count = x1 - x0 + 1;
+#if !GEA_PIXEL_STORAGE_PACKED
+	const std::size_t fillPixels = static_cast<std::size_t>(count) * (y1 - y0 + 1);
+	if (x0 == 0 && count == stride_ && regionH_ <= 0 &&
+	    fillPixels <= static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+		pixel::fillNative(pixels_ + static_cast<std::size_t>(y0) * stride_,
+		                  static_cast<int>(fillPixels), color);
+		markDirty(x0, y0, x1, y1);
+		return;
+	}
+#endif
 	for (int row = y0; row <= y1; row++) {
 		fillSpanColor(rowToPhysical(row), x0, count, color);
 	}
@@ -1975,14 +2253,127 @@ void Canvas::drawArc(int cx, int cy, int r, int start_deg, int end_deg, pixel::n
 	}
 }
 
+namespace {
+
+#ifndef GEA_EMBEDDED_TRIANGLE_RATIO_CACHE
+#ifdef ESP_PLATFORM
+#define GEA_EMBEDDED_TRIANGLE_RATIO_CACHE 1
+#else
+#define GEA_EMBEDDED_TRIANGLE_RATIO_CACHE 0
+#endif
+#endif
+
+#if GEA_EMBEDDED_TRIANGLE_RATIO_CACHE
+// Float division is a software call on embedded targets. Cache the exact
+// quotient bits, not a reciprocal: changing the rounding changes edge pixels.
+// The triangular table is bounded to 32.8 KiB and never uses internal ESP RAM.
+constexpr int kTriangleRatioMaxDenominator = 128;
+constexpr std::size_t kTriangleRatioCount =
+	kTriangleRatioMaxDenominator * (kTriangleRatioMaxDenominator + 3) / 2;
+// Publication states live in internal RAM. Published PSRAM rows are immutable;
+// no atomic operations (or concurrent writes) ever touch the PSRAM allocation.
+std::atomic<float *> s_triangleRatios{nullptr};
+std::atomic<unsigned> s_triangleRatioRows[kTriangleRatioMaxDenominator + 1]{};
+// 0: uninitialized, 1: initializing, 2: ready, 3: allocation unavailable.
+std::atomic<unsigned> s_triangleRatioState{0};
+
+float *triangleRatioTable()
+{
+	if (auto *table = s_triangleRatios.load(std::memory_order_acquire))
+		return table;
+	if (s_triangleRatioState.load(std::memory_order_relaxed) != 0)
+		return nullptr;
+	unsigned state = 0;
+	if (!s_triangleRatioState.compare_exchange_strong(state, 1, std::memory_order_relaxed))
+		return nullptr;
+	void *storage = nullptr;
+#ifndef GEA_TEST_TRIANGLE_RATIO_ALLOCATION_FAILURE
+#ifdef ESP_PLATFORM
+	storage =
+		heap_caps_malloc(kTriangleRatioCount * sizeof(float), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
+	storage = std::malloc(kTriangleRatioCount * sizeof(float));
+#endif
+#endif
+	if (!storage)
+	{
+		s_triangleRatioState.store(3, std::memory_order_relaxed);
+		return nullptr;
+	}
+	auto *table = static_cast<float *>(storage);
+	s_triangleRatios.store(table, std::memory_order_release);
+	s_triangleRatioState.store(2, std::memory_order_relaxed);
+	return table;
+}
+#endif
+
+float triangleRatio(int numerator, int denominator)
+{
+#if GEA_EMBEDDED_TRIANGLE_RATIO_CACHE
+	if (denominator > 0 && denominator <= kTriangleRatioMaxDenominator && numerator >= 0 &&
+		numerator <= denominator)
+	{
+		if (auto *table = triangleRatioTable())
+		{
+			const std::size_t offset = denominator * (denominator + 1) / 2 - 1;
+			auto &state = s_triangleRatioRows[denominator];
+			if (state.load(std::memory_order_acquire) == 2)
+				return table[offset + numerator];
+			unsigned empty = 0;
+			if (state.compare_exchange_strong(empty, 1, std::memory_order_relaxed))
+			{
+				for (int n = 0; n <= denominator; ++n)
+					table[offset + n] = static_cast<float>(n) / denominator;
+				state.store(2, std::memory_order_release);
+				return table[offset + numerator];
+			}
+			// Another raster thread is filling this row. It owns all writes;
+			// retain the exact division until the immutable row is published.
+		}
+	}
+#endif
+	return static_cast<float>(numerator) / denominator;
+}
+
+// All triangle entry points share the public canvas pixel definition. Truncate
+// the interpolated displacement toward zero, rather than flooring an absolute
+// fixed-point position: those differ on descending/negative triangle edges.
+void triangleRowSpan(int x0, int y0, int x1, int y1, int x2, int y2, int y, int &ax, int &bx)
+{
+	const bool second = y >= y1;
+	const int segmentHeight = std::max(1, second ? y2 - y1 : y1 - y0);
+	const float alpha = triangleRatio(y - y0, y2 - y0);
+	const float beta = triangleRatio(y - (second ? y1 : y0), segmentHeight);
+	ax = x0 + static_cast<int>((x2 - x0) * alpha);
+	bx = second ? x1 + static_cast<int>((x2 - x1) * beta) : x0 + static_cast<int>((x1 - x0) * beta);
+	if (ax > bx)
+		std::swap(ax, bx);
+}
+
+} // namespace
+
 void Canvas::fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, pixel::native_t color)
 {
-	if (!pixels_) return;
-	if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); }
-	if (y0 > y2) { std::swap(x0, x2); std::swap(y0, y2); }
-	if (y1 > y2) { std::swap(x1, x2); std::swap(y1, y2); }
+	if (!pixels_)
+		return;
+	if (y0 > y1)
+	{
+		std::swap(x0, x1);
+		std::swap(y0, y1);
+	}
+	if (y0 > y2)
+	{
+		std::swap(x0, x2);
+		std::swap(y0, y2);
+	}
+	if (y1 > y2)
+	{
+		std::swap(x1, x2);
+		std::swap(y1, y2);
+	}
 	int total_h = y2 - y0;
-	if (total_h == 0) {
+	if (total_h == 0)
+	{
 		int mn = x0 < x1 ? (x0 < x2 ? x0 : x2) : (x1 < x2 ? x1 : x2);
 		int mx = x0 > x1 ? (x0 > x2 ? x0 : x2) : (x1 > x2 ? x1 : x2);
 		fillRect(mn, y0, mx - mn + 1, 1, color);
@@ -1993,77 +2384,110 @@ void Canvas::fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, pixel:
 	const ClipRect *clip = &clipStack_[clipDepth_];
 	int draw_y0 = y0;
 	int draw_y1 = y2;
-	if (draw_y0 < clip->y0) draw_y0 = clip->y0;
-	if (draw_y1 > clip->y1) draw_y1 = clip->y1;
-	if (draw_y0 < 0) draw_y0 = 0;
-	if (draw_y1 >= height_) draw_y1 = height_ - 1;
-	if (draw_y0 > draw_y1) return;
-	if (globalAlpha_ != 255 && globalAlpha_ != 0) markDirtyClipped(min_x, y0, max_x, y2);
-	for (int y = draw_y0; y <= draw_y1; y++) {
-		int second = (y >= y1);
-		int seg_h = second ? (y2 - y1) : (y1 - y0);
-		if (seg_h == 0) seg_h = 1;
-		float al = (float)(y - y0) / total_h;
-		float beta = second ? (float)(y - y1) / seg_h : (float)(y - y0) / seg_h;
-		int ax = x0 + (int)((x2 - x0) * al);
-		int bx = second ? x1 + (int)((x2 - x1) * beta) : x0 + (int)((x1 - x0) * beta);
-		if (ax > bx) { int t = ax; ax = bx; bx = t; }
-		if (ax < clip->x0) ax = clip->x0;
-		if (bx > clip->x1) bx = clip->x1;
-		if (ax < 0) ax = 0;
-		if (bx >= width_) bx = width_ - 1;
-		if (ax > bx) continue;
+	if (draw_y0 < clip->y0)
+		draw_y0 = clip->y0;
+	if (draw_y1 > clip->y1)
+		draw_y1 = clip->y1;
+	if (draw_y0 < 0)
+		draw_y0 = 0;
+	if (draw_y1 >= height_)
+		draw_y1 = height_ - 1;
+	if (draw_y0 > draw_y1)
+		return;
+	if (globalAlpha_ != 255 && globalAlpha_ != 0)
+		markDirtyClipped(min_x, y0, max_x, y2);
+	for (int y = draw_y0; y <= draw_y1; y++)
+	{
+		int ax, bx;
+		triangleRowSpan(x0, y0, x1, y1, x2, y2, y, ax, bx);
+		if (ax < clip->x0)
+			ax = clip->x0;
+		if (bx > clip->x1)
+			bx = clip->x1;
+		if (ax < 0)
+			ax = 0;
+		if (bx >= width_)
+			bx = width_ - 1;
+		if (ax > bx)
+			continue;
 		const pixel::native_t c = color;
 #if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
-		if (landscapeRot_) {
-			if (globalAlpha_ == 255) {
-				for (int px = ax; px <= bx; px++) rotSet(px, y, c);
+		if (landscapeRot_)
+		{
+			if (globalAlpha_ == 255)
+			{
+				for (int px = ax; px <= bx; px++)
+					rotSet(px, y, c);
 				markDirty(ax, y, bx, y);
-			} else if (globalAlpha_ != 0) {
+			}
+			else if (globalAlpha_ != 0)
+			{
 				const int a = globalAlpha_;
-				for (int px = ax; px <= bx; px++) rotBlend(px, y, c, a);
+				for (int px = ax; px <= bx; px++)
+					rotBlend(px, y, c, a);
 			}
 			continue;
 		}
 #endif
 #if GEA_PIXEL_STORAGE_PACKED
 		std::uint8_t *dnib = packedRow(rowToPhysical(y));
-		if (globalAlpha_ == 255) {
+		if (globalAlpha_ == 255)
+		{
 			const int count = bx - ax + 1;
 			int runStart = -1;
-			for (int i = 0; i < count; i++) {
-				if (pixel::packed::get(dnib, ax + i) == c) {
-					if (runStart >= 0) { markDirty(ax + runStart, y, ax + i - 1, y); runStart = -1; }
-					continue;
-				}
-				if (runStart < 0) runStart = i;
-				pixel::packed::set(dnib, ax + i, c);
-			}
-			if (runStart >= 0) markDirty(ax + runStart, y, bx, y);
-		} else if (globalAlpha_ != 0) {
-			const int a = globalAlpha_;
-			for (int px = ax; px <= bx; px++) pixel::packed::blendPixel(dnib, px, c, a);
-		}
-#else
-		pixel::native_t *dst = &pixels_[rowToPhysical(y) * stride_ + ax];
-		if (globalAlpha_ == 255) {
-			const int count = bx - ax + 1;
-			int runStart = -1;
-			for (int i = 0; i < count; i++) {
-				if (dst[i] == c) {
-					if (runStart >= 0) {
+			for (int i = 0; i < count; i++)
+			{
+				if (pixel::packed::get(dnib, ax + i) == c)
+				{
+					if (runStart >= 0)
+					{
 						markDirty(ax + runStart, y, ax + i - 1, y);
 						runStart = -1;
 					}
 					continue;
 				}
-				if (runStart < 0) runStart = i;
+				if (runStart < 0)
+					runStart = i;
+				pixel::packed::set(dnib, ax + i, c);
+			}
+			if (runStart >= 0)
+				markDirty(ax + runStart, y, bx, y);
+		}
+		else if (globalAlpha_ != 0)
+		{
+			const int a = globalAlpha_;
+			for (int px = ax; px <= bx; px++)
+				pixel::packed::blendPixel(dnib, px, c, a);
+		}
+#else
+		pixel::native_t *dst = &pixels_[rowToPhysical(y) * stride_ + ax];
+		if (globalAlpha_ == 255)
+		{
+			const int count = bx - ax + 1;
+			int runStart = -1;
+			for (int i = 0; i < count; i++)
+			{
+				if (dst[i] == c)
+				{
+					if (runStart >= 0)
+					{
+						markDirty(ax + runStart, y, ax + i - 1, y);
+						runStart = -1;
+					}
+					continue;
+				}
+				if (runStart < 0)
+					runStart = i;
 				dst[i] = c;
 			}
-			if (runStart >= 0) markDirty(ax + runStart, y, bx, y);
-		} else if (globalAlpha_ != 0) {
+			if (runStart >= 0)
+				markDirty(ax + runStart, y, bx, y);
+		}
+		else if (globalAlpha_ != 0)
+		{
 			const int a = globalAlpha_;
-			for (int px = ax; px <= bx; px++, dst++) *dst = pixel::blendNative(c, *dst, a);
+			for (int px = ax; px <= bx; px++, dst++)
+				*dst = pixel::blendNative(c, *dst, a);
 		}
 #endif
 	}
@@ -2072,15 +2496,23 @@ void Canvas::fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, pixel:
 // Present-replay variant: each flush chunk starts from scratch, so fillTriangle's
 // persistent-surface bookkeeping (per-pixel dst-compare + run-based markDirty)
 // is pure overhead there — flat span fills, one bbox markDirty.
-// Edges step incrementally in 48.16 fixed point: one divide per edge instead of
-// two float divides per scanline. The present replay rasterizes thousands of
-// triangle rows per frame and those divides dominated the raster time. 64-bit
-// accumulators keep arbitrary int coordinates overflow-safe.
-void Canvas::fillTriangleOpaque(int x0, int y0, int x1, int y1, int x2, int y2, pixel::native_t color)
+// Span geometry shares fillTriangle's floating interpolation and truncation;
+// opaque replay skips persistent-surface comparisons and dirty run tracking.
+void Canvas::fillTriangleOpaque(int x0, int y0, int x1, int y1, int x2, int y2,
+								pixel::native_t color)
 {
-	if (!pixels_) return;
-	if (y0 > y1) { std::swap(x0, x1); std::swap(y0, y1); }
-	if (y0 > y2) { std::swap(x0, x2); std::swap(y0, y2); }
+	if (!pixels_)
+		return;
+	if (y0 > y1)
+	{
+		std::swap(x0, x1);
+		std::swap(y0, y1);
+	}
+	if (y0 > y2)
+	{
+		std::swap(x0, x2);
+		std::swap(y0, y2);
+	}
 	if (y1 > y2) { std::swap(x1, x2); std::swap(y1, y2); }
 	const int total_h = y2 - y0;
 	if (total_h == 0) {
@@ -2101,43 +2533,15 @@ void Canvas::fillTriangleOpaque(int x0, int y0, int x1, int y1, int x2, int y2, 
 	int clip_x1 = clip->x1 >= width_ ? width_ - 1 : clip->x1;
 	if (clip_x0 > clip_x1) return;
 
-	// Long edge y0→y2 spans both segments with one continuous accumulator, so
-	// the two mesh triangles sharing it rasterize identical columns (no cracks).
-	const std::int64_t stepA = ((static_cast<std::int64_t>(x2) - x0) << 16) / total_h;
-	std::int64_t accA = (static_cast<std::int64_t>(x0) << 16) + stepA * (draw_y0 - y0);
-
 	int dirty_x0 = width_;
 	int dirty_x1 = -1;
-	auto rasterRows = [&](int yStart, int yEnd, std::int64_t accB, std::int64_t stepB) {
-		for (int y = yStart; y <= yEnd; y++) {
-			int ax = static_cast<int>(accA >> 16);
-			int bx = static_cast<int>(accB >> 16);
-			accA += stepA;
-			accB += stepB;
-			if (ax > bx) { const int t = ax; ax = bx; bx = t; }
-			if (ax < clip_x0) ax = clip_x0;
-			if (bx > clip_x1) bx = clip_x1;
-			if (ax > bx) continue;
-			fillSpanColor(rowToPhysical(y), ax, bx - ax + 1, color);
-			if (ax < dirty_x0) dirty_x0 = ax;
-			if (bx > dirty_x1) dirty_x1 = bx;
-		}
-	};
-
-	if (draw_y0 < y1) {
-		// Upper segment rows [y0, y1): draw_y0 < y1 with draw_y0 >= y0 implies y1 > y0.
-		const int yEnd = draw_y1 < y1 - 1 ? draw_y1 : y1 - 1;
-		const std::int64_t stepB = ((static_cast<std::int64_t>(x1) - x0) << 16) / (y1 - y0);
-		const std::int64_t accB = (static_cast<std::int64_t>(x0) << 16) + stepB * (draw_y0 - y0);
-		rasterRows(draw_y0, yEnd, accB, stepB);
-	}
-	if (draw_y1 >= y1) {
-		// Lower segment rows [y1, y2]; accA is already positioned at yStart.
-		const int yStart = draw_y0 > y1 ? draw_y0 : y1;
-		const int segh = y2 - y1;
-		const std::int64_t stepB = segh > 0 ? ((static_cast<std::int64_t>(x2) - x1) << 16) / segh : 0;
-		const std::int64_t accB = (static_cast<std::int64_t>(x1) << 16) + stepB * (yStart - y1);
-		rasterRows(yStart, draw_y1, accB, stepB);
+	for (int y = draw_y0; y <= draw_y1; ++y) {
+		int ax, bx;
+		triangleRowSpan(x0, y0, x1, y1, x2, y2, y, ax, bx);
+		ax = std::max(ax, clip_x0); bx = std::min(bx, clip_x1);
+		if (ax > bx) continue;
+		fillSpanColor(rowToPhysical(y), ax, bx - ax + 1, color);
+		dirty_x0 = std::min(dirty_x0, ax); dirty_x1 = std::max(dirty_x1, bx);
 	}
 	if (dirty_x1 >= dirty_x0) markDirty(dirty_x0, draw_y0, dirty_x1, draw_y1);
 }
@@ -2236,33 +2640,11 @@ void Canvas::fillTrianglesOpaqueOccluded(const TriangleEntry *tris, int count, i
 			if (mn <= mx) fillCovered(y0, mn, mx, color);
 			continue;
 		}
-		const std::int64_t stepA = ((static_cast<std::int64_t>(x2) - x0) << 16) / total_h;
-		std::int64_t accA = (static_cast<std::int64_t>(x0) << 16) + stepA * (dy0 - y0);
-		auto walk = [&](int yStart, int yEnd, std::int64_t accB, std::int64_t stepB) {
-			for (int y = yStart; y <= yEnd; y++) {
-				int ax = static_cast<int>(accA >> 16);
-				int bx = static_cast<int>(accB >> 16);
-				accA += stepA;
-				accB += stepB;
-				if (ax > bx) { const int t = ax; ax = bx; bx = t; }
-				if (ax < clip_x0) ax = clip_x0;
-				if (bx > clip_x1) bx = clip_x1;
-				if (ax > bx) continue;
-				fillCovered(y, ax, bx, color);
-			}
-		};
-		if (dy0 < y1) {
-			const int yEnd = dy1 < y1 - 1 ? dy1 : y1 - 1;
-			const std::int64_t stepB = ((static_cast<std::int64_t>(x1) - x0) << 16) / (y1 - y0);
-			const std::int64_t accB = (static_cast<std::int64_t>(x0) << 16) + stepB * (dy0 - y0);
-			walk(dy0, yEnd, accB, stepB);
-		}
-		if (dy1 >= y1) {
-			const int yStart = dy0 > y1 ? dy0 : y1;
-			const int segh = y2 - y1;
-			const std::int64_t stepB = segh > 0 ? ((static_cast<std::int64_t>(x2) - x1) << 16) / segh : 0;
-			const std::int64_t accB = (static_cast<std::int64_t>(x1) << 16) + stepB * (yStart - y1);
-			walk(yStart, dy1, accB, stepB);
+		for (int y = dy0; y <= dy1; ++y) {
+			int ax, bx;
+			triangleRowSpan(x0, y0, x1, y1, x2, y2, y, ax, bx);
+			ax = std::max(ax, clip_x0); bx = std::min(bx, clip_x1);
+			if (ax <= bx) fillCovered(y, ax, bx, color);
 		}
 	}
 	if (dirty_x1 >= dirty_x0 && dirty_y1 >= dirty_y0) markDirty(dirty_x0, dirty_y0, dirty_x1, dirty_y1);
@@ -2366,7 +2748,12 @@ void Canvas::drawTextFont(const char *text, int x, int y, pixel::native_t color,
 
 void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t color, int family_id, int size_px)
 {
-	drawRasterizedText(text, x, y, color, FontRegistry::rasterizedFamily(family_id, size_px));
+ drawTextFontFamily(text,x,y,color,family_id,size_px,400,1000);
+}
+
+void Canvas::drawTextFontFamily(const char *text,int x,int y,pixel::native_t color,int family_id,int size_px,int weight,int stretch)
+{
+	drawRasterizedText(text, x, y, color, FontRegistry::rasterizedFamily(family_id, size_px,weight,stretch));
 }
 
 // Sum the glyph advances for a string in a family/size, so callers can centre
@@ -2391,7 +2778,7 @@ void Canvas::drawTextFontFamilyRotated90(const char *text, int lx, int ly, pixel
 		const int cp = nextUtf8Codepoint(p);
 		if (cp == '\n') { pen_x = lx; pen_y += font.lineHeight(); continue; }
 		Glyph glyph{};
-		if (!font.glyph(cp, &glyph)) { pen_x += font.sizePx() / 2; continue; }
+		if (!font.glyph(cp, &glyph)) { pen_x += font.advance(cp, peekUtf8Codepoint(p)); continue; }
 		const int gx = pen_x + glyph.bearingX;
 		const int gy = pen_y + font.ascender() - glyph.bearingY;
 		const pixel::native_t c = color;
@@ -2415,7 +2802,7 @@ void Canvas::drawTextFontFamilyRotated90(const char *text, int lx, int ly, pixel
 #endif
 			}
 		}
-		pen_x += glyph.advance;
+		pen_x += font.advance(cp, peekUtf8Codepoint(p));
 	}
 }
 
@@ -2451,7 +2838,7 @@ void Canvas::drawTextFontFamilyOnBackground(const char *text, int x, int y, pixe
 
 		SolidGlyphCacheEntry *entry = solidGlyphCacheEntry(font, color, background, cp);
 		if (!entry) {
-			penX += font.sizePx() / 2;
+			penX += font.advance(cp, peekUtf8Codepoint(p));
 			continue;
 		}
 
@@ -2460,7 +2847,7 @@ void Canvas::drawTextFontFamilyOnBackground(const char *text, int x, int y, pixe
 		const int gy = penY + font.ascender() - glyph.bearingY;
 		if (gx > clipX1 || gy > clipY1 ||
 		    gx + glyph.width - 1 < clipX0 || gy + glyph.height - 1 < clipY0) {
-			penX += glyph.advance;
+			penX += font.advance(cp, peekUtf8Codepoint(p));
 			continue;
 		}
 
@@ -2506,7 +2893,7 @@ void Canvas::drawTextFontFamilyOnBackground(const char *text, int x, int y, pixe
 		}
 
 		if (dirtyX0 <= dirtyX1 && dirtyY0 <= dirtyY1) markDirty(dirtyX0, dirtyY0, dirtyX1, dirtyY1);
-		penX += glyph.advance;
+		penX += font.advance(cp, peekUtf8Codepoint(p));
 	}
 }
 
@@ -2550,6 +2937,11 @@ constexpr int kGlyphStampSlots = 256;
 
 struct PackedGlyphStamp {
 	const RasterizedFontData *fontData = nullptr;
+#if GEA_EMBEDDED_TTF_FREETYPE
+ std::uint64_t fontGeneration=0;
+#else
+ static constexpr std::uint64_t fontGeneration=0;
+#endif
 	int sizePx = 0;
 	int codepoint = 0;
 	std::uint8_t fg = 0xFF;        // native 0..15 level; 0xFF = empty slot
@@ -2610,6 +3002,9 @@ bool buildPackedGlyphStamp(PackedGlyphStamp &e, const gea::framework::graphics::
 		}
 	}
 	e.fontData = font.data();
+#if GEA_EMBEDDED_TTF_FREETYPE
+ e.fontGeneration=font.data()->generation;
+#endif
 	e.sizePx = font.sizePx();
 	e.codepoint = cp;
 	e.fg = fg;
@@ -2672,7 +3067,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 #endif
 		if (len > 0 && len <= static_cast<std::size_t>(kTextSpriteMaxLen)) {
 			TextSprite &slot = textSpriteFor(text, font);
-			const bool idMatch = slot.fontData == font.data() &&
+			const bool idMatch = slot.fontData == font.data() && slot.fontGeneration==font.data()->generation &&
 			                     slot.sizePx == font.sizePx() &&
 			                     std::strcmp(slot.text, text) == 0;
 			if (idMatch && slot.state == TextSprite::Cached) {
@@ -2733,6 +3128,9 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 			} else if (!idMatch) {
 				// First sighting: claim the slot and render normally this time.
 				slot.fontData = font.data();
+#if GEA_EMBEDDED_TTF_FREETYPE
+ slot.fontGeneration=font.data()->generation;
+#endif
 				slot.sizePx = font.sizePx();
 				std::strncpy(slot.text, text, kTextSpriteMaxLen);
 				slot.text[kTextSpriteMaxLen] = '\0';
@@ -2761,7 +3159,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 		const int cp = nextUtf8Codepoint(p);
 		if (cp == '\n') { pen_x = x; pen_y += font.lineHeight(); continue; }
 		Glyph glyph{};
-		if (!font.glyph(cp, &glyph)) { pen_x += font.sizePx() / 2; continue; }
+		if (!font.glyph(cp, &glyph)) { pen_x += font.advance(cp, peekUtf8Codepoint(p)); continue; }
 
 		int gx = pen_x + glyph.bearingX;
 		int gy = pen_y + font.ascender() - glyph.bearingY;
@@ -2769,7 +3167,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 		/* Skip glyph entirely if outside clip */
 		if (gx > clip->x1 || gy > clip->y1 ||
 		    gx + glyph.width - 1 < clip->x0 || gy + glyph.height - 1 < clip->y0) {
-			pen_x += glyph.advance;
+			pen_x += font.advance(cp, peekUtf8Codepoint(p));
 			continue;
 		}
 
@@ -2801,7 +3199,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 			const std::uint8_t fg4 = static_cast<std::uint8_t>(color & 0x0F);
 			PackedGlyphStamp &e = gGlyphStamps[glyphStampSlot(font.data(), font.sizePx(), cp)];
 			bool ready = e.fg == fg4 && e.backdrop == gTextStampBackdrop &&
-			             e.fontData == font.data() && e.sizePx == font.sizePx() &&
+			             e.fontData == font.data() && e.fontGeneration==font.data()->generation && e.sizePx == font.sizePx() &&
 			             e.codepoint == cp;
 			if (!ready) {
 				e.fg = 0xFF;
@@ -2815,7 +3213,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 					stampPackedGlyphRow(packedRow(rowToPhysical(gy + row)), gx,
 					                    src + static_cast<std::size_t>(row) * rb, glyph.width);
 				markDirty(gx, gy, gx + glyph.width - 1, gy + glyph.height - 1);
-				pen_x += glyph.advance;
+				pen_x += font.advance(cp, peekUtf8Codepoint(p));
 				continue;
 			}
 		}
@@ -2858,7 +3256,7 @@ void Canvas::drawRasterizedText(const char *text, int x, int y, pixel::native_t 
 		}
 		markDirty(gx + col_start, gy + row_start,
 		                        gx + col_end, gy + row_end);
-		pen_x += glyph.advance;
+		pen_x += font.advance(cp, peekUtf8Codepoint(p));
 	}
 }
 
@@ -3034,8 +3432,7 @@ void Canvas::measureTextFont(const char *text, int max_width, int font_id, int *
 			lines++;
 			continue;
 		}
-		Glyph glyph{};
-		int adv = font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
+		int adv = font.advance(cp, peekUtf8Codepoint(p));
 		int next_w = line_w + adv;
 		if (next_w > max_width && line_w > 0) {
 			if (line_w > max_line_w) max_line_w = line_w;
@@ -3057,6 +3454,11 @@ void Canvas::drawTextFont(const char *text, int x, int y, pixel::native_t color,
 
 void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t color, int family_id, int size_px)
 {
+ drawTextFontFamily(text,x,y,color,family_id,size_px,400,1000);
+}
+
+void Canvas::drawTextFontFamily(const char *text,int x,int y,pixel::native_t color,int family_id,int size_px,int weight,int stretch)
+{
 #if GEA_EMBEDDED_TTF_RUNTIME_FONTS
 	// No baked atlas linked, but the runtime TTF rasterizer can still serve the
 	// family (desktop targets feed it the bundle's font bytes). Blit its glyphs
@@ -3065,7 +3467,7 @@ void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t 
 	// bitmap console font. Falls through to the bitmap font for families the
 	// runtime rasterizer doesn't know.
 	if (!pixels_ || !text) return;
-	RasterizedFont font = FontRegistry::rasterizedFamily(family_id, size_px);
+	RasterizedFont font = FontRegistry::rasterizedFamily(family_id, size_px,weight,stretch);
 	if (font.valid()) {
 		int pen_x = x;
 		int pen_y = y;
@@ -3073,7 +3475,7 @@ void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t 
 			const int cp = nextUtf8Codepoint(p);
 			if (cp == '\n') { pen_x = x; pen_y += font.lineHeight(); continue; }
 			Glyph glyph{};
-			if (!font.glyph(cp, &glyph)) { pen_x += font.sizePx() / 2; continue; }
+			if (!font.glyph(cp, &glyph)) { pen_x += font.advance(cp, peekUtf8Codepoint(p)); continue; }
 			const int gx = pen_x + glyph.bearingX;
 			const int gy = pen_y + font.ascender() - glyph.bearingY;
 			const pixel::native_t c = color;
@@ -3101,7 +3503,7 @@ void Canvas::drawTextFontFamily(const char *text, int x, int y, pixel::native_t 
 #endif
 				}
 			}
-			pen_x += glyph.advance;
+			pen_x += font.advance(cp, peekUtf8Codepoint(p));
 		}
 		return;
 	}
@@ -3127,7 +3529,7 @@ void Canvas::drawTextFontFamilyRotated90(const char *text, int lx, int ly, pixel
 		const int cp = nextUtf8Codepoint(p);
 		if (cp == '\n') { pen_x = lx; pen_y += font.lineHeight(); continue; }
 		Glyph glyph{};
-		if (!font.glyph(cp, &glyph)) { pen_x += font.sizePx() / 2; continue; }
+		if (!font.glyph(cp, &glyph)) { pen_x += font.advance(cp, peekUtf8Codepoint(p)); continue; }
 		const int gx = pen_x + glyph.bearingX;
 		const int gy = pen_y + font.ascender() - glyph.bearingY;
 		const pixel::native_t c = color;
@@ -3151,7 +3553,7 @@ void Canvas::drawTextFontFamilyRotated90(const char *text, int lx, int ly, pixel
 #endif
 			}
 		}
-		pen_x += glyph.advance;
+		pen_x += font.advance(cp, peekUtf8Codepoint(p));
 	}
 }
 
@@ -3186,10 +3588,9 @@ int Canvas::measureTextFontFamily(const char *text, int family_id, int size_px)
 			lineWidth = 0;
 			continue;
 		}
-		Glyph glyph{};
 		// Same fallback the draw loop uses for a missing glyph, so measure and
 		// draw agree rather than drifting apart on unmapped codepoints.
-		lineWidth += font.glyph(cp, &glyph) ? glyph.advance : font.sizePx() / 2;
+		lineWidth += font.advance(cp, peekUtf8Codepoint(p));
 	}
 	return lineWidth > width ? lineWidth : width;
 }
@@ -3439,6 +3840,8 @@ void Canvas::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br,
 	const float kernelWidth = useAntialias ? roundedRectAntialiasKernelWidth(aaSamples, w, h, tl, tr, br, bl) : 1.0f;
 	const int edgePad = useAntialias ? antialiasEdgePad(kernelWidth) : 0;
 	const bool coverageSampleFill = useAntialias && roundedRectShouldCoverageSampleFill(w, h);
+	const float firstOffset = useAntialias ? antialiasOffsetWithKernel(0, aaSamples, kernelWidth) : 0.0f;
+	const float lastOffset = useAntialias ? antialiasOffsetWithKernel(aaSamples - 1, aaSamples, kernelWidth) : 0.0f;
 
 	const ClipRect *clip = &clipStack_[clipDepth_];
 	int row0 = y;
@@ -3472,8 +3875,10 @@ void Canvas::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br,
 			pixel::native_t *dst = &pixels_[rotPhysRow(sx) * stride_ + row0];
 #endif
 			for (int sy = row0; sy <= row1; ++sy) {
-				const int coverage = roundedRectCoverage(
-					x, y, w, h, tl, tr, br, bl, sx, sy, aaSamples, kernelWidth);
+				int coverage = roundedRectCoverageDecided(x, y, w, h, tl, tr, br, bl, sx, sy,
+				                                          firstOffset, lastOffset, aaSampleCount);
+				if (coverage < 0)
+					coverage = roundedRectCoverage(x, y, w, h, tl, tr, br, bl, sx, sy, aaSamples, kernelWidth);
 				if (coverage <= 0) {
 #if !GEA_PIXEL_STORAGE_PACKED
 					++dst;
@@ -3573,6 +3978,8 @@ void Canvas::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br,
 	}
 #endif
 
+	RoundedCoverageTable *coverageTable = useAntialias ? acquireRoundedCoverage(w, h, tl, tr, br, bl, aaSamples) : nullptr;
+	struct ReleaseCoverage { RoundedCoverageTable *table; ~ReleaseCoverage() { releaseRoundedCoverage(table); } } releaseCoverage{coverageTable};
 	for (int sy = row0; sy <= row1; sy++) {
 		int sx0 = width_;
 		int sx1 = -1;
@@ -3642,7 +4049,17 @@ void Canvas::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br,
 
 			auto paintCoverageEdge = [&](int px) {
 			if (px < clip->x0 || px > clip->x1 || px < 0 || px >= width_) return;
-			const int coverage = useAntialias
+			std::uint8_t *cell = coverageTable ? &coverageTable->cells[(sy - y) * w + (px - x)] : nullptr;
+			int decided = cell && *cell != 0xff ? *cell
+			    : useAntialias ? roundedRectCoverageDecided(x, y, w, h, tl, tr, br, bl, px, sy,
+			                                                firstOffset, lastOffset, aaSampleCount)
+			                   : -1;
+			if (cell && *cell == 0xff && decided < 0)
+				decided = roundedRectCoverage(x, y, w, h, tl, tr, br, bl, px, sy, aaSamples, kernelWidth);
+			if (cell && *cell == 0xff) *cell = static_cast<std::uint8_t>(decided);
+			const int coverage = decided >= 0
+			    ? decided
+			    : useAntialias
 			    ? roundedRectCoverage(x, y, w, h, tl, tr, br, bl, px, sy, aaSamples, kernelWidth)
 			    : (roundedRectSampleContains(x,
 			                                 y,
@@ -3680,7 +4097,23 @@ void Canvas::fillRoundedRect(int x, int y, int w, int h, int tl, int tr, int br,
 		};
 
 		if (coverageSampleFill) {
-			for (int px = anyX0; px <= anyX1; ++px) paintCoverageEdge(px);
+			// Columns every sample covers take the whole fill alpha: one span,
+			// not a coverage test per pixel.
+			int inX0, inX1;
+			roundedRectInsideSpan(x, y, w, h, tl, tr, br, bl, sy, firstOffset, lastOffset, &inX0, &inX1);
+			if (inX0 < anyX0) inX0 = anyX0;
+			if (inX1 > anyX1) inX1 = anyX1;
+			if (inX0 > inX1) {
+				for (int px = anyX0; px <= anyX1; ++px) paintCoverageEdge(px);
+				continue;
+			}
+			for (int px = anyX0; px < inX0; ++px) paintCoverageEdge(px);
+			fillSpanGlobalAlpha(rowToPhysical(sy), inX0, inX1 - inX0 + 1, color);
+			if (inX0 < dirtyX0) dirtyX0 = inX0;
+			if (sy < dirtyY0) dirtyY0 = sy;
+			if (inX1 > dirtyX1) dirtyX1 = inX1;
+			if (sy > dirtyY1) dirtyY1 = sy;
+			for (int px = inX1 + 1; px <= anyX1; ++px) paintCoverageEdge(px);
 			continue;
 		} else if (useAntialias) {
 			if (sx0 <= sx1) {
@@ -3779,14 +4212,56 @@ void Canvas::strokeRoundedRect(int x, int y, int w, int h, int tl, int tr, int b
 		int dirtyY1 = -1;
 		const int aaSampleCount = aaSamples * aaSamples;
 		const int alpha = globalAlpha_;
+		const float firstOffset = antialiasOffsetWithKernel(0, aaSamples, kernelWidth);
+		const float lastOffset = antialiasOffsetWithKernel(aaSamples - 1, aaSamples, kernelWidth);
+		const int innerW = w - lw * 2;
+		const int innerH = h - lw * 2;
+		const bool hasInner = innerW > 0 && innerH > 0;
 		for (int sy = row0; sy <= row1; ++sy) {
-			for (int sx = col0; sx <= col1; ++sx) {
-				const int coverage = roundedRectStrokeCoverage(x, y, w, h,
-				                                               tl, tr, br, bl,
-				                                               lw,
-				                                               sx, sy,
-				                                               aaSamples,
-				                                               kernelWidth);
+			// Only the band needs a per-pixel test. Columns wholly inside the
+			// inner shape are the hole, and on a row no inner sample reaches,
+			// columns wholly inside the outer shape are the band at full alpha.
+			// Pixels beyond the outer shape's reach have no coverage: an 88px
+			// ring tested its ~1700 corner pixels one by one (3.5 ms on the S31).
+			int reachX0 = 0, reachX1 = -1;
+			if (!roundedRectReachSpan(x, y, w, h, tl, tr, br, bl, sy, firstOffset, lastOffset, &reachX0, &reachX1))
+				continue;
+			const int rowX0 = std::max(col0, reachX0);
+			const int rowX1 = std::min(col1, reachX1);
+			int holeX0 = 0, holeX1 = -1;
+			if (hasInner)
+				roundedRectInsideSpan(x + lw, y + lw, innerW, innerH, std::max(0, tl - lw), std::max(0, tr - lw),
+				                      std::max(0, br - lw), std::max(0, bl - lw), sy, firstOffset, lastOffset,
+				                      &holeX0, &holeX1);
+			int solidX0 = 0, solidX1 = -1;
+			const float rowY0 = static_cast<float>(sy) + firstOffset;
+			const float rowY1 = static_cast<float>(sy) + lastOffset;
+			if (!hasInner || rowY1 < static_cast<float>(y + lw) || rowY0 >= static_cast<float>(y + lw + innerH))
+				roundedRectInsideSpan(x, y, w, h, tl, tr, br, bl, sy, firstOffset, lastOffset, &solidX0, &solidX1);
+			for (int sx = rowX0; sx <= rowX1; ++sx) {
+				if (sx >= holeX0 && sx <= holeX1) {
+					sx = holeX1;
+					continue;
+				}
+				if (sx >= solidX0 && sx <= solidX1) {
+					const int end = std::min(solidX1, rowX1);
+					fillSpanGlobalAlpha(rowToPhysical(sy), sx, end - sx + 1, color);
+					if (sx < dirtyX0) dirtyX0 = sx;
+					if (sy < dirtyY0) dirtyY0 = sy;
+					if (end > dirtyX1) dirtyX1 = end;
+					if (sy > dirtyY1) dirtyY1 = sy;
+					sx = end;
+					continue;
+				}
+				int coverage = roundedRectStrokeCoverageDecided(x, y, w, h, tl, tr, br, bl, lw, sx, sy,
+				                                                firstOffset, lastOffset, aaSampleCount);
+				if (coverage < 0)
+					coverage = roundedRectStrokeCoverage(x, y, w, h,
+					                                     tl, tr, br, bl,
+					                                     lw,
+					                                     sx, sy,
+					                                     aaSamples,
+					                                     kernelWidth);
 				const int effectiveAlpha = coverageAlpha(alpha, coverage, aaSampleCount);
 				if (effectiveAlpha <= 0) continue;
 				const pixel::native_t c = color;

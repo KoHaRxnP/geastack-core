@@ -2,6 +2,7 @@
 #include "canvas_element.h"
 
 #include "display.h"
+#include "display_present.h"
 #include "internal.h"
 #include "pixel.h"
 #include "tree_internal.h"
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -22,6 +24,179 @@
 namespace gea::embedded::ui {
 
 namespace {
+
+// One state per canvas node: every context for a node is a handle onto it.
+// Contexts are made and used on the frame task only.
+std::unordered_map<int, std::shared_ptr<CanvasContextState>> &contextStates()
+{
+	static std::unordered_map<int, std::shared_ptr<CanvasContextState>> states;
+	return states;
+}
+
+} // namespace
+
+std::shared_ptr<CanvasContextState> CanvasRenderingContext2D::stateFor(int nodeId)
+{
+	// -1 is the direct-canvas display context (and an unattached default one).
+	auto &slot = contextStates()[nodeId < 0 ? -1 : nodeId];
+	if (!slot)
+	{
+		static std::uint32_t nextIdentity = 0;
+		slot = std::make_shared<CanvasContextState>();
+		slot->identity_ = ++nextIdentity;
+	}
+	return slot;
+}
+
+void CanvasRenderingContext2D::releaseState(int nodeId) { contextStates().erase(nodeId); }
+
+namespace
+{
+
+bool retainedCanvasStyleEligible(const Node &node)
+{
+#if GEA_PIXEL_STORAGE_PACKED
+	return false;
+#else
+	const auto *nodes = Tree::instance().nodes();
+	const int count = Tree::instance().nodeCount();
+	int id = static_cast<int>(&node - nodes);
+	for (int depth = 0; id >= 0 && id < count && depth < kMaxNodes; ++depth)
+	{
+		const auto &ancestor = nodes[id];
+		const auto &style = ancestor.computedStyle();
+		const auto &rare = rstyle(style);
+		if (style.opacity != 255 || style.mask_right_fade_width || rare.filter_present ||
+			rare.filter_blur_radius || rare.transform_present || rare.rotate_present ||
+			rare.translate_present || rare.scale_present || rare.perspective || rare.box_shadow_alpha)
+			return false;
+		for (int radius : style.border_radius)
+			if (radius != 0)
+				return false;
+		id = ancestor.parent;
+	}
+	if (id >= 0)
+		return false;
+	const auto &style = node.computedStyle();
+	for (int radius : style.border_radius)
+		if (radius != 0)
+			return false;
+	return true;
+#endif
+}
+
+} // namespace
+
+bool CanvasRenderingContext2D::hasRetainedCanvas(int nodeId)
+{
+	const auto found = contextStates().find(nodeId);
+	return found != contextStates().end() && found->second->retainedFrame_ != nullptr;
+}
+
+bool CanvasRenderingContext2D::retainedCanvasDamage(int nodeId, int &x0, int &y0, int &x1, int &y1)
+{
+	const auto found = contextStates().find(nodeId);
+	if (found == contextStates().end() || !found->second->retainedFrame_)
+		return false;
+	const auto &state = *found->second;
+	const auto &node = Tree::instance().node(nodeId);
+	if (!retainedCanvasStyleEligible(node) || node.layout.width != state.retainedWidth_ ||
+		node.layout.height != state.retainedHeight_ || state.retainedDamageX0_ > state.retainedDamageX1_ ||
+		state.retainedDamageY0_ > state.retainedDamageY1_)
+		return false;
+	x0 = state.retainedDamageX0_;
+	y0 = state.retainedDamageY0_;
+	x1 = state.retainedDamageX1_;
+	y1 = state.retainedDamageY1_;
+	return true;
+}
+
+void CanvasRenderingContext2D::clearRetainedCanvasDamage()
+{
+	// Document refresh consumes display damage. Snapshot replay never calls this.
+	for (auto &[id, state] : contextStates())
+	{
+		state->retainedDamageX1_ = state->retainedDamageY1_ = -1;
+		state->retainedBatchChanged_ = false;
+	}
+}
+
+void CanvasRenderingContext2D::materializeRetainedCanvas(int nodeId)
+{
+	const auto found = contextStates().find(nodeId);
+	if (found == contextStates().end() || !found->second->retainedFrame_)
+		return;
+	auto &state = *found->second;
+	auto frame = std::move(state.retainedFrame_);
+	// Clear the retained marker before ensureCanvas: its allocation hook calls
+	// this method too. Preserve the intrinsic size before any resize allocates.
+	auto *surface = Tree::instance().ensureCanvas(nodeId, state.retainedWidth_, state.retainedHeight_);
+	if (surface && surface->pixels())
+	{
+		gea::framework::display_present::rasterFrameRowsStrided(
+			surface->pixels(), surface->strideBytes() / sizeof(gea::framework::graphics::pixel::native_t), 0,
+			state.retainedWidth_, 0, state.retainedHeight_, state.retainedHeight_, *frame);
+		surface->markDirty(0, 0, state.retainedWidth_ - 1, state.retainedHeight_ - 1);
+		Tree::instance().markNodeDisplayCommandsDirty(nodeId);
+		state.retainedDamageX1_ = state.retainedDamageY1_ = -1;
+	}
+	else
+	{
+		state.retainedFrame_ = std::move(frame);
+	}
+}
+
+bool CanvasRenderingContext2D::replayRetainedCanvas(int nodeId, std::uint32_t identity, int x, int y,
+													int width, int height)
+{
+	auto *destination = gea::platform::display::Display::canvas();
+	if (!destination || !destination->pixels())
+		return false;
+	const auto found = contextStates().find(nodeId);
+	if (found == contextStates().end() || found->second->identity_ != identity)
+		return false;
+	const auto &node = Tree::instance().node(nodeId);
+	if (found->second->retainedFrame_ &&
+		(!retainedCanvasStyleEligible(node) || node.layout.width != found->second->retainedWidth_ ||
+		 node.layout.height != found->second->retainedHeight_))
+		materializeRetainedCanvas(nodeId);
+	if (destination->scrollRegionH() > 0)
+		materializeRetainedCanvas(nodeId);
+#if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
+	if (destination->isLandscapeRotated())
+		materializeRetainedCanvas(nodeId);
+#endif
+	const auto &state = *found->second;
+	if (!state.retainedFrame_)
+	{
+		const auto *surface = Tree::instance().canvas(nodeId);
+		if (!surface || !surface->pixels())
+			return false;
+		gea::platform::display::Display::blitImage(surface->pixels(), nullptr, surface->width(),
+												   surface->height(), x, y);
+		return true;
+	}
+	// Stage canvases retain logical screen coordinates even when their pixel
+	// pointer is biased into a small DMA strip. Intersect before taking a view.
+	int x0, y0, x1, y1;
+	gea::platform::display::Display::clip(&x0, &y0, &x1, &y1);
+	x0 = std::max({x0, x, 0});
+	y0 = std::max({y0, y, 0});
+	x1 = std::min({x1, x + width - 1, destination->width() - 1});
+	y1 = std::min({y1, y + height - 1, destination->height() - 1});
+	if (x0 > x1 || y0 > y1)
+		return true;
+	const int stride = destination->strideBytes() / sizeof(gea::framework::graphics::pixel::native_t);
+	auto *pixels = destination->pixels() + static_cast<std::size_t>(y0) * stride + x0;
+	gea::framework::display_present::rasterFrameRowsStrided(pixels, stride, x0 - x, x1 - x0 + 1, y0 - y,
+															y1 - y0 + 1, state.retainedHeight_,
+															*state.retainedFrame_);
+	destination->markDirty(x0, y0, x1, y1);
+	return true;
+}
+
+namespace
+{
 
 CanvasPerfStats gCanvasPerfStats;
 
@@ -178,7 +353,7 @@ float fontScaleFromCss(const std::string &font)
 	return 1.0f;
 }
 
-}  // namespace
+} // namespace
 
 void canvasPerfStatsReset()
 {
@@ -211,21 +386,23 @@ void canvasTotalsRead(int *begin, int *end, int *fillRect, int *drawImage, int *
 
 CanvasPresentCommand &CanvasRenderingContext2D::appendPresentCommand(CanvasPresentCommandType type)
 {
-	if (presentCommandCount_ < presentCommands_.size()) {
-		CanvasPresentCommand &command = presentCommands_[presentCommandCount_++];
+	if (state_->presentCommandCount_ < state_->presentCommands_.size()) {
+		CanvasPresentCommand &command = state_->presentCommands_[state_->presentCommandCount_++];
 		command.type = type;
 		return command;
 	}
-	presentCommands_.emplace_back();
-	presentCommandCount_ = presentCommands_.size();
-	CanvasPresentCommand &command = presentCommands_.back();
+	state_->presentCommands_.emplace_back();
+	state_->presentCommandCount_ = state_->presentCommands_.size();
+	CanvasPresentCommand &command = state_->presentCommands_.back();
 	command.type = type;
 	return command;
 }
 
 void CanvasRenderingContext2D::resetPresentCommands()
 {
-	presentCommandCount_ = 0;
+	for (std::size_t i = 0; i < state_->presentCommandCount_; ++i)
+		state_->presentCommands_[i].imageReference = gea::framework::graphics::ImageReference{};
+	state_->presentCommandCount_ = 0;
 }
 
 #if defined(GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT) && GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT
@@ -252,7 +429,7 @@ gea::framework::graphics::Canvas *CanvasRenderingContext2D::drawingCanvas()
 
 bool CanvasRenderingContext2D::recordingPresentBatch() const
 {
-	return presentRecording_ && batchDepth_ > 0;
+	return state_->presentRecording_ && state_->batchDepth_ > 0;
 }
 
 void CanvasRenderingContext2D::appendPresentClear(gea::framework::graphics::pixel::native_t color)
@@ -260,7 +437,7 @@ void CanvasRenderingContext2D::appendPresentClear(gea::framework::graphics::pixe
 	resetPresentCommands();
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::Clear);
 	command.clearColor = color;
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillRect(int x, int y, int w, int h, gea::framework::graphics::pixel::native_t color)
@@ -272,8 +449,8 @@ void CanvasRenderingContext2D::appendPresentFillRect(int x, int y, int w, int h,
 	command.w = w;
 	command.h = h;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentStrokeRect(int x, int y, int w, int h, gea::framework::graphics::pixel::native_t color)
@@ -285,8 +462,8 @@ void CanvasRenderingContext2D::appendPresentStrokeRect(int x, int y, int w, int 
 	command.w = w;
 	command.h = h;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillTriangle(int x0,
@@ -305,8 +482,8 @@ void CanvasRenderingContext2D::appendPresentFillTriangle(int x0,
 	command.x2 = x2;
 	command.y2 = y2;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillCircle(int x, int y, int radius, gea::framework::graphics::pixel::native_t color)
@@ -317,8 +494,8 @@ void CanvasRenderingContext2D::appendPresentFillCircle(int x, int y, int radius,
 	command.y = y;
 	command.radius = radius;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentStrokeCircle(int x, int y, int radius, gea::framework::graphics::pixel::native_t color)
@@ -329,8 +506,8 @@ void CanvasRenderingContext2D::appendPresentStrokeCircle(int x, int y, int radiu
 	command.y = y;
 	command.radius = radius;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 // Pointer + count forms: no temporary vector, and only the live `count`
@@ -346,11 +523,11 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::uint16_t *xs,
 	const std::size_t limit = static_cast<std::size_t>(count);
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillCirclesRgb565);
 	command.radius = radius;
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.xs.assign(xs, xs + limit);
 	command.ys.assign(ys, ys + limit);
 	command.colors.assign(colors, colors + limit);
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCircles(const std::uint16_t *xs,
@@ -363,12 +540,12 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::uint16_t *xs,
 	const std::size_t limit = static_cast<std::size_t>(count);
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillCirclesRgb565);
 	command.radius = radius;
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.xs.assign(xs, xs + limit);
 	command.ys.assign(ys, ys + limit);
 	command.colors.resize(limit);
 	for (std::size_t i = 0; i < limit; ++i) command.colors[i] = colors[i].value;
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint16_t> &xs,
@@ -384,11 +561,11 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint1
 	if (limit == 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillCirclesRgb565);
 	command.radius = radius;
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.xs.assign(xs.begin(), xs.begin() + static_cast<std::ptrdiff_t>(limit));
 	command.ys.assign(ys.begin(), ys.begin() + static_cast<std::ptrdiff_t>(limit));
 	command.colors.assign(colors.begin(), colors.begin() + static_cast<std::ptrdiff_t>(limit));
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint16_t> &xs,
@@ -409,8 +586,8 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint1
 	command.ys.assign(ys.begin(), ys.begin() + static_cast<std::ptrdiff_t>(limit));
 	command.colors.resize(limit);
 	for (std::size_t i = 0; i < limit; ++i) command.colors[i] = colors[i].value;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCirclesUniform(const std::vector<std::uint16_t> &xs,
@@ -422,59 +599,51 @@ void CanvasRenderingContext2D::appendPresentCirclesUniform(const std::vector<std
 	if (capped <= 0 || radius <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillCirclesRgb565);
 	command.radius = radius;
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.xs.assign(xs.begin(), xs.begin() + capped);
 	command.ys.assign(ys.begin(), ys.begin() + capped);
 	command.colors.assign(static_cast<std::size_t>(capped), canvasRgb565(color));
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
-void CanvasRenderingContext2D::appendPresentTriangles(const std::vector<std::int32_t> &x0s,
-                                                      const std::vector<std::int32_t> &y0s,
-                                                      const std::vector<std::int32_t> &x1s,
-                                                      const std::vector<std::int32_t> &y1s,
-                                                      const std::vector<std::int32_t> &x2s,
-                                                      const std::vector<std::int32_t> &y2s,
-                                                      const std::vector<std::uint32_t> &colors,
-                                                      const std::vector<std::int32_t> &order,
+void CanvasRenderingContext2D::appendPresentTriangles(const CanvasNumericArrayView &x0s,
+                                                      const CanvasNumericArrayView &y0s,
+                                                      const CanvasNumericArrayView &x1s,
+                                                      const CanvasNumericArrayView &y1s,
+                                                      const CanvasNumericArrayView &x2s,
+                                                      const CanvasNumericArrayView &y2s,
+                                                      const CanvasNumericArrayView &colors,
+                                                      const CanvasNumericArrayView &order,
                                                       int count)
 {
-	std::size_t limit = std::min({x0s.size(), y0s.size(), x1s.size(), y1s.size(), x2s.size(), y2s.size(), colors.size(), order.size()});
+	const std::size_t sourceSize = std::min({x0s.size(), y0s.size(), x1s.size(), y1s.size(), x2s.size(), y2s.size(), colors.size()});
+	std::size_t limit = std::min(sourceSize, order.size());
 	if (count >= 0) limit = std::min(limit, static_cast<std::size_t>(count));
 	if (limit == 0) return;
 	using gea::framework::graphics::TriangleEntry;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillTrianglesRgb565);
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.triangles.resize(limit);
-	const std::int32_t *px0 = x0s.data();
-	const std::int32_t *py0 = y0s.data();
-	const std::int32_t *px1 = x1s.data();
-	const std::int32_t *py1 = y1s.data();
-	const std::int32_t *px2 = x2s.data();
-	const std::int32_t *py2 = y2s.data();
-	const std::uint32_t *pcolors = colors.data();
-	const std::int32_t *porder = order.data();
 	TriangleEntry *dst = command.triangles.data();
-	const std::size_t sourceSize = x0s.size();
 	for (std::size_t i = 0; i < limit; i++) {
-		const std::int32_t rawIndex = porder[i];
+		const std::int64_t rawIndex = order.truncated(i);
 		const std::size_t o = rawIndex >= 0 && static_cast<std::size_t>(rawIndex) < sourceSize
 			? static_cast<std::size_t>(rawIndex)
 			: 0;
 		TriangleEntry &t = dst[i];
-		t.x0 = static_cast<std::int16_t>(px0[o]);
-		t.y0 = static_cast<std::int16_t>(py0[o]);
-		t.x1 = static_cast<std::int16_t>(px1[o]);
-		t.y1 = static_cast<std::int16_t>(py1[o]);
-		t.x2 = static_cast<std::int16_t>(px2[o]);
-		t.y2 = static_cast<std::int16_t>(py2[o]);
-		t.color = gea::framework::graphics::pixel::nativeFromRrggbbaa(pcolors[o]);
+		t.x0 = static_cast<std::int16_t>(x0s[o]);
+		t.y0 = static_cast<std::int16_t>(y0s[o]);
+		t.x1 = static_cast<std::int16_t>(x1s[o]);
+		t.y1 = static_cast<std::int16_t>(y1s[o]);
+		t.x2 = static_cast<std::int16_t>(x2s[o]);
+		t.y2 = static_cast<std::int16_t>(y2s[o]);
+		t.color = gea::framework::graphics::pixel::nativeFromRrggbbaa(colors.truncated(o));
 		const std::int16_t lo01 = t.y0 < t.y1 ? t.y0 : t.y1;
 		const std::int16_t hi01 = t.y0 > t.y1 ? t.y0 : t.y1;
 		t.rowY0 = lo01 < t.y2 ? lo01 : t.y2;
 		t.rowY1 = hi01 > t.y2 ? hi01 : t.y2;
 	}
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentDrawImage(const gea::framework::graphics::pixel::native_t *pixels,
@@ -486,14 +655,16 @@ void CanvasRenderingContext2D::appendPresentDrawImage(const gea::framework::grap
 {
 	if (!pixels || srcWidth <= 0 || srcHeight <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::DrawImage);
+	command.imageReference = gea::framework::graphics::ImageReference(
+		gea::framework::graphics::ImageStore::instance().idForPixels(pixels));
 	command.pixels = pixels;
 	command.alphaPixels = alphaPixels;
 	command.srcWidth = srcWidth;
 	command.srcHeight = srcHeight;
 	command.x = x;
 	command.y = y;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentDrawImageScaled(const gea::framework::graphics::pixel::native_t *pixels,
@@ -508,6 +679,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageScaled(const gea::framework
 {
 	if (!pixels || srcWidth <= 0 || srcHeight <= 0 || w <= 0 || h <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::DrawImageScaled);
+	command.imageReference = gea::framework::graphics::ImageReference(
+		gea::framework::graphics::ImageStore::instance().idForPixels(pixels));
 	command.pixels = pixels;
 	command.alphaPixels = alphaPixels;
 	command.srcWidth = srcWidth;
@@ -517,8 +690,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageScaled(const gea::framework
 	command.w = w;
 	command.h = h;
 	command.radius = radius;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 void CanvasRenderingContext2D::appendPresentDrawImageRotated90CW(const gea::framework::graphics::pixel::native_t *, const std::uint8_t *, int, int, int, int, int, int) {}
 void CanvasRenderingContext2D::appendPresentDrawImageTiledX(const gea::framework::graphics::pixel::native_t *, const std::uint8_t *, int, int, int, int, int) {}
@@ -527,12 +700,12 @@ void CanvasRenderingContext2D::replayPresentBatchToCanvas(gea::framework::graphi
 
 bool CanvasRenderingContext2D::presentBatch()
 {
-	if (presentCommandCount_ == 0) return false;
+	if (state_->presentCommandCount_ == 0) return false;
 	gTotalPresentBatchOk++;
 	std::vector<gea::platform::display::DisplayPresentCommand> commands;
-	commands.reserve(presentCommandCount_);
-	for (std::size_t commandIndex = 0; commandIndex < presentCommandCount_; ++commandIndex) {
-		const CanvasPresentCommand &command = presentCommands_[commandIndex];
+	commands.reserve(state_->presentCommandCount_);
+	for (std::size_t commandIndex = 0; commandIndex < state_->presentCommandCount_; ++commandIndex) {
+		const CanvasPresentCommand &command = state_->presentCommands_[commandIndex];
 		gea::platform::display::DisplayPresentCommand displayCommand{};
 		switch (command.type) {
 		case CanvasPresentCommandType::Clear:
@@ -595,12 +768,12 @@ bool CanvasRenderingContext2D::presentBatch()
 
 void CanvasRenderingContext2D::applyDrawState(gea::framework::graphics::Canvas &surface) const
 {
-	surface.setGlobalAlpha(globalAlpha_);
+	surface.setGlobalAlpha(state_->globalAlpha_);
 }
 
 void CanvasRenderingContext2D::markDirty()
 {
-	if (batchDepth_ > 0) batchDirty_ = true;
+	if (state_->batchDepth_ > 0) state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::markDrawDirty()
@@ -610,35 +783,35 @@ void CanvasRenderingContext2D::markDrawDirty()
 
 void CanvasRenderingContext2D::setFillStyle(const std::string &value)
 {
-	if (fillStyleCached_ && value == fillStyleSource_) return;
-	fillStyle_ = parseCanvasColor(value);
-	fillStyleSource_ = value;
-	fillStyleCached_ = true;
+	if (state_->fillStyleCached_ && value == state_->fillStyleSource_) return;
+	state_->fillStyle_ = parseCanvasColor(value);
+	state_->fillStyleSource_ = value;
+	state_->fillStyleCached_ = true;
 }
 
 void CanvasRenderingContext2D::setFillStyleRgb565(gea::framework::graphics::pixel::native_t color)
 {
-	fillStyle_ = canvasRgb565(color);
-	fillStyleCached_ = false;
+	state_->fillStyle_ = canvasRgb565(color);
+	state_->fillStyleCached_ = false;
 }
 
 void CanvasRenderingContext2D::setStrokeStyle(const std::string &value)
 {
-	if (strokeStyleCached_ && value == strokeStyleSource_) return;
-	strokeStyle_ = parseCanvasColor(value);
-	strokeStyleSource_ = value;
-	strokeStyleCached_ = true;
+	if (state_->strokeStyleCached_ && value == state_->strokeStyleSource_) return;
+	state_->strokeStyle_ = parseCanvasColor(value);
+	state_->strokeStyleSource_ = value;
+	state_->strokeStyleCached_ = true;
 }
 
 void CanvasRenderingContext2D::setStrokeStyleRgb565(gea::framework::graphics::pixel::native_t color)
 {
-	strokeStyle_ = canvasRgb565(color);
-	strokeStyleCached_ = false;
+	state_->strokeStyle_ = canvasRgb565(color);
+	state_->strokeStyleCached_ = false;
 }
 
-void CanvasRenderingContext2D::setGlobalAlpha(double alpha) { globalAlpha_ = alphaFromUnit(alpha); }
-void CanvasRenderingContext2D::setLineWidth(double width) { if (std::isfinite(width) && width > 0.0) lineWidth_ = width; }
-void CanvasRenderingContext2D::setFont(const std::string &font) { lastFontStr_ = font; fontScale_ = fontScaleFromCss(font); fontSizePx_ = fontPxFromCss(font); }
+void CanvasRenderingContext2D::setGlobalAlpha(double alpha) { state_->globalAlpha_ = alphaFromUnit(alpha); }
+void CanvasRenderingContext2D::setLineWidth(double width) { if (std::isfinite(width) && width > 0.0) state_->lineWidth_ = width; }
+void CanvasRenderingContext2D::setFont(const std::string &font) { state_->lastFontStr_ = font; state_->fontScale_ = fontScaleFromCss(font); state_->fontSizePx_ = fontPxFromCss(font); }
 
 void CanvasRenderingContext2D::clear()
 {
@@ -647,10 +820,10 @@ void CanvasRenderingContext2D::clear()
 
 void CanvasRenderingContext2D::clearRect(int x, int y, int w, int h)
 {
-	const std::uint8_t previousAlpha = globalAlpha_;
-	globalAlpha_ = 255;
+	const std::uint8_t previousAlpha = state_->globalAlpha_;
+	state_->globalAlpha_ = 255;
 	fillRect(x, y, w, h);
-	globalAlpha_ = previousAlpha;
+	state_->globalAlpha_ = previousAlpha;
 }
 
 void CanvasRenderingContext2D::clearRect(double x, double y, double w, double h) { clearRect(rounded(x), rounded(y), rounded(w), rounded(h)); }
@@ -660,10 +833,10 @@ void CanvasRenderingContext2D::fillRect(int x, int y, int w, int h)
 	if (w <= 0 || h <= 0) return;
 	gTotalFillRect++;
 	if (recordingPresentBatch()) {
-		appendPresentFillRect(x, y, w, h, fillStyle_);
+		appendPresentFillRect(x, y, w, h, state_->fillStyle_);
 		return;
 	}
-	gea::platform::display::Display::fillRect(x, y, w, h, fillStyle_);
+	gea::platform::display::Display::fillRect(x, y, w, h, state_->fillStyle_);
 }
 
 void CanvasRenderingContext2D::fillRect(double x, double y, double w, double h) { fillRect(rounded(x), rounded(y), rounded(w), rounded(h)); }
@@ -671,24 +844,24 @@ void CanvasRenderingContext2D::fillRect(double x, double y, double w, double h) 
 void CanvasRenderingContext2D::strokeRect(int x, int y, int w, int h)
 {
 	if (recordingPresentBatch()) {
-		appendPresentStrokeRect(x, y, w, h, strokeStyle_);
+		appendPresentStrokeRect(x, y, w, h, state_->strokeStyle_);
 		return;
 	}
-	gea::platform::display::Display::strokeRect(x, y, w, h, strokeStyle_);
+	gea::platform::display::Display::strokeRect(x, y, w, h, state_->strokeStyle_);
 }
 
 void CanvasRenderingContext2D::strokeRect(double x, double y, double w, double h) { strokeRect(rounded(x), rounded(y), rounded(w), rounded(h)); }
 
-void CanvasRenderingContext2D::fillCircle(int x, int y, int radius) { fillCircleRgb565(x, y, radius, fillStyle_); }
+void CanvasRenderingContext2D::fillCircle(int x, int y, int radius) { fillCircleRgb565(x, y, radius, state_->fillStyle_); }
 void CanvasRenderingContext2D::fillCircle(double x, double y, double radius) { fillCircle(rounded(x), rounded(y), rounded(radius)); }
 
 void CanvasRenderingContext2D::strokeCircle(int x, int y, int radius)
 {
 	if (recordingPresentBatch()) {
-		appendPresentStrokeCircle(x, y, radius, strokeStyle_);
+		appendPresentStrokeCircle(x, y, radius, state_->strokeStyle_);
 		return;
 	}
-	gea::platform::display::Display::strokeCircle(x, y, radius, strokeStyle_);
+	gea::platform::display::Display::strokeCircle(x, y, radius, state_->strokeStyle_);
 }
 
 void CanvasRenderingContext2D::strokeCircle(double x, double y, double radius) { strokeCircle(rounded(x), rounded(y), rounded(radius)); }
@@ -721,14 +894,14 @@ void CanvasRenderingContext2D::fillTriangleRgb565(double x0, double y0, double x
 	fillTriangleRgb565(rounded(x0), rounded(y0), rounded(x1), rounded(y1), rounded(x2), rounded(y2), color);
 }
 
-void CanvasRenderingContext2D::fillTrianglesRgb565Sorted(const std::vector<std::int32_t> &x0s,
-                                                         const std::vector<std::int32_t> &y0s,
-                                                         const std::vector<std::int32_t> &x1s,
-                                                         const std::vector<std::int32_t> &y1s,
-                                                         const std::vector<std::int32_t> &x2s,
-                                                         const std::vector<std::int32_t> &y2s,
-                                                         const std::vector<std::uint32_t> &colors,
-                                                         const std::vector<std::int32_t> &order,
+void CanvasRenderingContext2D::fillTrianglesRgb565Sorted(const CanvasNumericArrayView &x0s,
+                                                         const CanvasNumericArrayView &y0s,
+                                                         const CanvasNumericArrayView &x1s,
+                                                         const CanvasNumericArrayView &y1s,
+                                                         const CanvasNumericArrayView &x2s,
+                                                         const CanvasNumericArrayView &y2s,
+                                                         const CanvasNumericArrayView &colors,
+                                                         const CanvasNumericArrayView &order,
                                                          int count)
 {
 	if (recordingPresentBatch()) appendPresentTriangles(x0s, y0s, x1s, y1s, x2s, y2s, colors, order, count);
@@ -742,13 +915,13 @@ void CanvasRenderingContext2D::fillCirclesRgb565(const std::vector<std::uint16_t
 void CanvasRenderingContext2D::fillCirclesRgb565(const std::vector<std::int32_t> &, const std::vector<std::int32_t> &, int, gea::framework::graphics::pixel::native_t) {}
 void CanvasRenderingContext2D::fillCirclesRgb565(const std::vector<std::uint16_t> &xs, const std::vector<std::uint16_t> &ys, int radius, gea::framework::graphics::pixel::native_t color) { if (recordingPresentBatch()) appendPresentCirclesUniform(xs, ys, radius, color); }
 
-void CanvasRenderingContext2D::beginPath() { pathX_.clear(); pathY_.clear(); pathStarts_.clear(); hasArc_ = false; pathClosed_ = false; }
-void CanvasRenderingContext2D::arc(double x, double y, double radius, double, double) { arcX_ = x; arcY_ = y; arcRadius_ = radius; hasArc_ = true; }
-void CanvasRenderingContext2D::moveTo(double x, double y) { pathStarts_.push_back(static_cast<int>(pathX_.size())); pathX_.push_back(x); pathY_.push_back(y); }
-void CanvasRenderingContext2D::lineTo(double x, double y) { pathX_.push_back(x); pathY_.push_back(y); }
-void CanvasRenderingContext2D::closePath() { pathClosed_ = true; }
-void CanvasRenderingContext2D::fill() { if (hasArc_) fillCircle(arcX_, arcY_, arcRadius_); }
-void CanvasRenderingContext2D::stroke() { if (hasArc_) strokeCircle(arcX_, arcY_, arcRadius_); }
+void CanvasRenderingContext2D::beginPath() { state_->pathX_.clear(); state_->pathY_.clear(); state_->pathStarts_.clear(); state_->hasArc_ = false; state_->pathClosed_ = false; }
+void CanvasRenderingContext2D::arc(double x, double y, double radius, double, double) { state_->arcX_ = x; state_->arcY_ = y; state_->arcRadius_ = radius; state_->hasArc_ = true; }
+void CanvasRenderingContext2D::moveTo(double x, double y) { state_->pathStarts_.push_back(static_cast<int>(state_->pathX_.size())); state_->pathX_.push_back(x); state_->pathY_.push_back(y); }
+void CanvasRenderingContext2D::lineTo(double x, double y) { state_->pathX_.push_back(x); state_->pathY_.push_back(y); }
+void CanvasRenderingContext2D::closePath() { state_->pathClosed_ = true; }
+void CanvasRenderingContext2D::fill() { if (state_->hasArc_) fillCircle(state_->arcX_, state_->arcY_, state_->arcRadius_); }
+void CanvasRenderingContext2D::stroke() { if (state_->hasArc_) strokeCircle(state_->arcX_, state_->arcY_, state_->arcRadius_); }
 void CanvasRenderingContext2D::fillText(const std::string &, int, int) {}
 void CanvasRenderingContext2D::fillText(const std::string &text, double x, double y) { fillText(text, rounded(x), rounded(y)); }
 // Images on the direct path record a present command like every other
@@ -771,6 +944,24 @@ void CanvasRenderingContext2D::drawImage(int imageId, int dx, int dy)
 	gCanvasPerfStats.drawImageUs += nowUs() - started;
 }
 void CanvasRenderingContext2D::drawImage(int imageId, double x, double y) { drawImage(imageId, rounded(x), rounded(y)); }
+void CanvasRenderingContext2D::drawPixelRows(const gea::framework::graphics::pixel::native_t *pixels, int stride, int width, int height, int dx, int dy)
+{
+	if (!pixels || width <= 0 || height <= 0 || stride < width) return;
+	if (!recordingPresentBatch()) return;
+	const std::uint8_t previousAlpha = state_->globalAlpha_;
+	state_->globalAlpha_ = 255;
+	for (int row = 0; row < height; ++row)
+		appendPresentDrawImage(pixels + static_cast<std::size_t>(row) * static_cast<std::size_t>(stride), nullptr, width, 1, dx, dy + row);
+	state_->globalAlpha_ = previousAlpha;
+}
+void CanvasRenderingContext2D::putImage(int imageId, int dx, int dy)
+{
+	// putImageData replaces the destination pixels: globalAlpha does not apply.
+	const std::uint8_t previousAlpha = state_->globalAlpha_;
+	state_->globalAlpha_ = 255;
+	drawImage(imageId, dx, dy);
+	state_->globalAlpha_ = previousAlpha;
+}
 void CanvasRenderingContext2D::drawImage(int imageId, int dx, int dy, int dw, int dh)
 {
 	gTotalDrawImage++;
@@ -794,7 +985,7 @@ double CanvasRenderingContext2D::measureTextInkCenter(const std::string &text)
 	auto *surface = drawingCanvas();
 	if (!surface) surface = canvas();
 	if (!surface) return 0.0;
-	return static_cast<double>(surface->measureTextInkCenterFontFamily(text.c_str(), fontFamilyId_, fontSizePx_));
+	return static_cast<double>(surface->measureTextInkCenterFontFamily(text.c_str(), state_->fontFamilyId_, state_->fontSizePx_));
 }
 
 double CanvasRenderingContext2D::measureText(const std::string &text)
@@ -802,7 +993,7 @@ double CanvasRenderingContext2D::measureText(const std::string &text)
 	auto *surface = drawingCanvas();
 	if (!surface) surface = canvas();
 	if (!surface) return 0.0;
-	return static_cast<double>(surface->measureTextFontFamily(text.c_str(), fontFamilyId_, fontSizePx_));
+	return static_cast<double>(surface->measureTextFontFamily(text.c_str(), state_->fontFamilyId_, state_->fontSizePx_));
 }
 
 void CanvasRenderingContext2D::drawImageCircle(int imageId, int dx, int dy, int dw, int dh)
@@ -829,27 +1020,27 @@ void CanvasRenderingContext2D::beginBatch()
 {
 	gTotalBeginBatch++;
 	gCanvasPerfStats.batchBeginCalls++;
-	batchDepth_++;
-	if (batchDepth_ != 1) return;
-	batchDirty_ = false;
+	state_->batchDepth_++;
+	if (state_->batchDepth_ != 1) return;
+	state_->batchDirty_ = false;
 	resetPresentCommands();
-	presentRecording_ = true;
+	state_->presentRecording_ = true;
 }
 
 void CanvasRenderingContext2D::endBatch()
 {
 	gTotalEndBatch++;
 	gCanvasPerfStats.batchEndCalls++;
-	if (batchDepth_ <= 0) return;
-	batchDepth_--;
-	if (batchDepth_ > 0) return;
-	if (batchDirty_) {
+	if (state_->batchDepth_ <= 0) return;
+	state_->batchDepth_--;
+	if (state_->batchDepth_ > 0) return;
+	if (state_->batchDirty_) {
 		gCanvasPerfStats.batchFlushCalls++;
 		(void)presentBatch();
 	}
 	resetPresentCommands();
-	presentRecording_ = false;
-	batchDirty_ = false;
+	state_->presentRecording_ = false;
+	state_->batchDirty_ = false;
 }
 
 void CanvasRenderer::record(const Node &) {}
@@ -858,7 +1049,10 @@ void CanvasRenderer::record(const Node &) {}
 
 CanvasElement CanvasElement::create()
 {
-	return CanvasElement(Tree::instance().createCanvas());
+	const int id = Tree::instance().createCanvas();
+	// A recycled node id must not inherit the previous canvas's styles or batch.
+	CanvasRenderingContext2D::releaseState(id);
+	return CanvasElement(id);
 }
 
 CanvasRenderingContext2D CanvasElement::getContext2D() const
@@ -871,8 +1065,8 @@ gea::framework::graphics::Canvas *CanvasRenderingContext2D::canvas()
 	const std::int64_t started = nowUs();
 	gCanvasPerfStats.canvasLookupCalls++;
 	gea::framework::graphics::Canvas *result = nullptr;
-	if (batchCanvas_) {
-		result = batchCanvas_;
+	if (state_->batchCanvas_) {
+		result = state_->batchCanvas_;
 	} else if (nodeId_ >= 0) {
 		result = Tree::instance().ensureCanvas(nodeId_);
 	}
@@ -882,24 +1076,24 @@ gea::framework::graphics::Canvas *CanvasRenderingContext2D::canvas()
 
 gea::framework::graphics::Canvas *CanvasRenderingContext2D::drawingCanvas()
 {
-	if (presentRecording_) {
+	if (state_->presentRecording_) {
 			auto *surface = canvas();
 			if (surface) {
 				replayPresentBatchToCanvas(*surface);
 				resetPresentCommands();
-				presentRecording_ = false;
-				batchCanvas_ = surface;
-				batchDirty_ = true;
+				state_->presentRecording_ = false;
+				state_->batchCanvas_ = surface;
+				state_->batchDirty_ = true;
 		}
 		return surface;
 	}
-	if (batchCanvas_) return batchCanvas_;
+	if (state_->batchCanvas_) return state_->batchCanvas_;
 	return canvas();
 }
 
 bool CanvasRenderingContext2D::recordingPresentBatch() const
 {
-	return presentRecording_ && batchDepth_ > 0 && nodeId_ >= 0;
+	return state_->presentRecording_ && state_->batchDepth_ > 0 && nodeId_ >= 0;
 }
 
 void CanvasRenderingContext2D::appendPresentClear(gea::framework::graphics::pixel::native_t color)
@@ -907,7 +1101,7 @@ void CanvasRenderingContext2D::appendPresentClear(gea::framework::graphics::pixe
 	resetPresentCommands();
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::Clear);
 	command.clearColor = color;
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillRect(int x, int y, int w, int h, gea::framework::graphics::pixel::native_t color)
@@ -919,8 +1113,8 @@ void CanvasRenderingContext2D::appendPresentFillRect(int x, int y, int w, int h,
 	command.w = w;
 	command.h = h;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentStrokeRect(int x, int y, int w, int h, gea::framework::graphics::pixel::native_t color)
@@ -932,8 +1126,8 @@ void CanvasRenderingContext2D::appendPresentStrokeRect(int x, int y, int w, int 
 	command.w = w;
 	command.h = h;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillTriangle(int x0,
@@ -952,8 +1146,8 @@ void CanvasRenderingContext2D::appendPresentFillTriangle(int x0,
 	command.x2 = x2;
 	command.y2 = y2;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillCircle(int x, int y, int radius, gea::framework::graphics::pixel::native_t color)
@@ -964,8 +1158,8 @@ void CanvasRenderingContext2D::appendPresentFillCircle(int x, int y, int radius,
 	command.y = y;
 	command.radius = radius;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentStrokeCircle(int x, int y, int radius, gea::framework::graphics::pixel::native_t color)
@@ -976,8 +1170,8 @@ void CanvasRenderingContext2D::appendPresentStrokeCircle(int x, int y, int radiu
 	command.y = y;
 	command.radius = radius;
 	command.color = color;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 // Pointer + count forms (standard, non-direct-canvas variant). No temporary
@@ -993,11 +1187,11 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::uint16_t *xs,
 	const std::size_t limit = static_cast<std::size_t>(count);
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillCirclesRgb565);
 	command.radius = radius;
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.xs.assign(xs, xs + limit);
 	command.ys.assign(ys, ys + limit);
 	command.colors.assign(colors, colors + limit);
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCircles(const std::uint16_t *xs,
@@ -1010,12 +1204,12 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::uint16_t *xs,
 	const std::size_t limit = static_cast<std::size_t>(count);
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillCirclesRgb565);
 	command.radius = radius;
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.xs.assign(xs, xs + limit);
 	command.ys.assign(ys, ys + limit);
 	command.colors.resize(limit);
 	for (std::size_t i = 0; i < limit; ++i) command.colors[i] = colors[i].value;
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::fillCirclesRgb565(const std::uint16_t *xs,
@@ -1073,8 +1267,8 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint1
 	command.xs.assign(xs.begin(), xs.begin() + static_cast<std::ptrdiff_t>(count_));
 	command.ys.assign(ys.begin(), ys.begin() + static_cast<std::ptrdiff_t>(count_));
 	command.colors.assign(colors.begin(), colors.begin() + static_cast<std::ptrdiff_t>(count_));
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint16_t> &xs,
@@ -1095,8 +1289,8 @@ void CanvasRenderingContext2D::appendPresentCircles(const std::vector<std::uint1
 	command.ys.assign(ys.begin(), ys.begin() + static_cast<std::ptrdiff_t>(limit));
 	command.colors.resize(limit);
 	for (std::size_t i = 0; i < limit; ++i) command.colors[i] = colors[i].value;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentCirclesUniform(const std::vector<std::uint16_t> &xs,
@@ -1113,56 +1307,48 @@ void CanvasRenderingContext2D::appendPresentCirclesUniform(const std::vector<std
 	command.xs.assign(xs.begin(), xs.begin() + static_cast<std::ptrdiff_t>(count));
 	command.ys.assign(ys.begin(), ys.begin() + static_cast<std::ptrdiff_t>(count));
 	command.colors.assign(count, color);
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
-void CanvasRenderingContext2D::appendPresentTriangles(const std::vector<std::int32_t> &x0s,
-                                                      const std::vector<std::int32_t> &y0s,
-                                                      const std::vector<std::int32_t> &x1s,
-                                                      const std::vector<std::int32_t> &y1s,
-                                                      const std::vector<std::int32_t> &x2s,
-                                                      const std::vector<std::int32_t> &y2s,
-                                                      const std::vector<std::uint32_t> &colors,
-                                                      const std::vector<std::int32_t> &order,
+void CanvasRenderingContext2D::appendPresentTriangles(const CanvasNumericArrayView &x0s,
+                                                      const CanvasNumericArrayView &y0s,
+                                                      const CanvasNumericArrayView &x1s,
+                                                      const CanvasNumericArrayView &y1s,
+                                                      const CanvasNumericArrayView &x2s,
+                                                      const CanvasNumericArrayView &y2s,
+                                                      const CanvasNumericArrayView &colors,
+                                                      const CanvasNumericArrayView &order,
                                                       int count)
 {
-	std::size_t limit = std::min({x0s.size(), y0s.size(), x1s.size(), y1s.size(), x2s.size(), y2s.size(), colors.size(), order.size()});
+	const std::size_t sourceSize = std::min({x0s.size(), y0s.size(), x1s.size(), y1s.size(), x2s.size(), y2s.size(), colors.size()});
+	std::size_t limit = std::min(sourceSize, order.size());
 	if (count >= 0) limit = std::min(limit, static_cast<std::size_t>(count));
 	if (limit == 0) return;
 	using gea::framework::graphics::TriangleEntry;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::FillTrianglesRgb565);
-	command.alpha = globalAlpha_;
+	command.alpha = state_->globalAlpha_;
 	command.triangles.resize(limit);
-	const std::int32_t *px0 = x0s.data();
-	const std::int32_t *py0 = y0s.data();
-	const std::int32_t *px1 = x1s.data();
-	const std::int32_t *py1 = y1s.data();
-	const std::int32_t *px2 = x2s.data();
-	const std::int32_t *py2 = y2s.data();
-	const std::uint32_t *pcolors = colors.data();
-	const std::int32_t *porder = order.data();
 	TriangleEntry *dst = command.triangles.data();
-	const std::size_t sourceSize = x0s.size();
 	for (std::size_t i = 0; i < limit; i++) {
-		const std::int32_t rawIndex = porder[i];
+		const std::int64_t rawIndex = order.truncated(i);
 		const std::size_t o = rawIndex >= 0 && static_cast<std::size_t>(rawIndex) < sourceSize
 			? static_cast<std::size_t>(rawIndex)
 			: 0;
 		TriangleEntry &t = dst[i];
-		t.x0 = static_cast<std::int16_t>(px0[o]);
-		t.y0 = static_cast<std::int16_t>(py0[o]);
-		t.x1 = static_cast<std::int16_t>(px1[o]);
-		t.y1 = static_cast<std::int16_t>(py1[o]);
-		t.x2 = static_cast<std::int16_t>(px2[o]);
-		t.y2 = static_cast<std::int16_t>(py2[o]);
-		t.color = gea::framework::graphics::pixel::nativeFromRrggbbaa(pcolors[o]);
+		t.x0 = static_cast<std::int16_t>(x0s[o]);
+		t.y0 = static_cast<std::int16_t>(y0s[o]);
+		t.x1 = static_cast<std::int16_t>(x1s[o]);
+		t.y1 = static_cast<std::int16_t>(y1s[o]);
+		t.x2 = static_cast<std::int16_t>(x2s[o]);
+		t.y2 = static_cast<std::int16_t>(y2s[o]);
+		t.color = gea::framework::graphics::pixel::nativeFromRrggbbaa(colors.truncated(o));
 		const std::int16_t lo01 = t.y0 < t.y1 ? t.y0 : t.y1;
 		const std::int16_t hi01 = t.y0 > t.y1 ? t.y0 : t.y1;
 		t.rowY0 = lo01 < t.y2 ? lo01 : t.y2;
 		t.rowY1 = hi01 > t.y2 ? hi01 : t.y2;
 	}
-	batchDirty_ = true;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentDrawImage(const gea::framework::graphics::pixel::native_t *pixels,
@@ -1174,14 +1360,16 @@ void CanvasRenderingContext2D::appendPresentDrawImage(const gea::framework::grap
 {
 	if (!pixels || srcWidth <= 0 || srcHeight <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::DrawImage);
+	command.imageReference = gea::framework::graphics::ImageReference(
+		gea::framework::graphics::ImageStore::instance().idForPixels(pixels));
 	command.pixels = pixels;
 	command.alphaPixels = alphaPixels;
 	command.srcWidth = srcWidth;
 	command.srcHeight = srcHeight;
 	command.x = x;
 	command.y = y;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentDrawImageScaled(const gea::framework::graphics::pixel::native_t *pixels,
@@ -1196,6 +1384,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageScaled(const gea::framework
 {
 	if (!pixels || srcWidth <= 0 || srcHeight <= 0 || w <= 0 || h <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::DrawImageScaled);
+	command.imageReference = gea::framework::graphics::ImageReference(
+		gea::framework::graphics::ImageStore::instance().idForPixels(pixels));
 	command.pixels = pixels;
 	command.alphaPixels = alphaPixels;
 	command.srcWidth = srcWidth;
@@ -1205,8 +1395,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageScaled(const gea::framework
 	command.w = w;
 	command.h = h;
 	command.radius = radius;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentDrawImageRotated90CW(const gea::framework::graphics::pixel::native_t *pixels,
@@ -1220,6 +1410,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageRotated90CW(const gea::fram
 {
 	if (!pixels || srcWidth <= 0 || srcHeight <= 0 || w <= 0 || h <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::DrawImageRotated90CW);
+	command.imageReference = gea::framework::graphics::ImageReference(
+		gea::framework::graphics::ImageStore::instance().idForPixels(pixels));
 	command.pixels = pixels;
 	command.alphaPixels = alphaPixels;
 	command.srcWidth = srcWidth;
@@ -1228,8 +1420,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageRotated90CW(const gea::fram
 	command.y = y;
 	command.w = w;
 	command.h = h;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentDrawImageTiledX(const gea::framework::graphics::pixel::native_t *pixels,
@@ -1242,6 +1434,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageTiledX(const gea::framework
 {
 	if (!pixels || srcWidth <= 0 || srcHeight <= 0 || w <= 0) return;
 	CanvasPresentCommand &command = appendPresentCommand(CanvasPresentCommandType::DrawImageTiledX);
+	command.imageReference = gea::framework::graphics::ImageReference(
+		gea::framework::graphics::ImageStore::instance().idForPixels(pixels));
 	command.pixels = pixels;
 	command.alphaPixels = alphaPixels;
 	command.srcWidth = srcWidth;
@@ -1249,8 +1443,8 @@ void CanvasRenderingContext2D::appendPresentDrawImageTiledX(const gea::framework
 	command.x = x;
 	command.y = y;
 	command.w = w;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::appendPresentFillText(const std::string &text, int x, int y, gea::framework::graphics::pixel::native_t color)
@@ -1261,17 +1455,17 @@ void CanvasRenderingContext2D::appendPresentFillText(const std::string &text, in
 	command.x = x;
 	command.y = y;
 	command.color = color;
-	command.scale = fontScale_;
-	command.fontFamilyId = fontFamilyId_;
-	command.fontSizePx = fontSizePx_;
-	command.alpha = globalAlpha_;
-	batchDirty_ = true;
+	command.scale = state_->fontScale_;
+	command.fontFamilyId = state_->fontFamilyId_;
+	command.fontSizePx = state_->fontSizePx_;
+	command.alpha = state_->globalAlpha_;
+	state_->batchDirty_ = true;
 }
 
 void CanvasRenderingContext2D::replayPresentBatchToCanvas(gea::framework::graphics::Canvas &surface)
 {
-	for (std::size_t commandIndex = 0; commandIndex < presentCommandCount_; ++commandIndex) {
-		const CanvasPresentCommand &command = presentCommands_[commandIndex];
+	for (std::size_t commandIndex = 0; commandIndex < state_->presentCommandCount_; ++commandIndex) {
+		const CanvasPresentCommand &command = state_->presentCommands_[commandIndex];
 		surface.setGlobalAlpha(command.alpha);
 		switch (command.type) {
 		case CanvasPresentCommandType::Clear:
@@ -1340,44 +1534,49 @@ void CanvasRenderingContext2D::replayPresentBatchToCanvas(gea::framework::graphi
 			break;
 		}
 	}
-	surface.setGlobalAlpha(globalAlpha_);
+	surface.setGlobalAlpha(state_->globalAlpha_);
 }
 
-bool CanvasRenderingContext2D::presentBatch()
+std::vector<gea::platform::display::DisplayPresentCommand>
+CanvasRenderingContext2D::displayPresentCommands() const
 {
-	if (presentCommandCount_ == 0) return false;
-	gTotalPresentBatchOk++;
 
 	std::vector<gea::platform::display::DisplayPresentCommand> commands;
-	commands.reserve(presentCommandCount_);
-	for (std::size_t commandIndex = 0; commandIndex < presentCommandCount_; ++commandIndex) {
-		const CanvasPresentCommand &command = presentCommands_[commandIndex];
+	commands.reserve(state_->presentCommandCount_);
+	for (std::size_t commandIndex = 0; commandIndex < state_->presentCommandCount_; ++commandIndex)
+	{
+		const CanvasPresentCommand &command = state_->presentCommands_[commandIndex];
 		gea::platform::display::DisplayPresentCommand displayCommand{};
-		switch (command.type) {
+		switch (command.type)
+		{
 		case CanvasPresentCommandType::Clear:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::Clear;
 			displayCommand.clear.color = command.clearColor;
 			break;
 		case CanvasPresentCommandType::FillRectRgb565:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::FillRectRgb565;
-			displayCommand.fillRectRgb565 = {command.x, command.y, command.w, command.h, command.color, command.alpha};
+			displayCommand.fillRectRgb565 = {command.x, command.y,	   command.w,
+											 command.h, command.color, command.alpha};
 			break;
 		case CanvasPresentCommandType::StrokeRectRgb565:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::StrokeRectRgb565;
-			displayCommand.strokeRectRgb565 = {command.x, command.y, command.w, command.h, command.color, command.alpha};
+			displayCommand.strokeRectRgb565 = {command.x, command.y,	 command.w,
+											   command.h, command.color, command.alpha};
 			break;
 		case CanvasPresentCommandType::FillTriangleRgb565:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::FillTriangleRgb565;
-			displayCommand.fillTriangleRgb565 = {
-				command.x0, command.y0, command.x1, command.y1, command.x2, command.y2, command.color, command.alpha};
+			displayCommand.fillTriangleRgb565 = {command.x0, command.y0, command.x1,	command.y1,
+												 command.x2, command.y2, command.color, command.alpha};
 			break;
 		case CanvasPresentCommandType::FillCircleRgb565:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::FillCircleRgb565;
-			displayCommand.fillCircleRgb565 = {command.x, command.y, command.radius, command.color, command.alpha};
+			displayCommand.fillCircleRgb565 = {command.x, command.y, command.radius, command.color,
+											   command.alpha};
 			break;
 		case CanvasPresentCommandType::StrokeCircleRgb565:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::StrokeCircleRgb565;
-			displayCommand.strokeCircleRgb565 = {command.x, command.y, command.radius, command.color, command.alpha};
+			displayCommand.strokeCircleRgb565 = {command.x, command.y, command.radius, command.color,
+												 command.alpha};
 			break;
 		case CanvasPresentCommandType::FillCirclesRgb565:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::FillCirclesRgb565;
@@ -1396,48 +1595,60 @@ bool CanvasRenderingContext2D::presentBatch()
 			break;
 		case CanvasPresentCommandType::DrawImage:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::DrawImage;
-			displayCommand.drawImage = {
-				command.pixels, command.alphaPixels, command.srcWidth, command.srcHeight, command.x, command.y, command.alpha};
+			displayCommand.drawImage = {command.pixels,	   command.alphaPixels, command.srcWidth,
+										command.srcHeight, command.x,			command.y,
+										command.alpha};
 			break;
 		case CanvasPresentCommandType::DrawImageScaled:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::DrawImageScaled;
 			displayCommand.drawImageScaled = {
-				command.pixels, command.alphaPixels, command.srcWidth, command.srcHeight,
-				command.x, command.y, command.w, command.h, command.alpha, command.radius};
+				command.pixels, command.alphaPixels, command.srcWidth, command.srcHeight, command.x,
+				command.y,		command.w,			 command.h,		   command.alpha,	  command.radius};
 			break;
 		case CanvasPresentCommandType::DrawImageRotated90CW:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::DrawImageRotated90CW;
-			displayCommand.drawImageRotated90CW = {
-				command.pixels, command.alphaPixels, command.srcWidth, command.srcHeight,
-				command.x, command.y, command.w, command.h, command.alpha};
+			displayCommand.drawImageRotated90CW = {command.pixels,	  command.alphaPixels, command.srcWidth,
+												   command.srcHeight, command.x,		   command.y,
+												   command.w,		  command.h,		   command.alpha};
 			break;
 		case CanvasPresentCommandType::DrawImageTiledX:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::DrawImageTiledX;
-			displayCommand.drawImageTiledX = {
-				command.pixels, command.alphaPixels, command.srcWidth, command.srcHeight, command.x, command.y, command.w, command.alpha};
+			displayCommand.drawImageTiledX = {command.pixels,	 command.alphaPixels, command.srcWidth,
+											  command.srcHeight, command.x,			  command.y,
+											  command.w,		 command.alpha};
 			break;
 		case CanvasPresentCommandType::FillText:
 			displayCommand.type = gea::platform::display::DisplayPresentCommandType::FillText;
-			displayCommand.fillText = {command.text.c_str(), command.x, command.y, command.color, command.scale,
-			                           command.fontFamilyId, command.fontSizePx, command.alpha};
+			displayCommand.fillText = {command.text.c_str(), command.x,		command.y,
+									   command.color,		 command.scale, command.fontFamilyId,
+									   command.fontSizePx,	 command.alpha};
 			break;
 		}
 		commands.push_back(displayCommand);
 	}
+	return commands;
+}
+
+bool CanvasRenderingContext2D::presentBatch()
+{
+	if (state_->presentCommandCount_ == 0)
+		return false;
+	gTotalPresentBatchOk++;
+	auto commands = displayPresentCommands();
 	return gea::platform::display::Display::present(commands.data(), static_cast<int>(commands.size()));
 }
 
 void CanvasRenderingContext2D::applyDrawState(gea::framework::graphics::Canvas &surface) const
 {
-	surface.setGlobalAlpha(globalAlpha_);
+	surface.setGlobalAlpha(state_->globalAlpha_);
 }
 
 void CanvasRenderingContext2D::markDirty()
 {
 	const std::int64_t started = nowUs();
 	gCanvasPerfStats.markDirtyCalls++;
-	if (batchDepth_ > 0) {
-		batchDirty_ = true;
+	if (state_->batchDepth_ > 0) {
+		state_->batchDirty_ = true;
 		gCanvasPerfStats.markDirtyUs += nowUs() - started;
 		return;
 	}
@@ -1447,8 +1658,8 @@ void CanvasRenderingContext2D::markDirty()
 
 void CanvasRenderingContext2D::markDrawDirty()
 {
-	if (batchDepth_ > 0) {
-		batchDirty_ = true;
+	if (state_->batchDepth_ > 0) {
+		state_->batchDirty_ = true;
 		return;
 	}
 	markDirty();
@@ -1456,59 +1667,59 @@ void CanvasRenderingContext2D::markDrawDirty()
 
 void CanvasRenderingContext2D::setFillStyle(const std::string &value)
 {
-	if (fillStyleCached_ && value == fillStyleSource_) return;
-	fillStyle_ = parseCanvasColor(value);
-	fillStyleSource_ = value;
-	fillStyleCached_ = true;
+	if (state_->fillStyleCached_ && value == state_->fillStyleSource_) return;
+	state_->fillStyle_ = parseCanvasColor(value);
+	state_->fillStyleSource_ = value;
+	state_->fillStyleCached_ = true;
 }
 
 void CanvasRenderingContext2D::setFillStyleRgb565(gea::framework::graphics::pixel::native_t color)
 {
-	fillStyle_ = canvasRgb565(color);
-	fillStyleCached_ = false;
+	state_->fillStyle_ = canvasRgb565(color);
+	state_->fillStyleCached_ = false;
 }
 
 void CanvasRenderingContext2D::setStrokeStyle(const std::string &value)
 {
-	if (strokeStyleCached_ && value == strokeStyleSource_) return;
-	strokeStyle_ = parseCanvasColor(value);
-	strokeStyleSource_ = value;
-	strokeStyleCached_ = true;
+	if (state_->strokeStyleCached_ && value == state_->strokeStyleSource_) return;
+	state_->strokeStyle_ = parseCanvasColor(value);
+	state_->strokeStyleSource_ = value;
+	state_->strokeStyleCached_ = true;
 }
 
 void CanvasRenderingContext2D::setStrokeStyleRgb565(gea::framework::graphics::pixel::native_t color)
 {
-	strokeStyle_ = canvasRgb565(color);
-	strokeStyleCached_ = false;
+	state_->strokeStyle_ = canvasRgb565(color);
+	state_->strokeStyleCached_ = false;
 }
 
 void CanvasRenderingContext2D::setGlobalAlpha(double alpha)
 {
-	globalAlpha_ = alphaFromUnit(alpha);
+	state_->globalAlpha_ = alphaFromUnit(alpha);
 }
 
 void CanvasRenderingContext2D::setLineWidth(double width)
 {
 	if (!std::isfinite(width) || width <= 0.0) return;
-	lineWidth_ = width;
+	state_->lineWidth_ = width;
 }
 
 void CanvasRenderingContext2D::setFont(const std::string &font)
 {
 	// Re-setting the same font (common: a per-frame FPS/HUD readout) is a no-op —
 	// skip the CSS parse + FontRegistry family/atlas lookups entirely.
-	if (font == lastFontStr_) return;
-	lastFontStr_ = font;
-	fontScale_ = fontScaleFromCss(font);
+	if (font == state_->lastFontStr_) return;
+	state_->lastFontStr_ = font;
+	state_->fontScale_ = fontScaleFromCss(font);
 	const int px = fontPxFromCss(font);
-	if (px > 0) fontSizePx_ = px;
+	if (px > 0) state_->fontSizePx_ = px;
 	const std::string family = fontFamilyFromCss(font);
-	fontFamilyId_ = family.empty() ? -1 : gea::framework::graphics::FontRegistry::familyId(family.c_str());
+	state_->fontFamilyId_ = family.empty() ? -1 : gea::framework::graphics::FontRegistry::familyId(family.c_str());
 	// Only commit to the baked path when an atlas actually exists near this
 	// size; otherwise stay on the scaled bitmap font.
-	if (fontFamilyId_ >= 0 &&
-	    !gea::framework::graphics::FontRegistry::rasterizedFamily(fontFamilyId_, fontSizePx_).valid()) {
-		fontFamilyId_ = -1;
+	if (state_->fontFamilyId_ >= 0 &&
+	    !gea::framework::graphics::FontRegistry::rasterizedFamily(state_->fontFamilyId_, state_->fontSizePx_).valid()) {
+		state_->fontFamilyId_ = -1;
 	}
 }
 
@@ -1526,10 +1737,10 @@ void CanvasRenderingContext2D::clear()
 void CanvasRenderingContext2D::clearRect(int x, int y, int w, int h)
 {
 	if (recordingPresentBatch()) {
-		const std::uint8_t previousAlpha = globalAlpha_;
-		globalAlpha_ = 255;
+		const std::uint8_t previousAlpha = state_->globalAlpha_;
+		state_->globalAlpha_ = 255;
 		appendPresentFillRect(x, y, w, h, 0);
-		globalAlpha_ = previousAlpha;
+		state_->globalAlpha_ = previousAlpha;
 		return;
 	}
 	auto *surface = drawingCanvas();
@@ -1552,7 +1763,7 @@ void CanvasRenderingContext2D::fillRect(int x, int y, int w, int h)
 	if (recordingPresentBatch()) {
 		const std::int64_t started = nowUs();
 		gCanvasPerfStats.fillRectCalls++;
-		appendPresentFillRect(x, y, w, h, fillStyle_);
+		appendPresentFillRect(x, y, w, h, state_->fillStyle_);
 		gCanvasPerfStats.fillRectUs += nowUs() - started;
 		return;
 	}
@@ -1561,7 +1772,7 @@ void CanvasRenderingContext2D::fillRect(int x, int y, int w, int h)
 	const std::int64_t started = nowUs();
 	gCanvasPerfStats.fillRectCalls++;
 	applyDrawState(*surface);
-	surface->fillRect(x, y, w, h, fillStyle_);
+	surface->fillRect(x, y, w, h, state_->fillStyle_);
 	gCanvasPerfStats.fillRectUs += nowUs() - started;
 	markDrawDirty();
 }
@@ -1574,13 +1785,13 @@ void CanvasRenderingContext2D::fillRect(double x, double y, double w, double h)
 void CanvasRenderingContext2D::strokeRect(int x, int y, int w, int h)
 {
 	if (recordingPresentBatch()) {
-		appendPresentStrokeRect(x, y, w, h, strokeStyle_);
+		appendPresentStrokeRect(x, y, w, h, state_->strokeStyle_);
 		return;
 	}
 	auto *surface = drawingCanvas();
 	if (!surface) return;
 	applyDrawState(*surface);
-	surface->strokeRect(x, y, w, h, strokeStyle_);
+	surface->strokeRect(x, y, w, h, state_->strokeStyle_);
 	markDrawDirty();
 }
 
@@ -1594,7 +1805,7 @@ void CanvasRenderingContext2D::fillCircle(int x, int y, int radius)
 	if (recordingPresentBatch()) {
 		const std::int64_t started = nowUs();
 		gCanvasPerfStats.fillCircleCalls++;
-		appendPresentFillCircle(x, y, radius, fillStyle_);
+		appendPresentFillCircle(x, y, radius, state_->fillStyle_);
 		gCanvasPerfStats.fillCircleUs += nowUs() - started;
 		return;
 	}
@@ -1603,7 +1814,7 @@ void CanvasRenderingContext2D::fillCircle(int x, int y, int radius)
 	const std::int64_t started = nowUs();
 	gCanvasPerfStats.fillCircleCalls++;
 	applyDrawState(*surface);
-	surface->fillCircle(x, y, radius, fillStyle_);
+	surface->fillCircle(x, y, radius, state_->fillStyle_);
 	gCanvasPerfStats.fillCircleUs += nowUs() - started;
 	markDrawDirty();
 }
@@ -1616,13 +1827,13 @@ void CanvasRenderingContext2D::fillCircle(double x, double y, double radius)
 void CanvasRenderingContext2D::strokeCircle(int x, int y, int radius)
 {
 	if (recordingPresentBatch()) {
-		appendPresentStrokeCircle(x, y, radius, strokeStyle_);
+		appendPresentStrokeCircle(x, y, radius, state_->strokeStyle_);
 		return;
 	}
 	auto *surface = drawingCanvas();
 	if (!surface) return;
 	applyDrawState(*surface);
-	surface->strokeCircle(x, y, radius, strokeStyle_);
+	surface->strokeCircle(x, y, radius, state_->strokeStyle_);
 	markDrawDirty();
 }
 
@@ -1691,17 +1902,18 @@ void CanvasRenderingContext2D::fillTriangleRgb565(double x0,
 	fillTriangleRgb565(rounded(x0), rounded(y0), rounded(x1), rounded(y1), rounded(x2), rounded(y2), color);
 }
 
-void CanvasRenderingContext2D::fillTrianglesRgb565Sorted(const std::vector<std::int32_t> &x0s,
-                                                         const std::vector<std::int32_t> &y0s,
-                                                         const std::vector<std::int32_t> &x1s,
-                                                         const std::vector<std::int32_t> &y1s,
-                                                         const std::vector<std::int32_t> &x2s,
-                                                         const std::vector<std::int32_t> &y2s,
-                                                         const std::vector<std::uint32_t> &colors,
-                                                         const std::vector<std::int32_t> &order,
+void CanvasRenderingContext2D::fillTrianglesRgb565Sorted(const CanvasNumericArrayView &x0s,
+                                                         const CanvasNumericArrayView &y0s,
+                                                         const CanvasNumericArrayView &x1s,
+                                                         const CanvasNumericArrayView &y1s,
+                                                         const CanvasNumericArrayView &x2s,
+                                                         const CanvasNumericArrayView &y2s,
+                                                         const CanvasNumericArrayView &colors,
+                                                         const CanvasNumericArrayView &order,
                                                          int count)
 {
-	std::size_t limit = std::min({x0s.size(), y0s.size(), x1s.size(), y1s.size(), x2s.size(), y2s.size(), colors.size(), order.size()});
+	const std::size_t sourceSize = std::min({x0s.size(), y0s.size(), x1s.size(), y1s.size(), x2s.size(), y2s.size(), colors.size()});
+	std::size_t limit = std::min(sourceSize, order.size());
 	if (count >= 0) limit = std::min(limit, static_cast<std::size_t>(count));
 	if (limit == 0) return;
 	if (recordingPresentBatch()) {
@@ -1716,14 +1928,13 @@ void CanvasRenderingContext2D::fillTrianglesRgb565Sorted(const std::vector<std::
 	const std::int64_t started = nowUs();
 	gCanvasPerfStats.fillTriangleCalls += static_cast<int>(limit);
 	applyDrawState(*surface);
-	const std::size_t sourceSize = x0s.size();
 	for (std::size_t i = 0; i < limit; i++) {
-		const std::int32_t rawIndex = order[i];
+		const std::int64_t rawIndex = order.truncated(i);
 		const std::size_t o = rawIndex >= 0 && static_cast<std::size_t>(rawIndex) < sourceSize
 			? static_cast<std::size_t>(rawIndex)
 			: 0;
 		surface->fillTriangle(x0s[o], y0s[o], x1s[o], y1s[o], x2s[o], y2s[o],
-		                      gea::framework::graphics::pixel::nativeFromRrggbbaa(colors[o]));
+		                      gea::framework::graphics::pixel::nativeFromRrggbbaa(colors.truncated(o)));
 	}
 	gCanvasPerfStats.fillTriangleUs += nowUs() - started;
 	markDrawDirty();
@@ -1853,47 +2064,48 @@ void CanvasRenderingContext2D::fillCirclesRgb565(const std::vector<std::uint16_t
 
 void CanvasRenderingContext2D::beginPath()
 {
-	hasArc_ = false;
-	pathX_.clear();
-	pathY_.clear();
-	pathStarts_.clear();
-	pathClosed_ = false;
+	state_->hasArc_ = false;
+	state_->pathX_.clear();
+	state_->pathY_.clear();
+	state_->pathStarts_.clear();
+	state_->pathClosed_ = false;
 }
 
 void CanvasRenderingContext2D::arc(double x, double y, double radius, double, double)
 {
-	arcX_ = x;
-	arcY_ = y;
-	arcRadius_ = radius;
-	hasArc_ = true;
+	state_->arcX_ = x;
+	state_->arcY_ = y;
+	state_->arcRadius_ = radius;
+	state_->hasArc_ = true;
 }
 
 void CanvasRenderingContext2D::moveTo(double x, double y)
 {
 	// Standard canvas semantics: moveTo starts a NEW subpath (it does not clear
 	// the path — beginPath does). This lets one path hold many rings.
-	pathStarts_.push_back(static_cast<int>(pathX_.size()));
-	pathX_.push_back(x);
-	pathY_.push_back(y);
-	pathClosed_ = false;
+	state_->pathStarts_.push_back(static_cast<int>(state_->pathX_.size()));
+	state_->pathX_.push_back(x);
+	state_->pathY_.push_back(y);
+	state_->pathClosed_ = false;
 }
 
 void CanvasRenderingContext2D::lineTo(double x, double y)
 {
-	if (pathX_.empty()) moveTo(x, y);
+	if (state_->pathX_.empty()) moveTo(x, y);
 	else {
-		pathX_.push_back(x);
-		pathY_.push_back(y);
+		state_->pathX_.push_back(x);
+		state_->pathY_.push_back(y);
 	}
 }
 
 void CanvasRenderingContext2D::closePath()
 {
-	pathClosed_ = true;
+	state_->pathClosed_ = true;
 }
 
 void CanvasRenderingContext2D::fill()
 {
+	prepareBitmapOnlyDraw();
 	// Batch-aware (mirrors fillRect): when recording a present batch the spans
 	// are appended as present commands so they actually reach the display; only
 	// outside a batch do we draw straight to the surface. (The app composites
@@ -1902,48 +2114,48 @@ void CanvasRenderingContext2D::fill()
 	auto *surface = rec ? canvas() : drawingCanvas();
 	if (!surface) return;
 	if (!rec) applyDrawState(*surface);
-	if (hasArc_) {
-		const int cx = rounded(arcX_);
-		const int cy = rounded(arcY_);
-		const int r = rounded(arcRadius_);
-		if (rec) appendPresentFillCircle(cx, cy, r, fillStyle_);
+	if (state_->hasArc_) {
+		const int cx = rounded(state_->arcX_);
+		const int cy = rounded(state_->arcY_);
+		const int r = rounded(state_->arcRadius_);
+		if (rec) appendPresentFillCircle(cx, cy, r, state_->fillStyle_);
 		else {
-			surface->fillCircle(cx, cy, r, fillStyle_);
+			surface->fillCircle(cx, cy, r, state_->fillStyle_);
 			markDrawDirty();
 		}
 		return;
 	}
-	const std::size_t n = pathX_.size();
-	if (n < 3 || pathStarts_.empty()) return;
+	const std::size_t n = state_->pathX_.size();
+	if (n < 3 || state_->pathStarts_.empty()) return;
 
 	// Even-odd scanline fill over all subpaths (each implicitly closed). Unlike
 	// a triangle fan (convex only), this fills arbitrary concave shapes AND
 	// holes — coastlines, lakes-with-islands, building courtyards. Inside spans
 	// emit as 1px fillRects.
-	double minYf = pathY_[0];
-	double maxYf = pathY_[0];
+	double minYf = state_->pathY_[0];
+	double maxYf = state_->pathY_[0];
 	for (std::size_t i = 1; i < n; i++) {
-		if (pathY_[i] < minYf) minYf = pathY_[i];
-		if (pathY_[i] > maxYf) maxYf = pathY_[i];
+		if (state_->pathY_[i] < minYf) minYf = state_->pathY_[i];
+		if (state_->pathY_[i] > maxYf) maxYf = state_->pathY_[i];
 	}
 	const int yTop = std::max(0, static_cast<int>(std::floor(minYf)));
 	const int yBot = std::min(surface->height() - 1, static_cast<int>(std::ceil(maxYf)));
-	const std::size_t nStarts = pathStarts_.size();
+	const std::size_t nStarts = state_->pathStarts_.size();
 	static std::vector<double> nodes;
 	for (int y = yTop; y <= yBot; y++) {
 		const double yc = y + 0.5;
 		nodes.clear();
 		for (std::size_t s = 0; s < nStarts; s++) {
-			const std::size_t a = static_cast<std::size_t>(pathStarts_[s]);
-			const std::size_t b = (s + 1 < nStarts) ? static_cast<std::size_t>(pathStarts_[s + 1]) : n;
+			const std::size_t a = static_cast<std::size_t>(state_->pathStarts_[s]);
+			const std::size_t b = (s + 1 < nStarts) ? static_cast<std::size_t>(state_->pathStarts_[s + 1]) : n;
 			if (b - a < 2) continue;
 			for (std::size_t i = a; i < b; i++) {
 				const std::size_t j = (i + 1 < b) ? i + 1 : a;  // close the ring
-				const double yi = pathY_[i];
-				const double yj = pathY_[j];
+				const double yi = state_->pathY_[i];
+				const double yj = state_->pathY_[j];
 				if ((yi < yc && yj >= yc) || (yj < yc && yi >= yc)) {
 					const double t = (yc - yi) / (yj - yi);
-					nodes.push_back(pathX_[i] + t * (pathX_[j] - pathX_[i]));
+					nodes.push_back(state_->pathX_[i] + t * (state_->pathX_[j] - state_->pathX_[i]));
 				}
 			}
 		}
@@ -1953,8 +2165,8 @@ void CanvasRenderingContext2D::fill()
 			const int xa = static_cast<int>(std::lround(nodes[k]));
 			const int xb = static_cast<int>(std::lround(nodes[k + 1]));
 			if (xb > xa) {
-				if (rec) appendPresentFillRect(xa, y, xb - xa, 1, fillStyle_);
-				else surface->fillRect(xa, y, xb - xa, 1, fillStyle_);
+				if (rec) appendPresentFillRect(xa, y, xb - xa, 1, state_->fillStyle_);
+				else surface->fillRect(xa, y, xb - xa, 1, state_->fillStyle_);
 			}
 		}
 	}
@@ -1963,60 +2175,61 @@ void CanvasRenderingContext2D::fill()
 
 void CanvasRenderingContext2D::stroke()
 {
+	prepareBitmapOnlyDraw();
 	const bool rec = recordingPresentBatch();
 	auto *surface = rec ? canvas() : drawingCanvas();
 	if (!surface) return;
 	if (!rec) applyDrawState(*surface);
-	if (hasArc_) {
-		const int cx = rounded(arcX_);
-		const int cy = rounded(arcY_);
-		const int r = rounded(arcRadius_);
-		if (rec) appendPresentStrokeCircle(cx, cy, r, strokeStyle_);
+	if (state_->hasArc_) {
+		const int cx = rounded(state_->arcX_);
+		const int cy = rounded(state_->arcY_);
+		const int r = rounded(state_->arcRadius_);
+		if (rec) appendPresentStrokeCircle(cx, cy, r, state_->strokeStyle_);
 		else {
-			surface->strokeCircle(cx, cy, r, strokeStyle_);
+			surface->strokeCircle(cx, cy, r, state_->strokeStyle_);
 			markDrawDirty();
 		}
 		return;
 	}
-	const std::size_t n = pathX_.size();
-	if (n < 2 || pathStarts_.empty()) return;
+	const std::size_t n = state_->pathX_.size();
+	if (n < 2 || state_->pathStarts_.empty()) return;
 	// Honor lineWidth: every segment is an oriented quad (two triangles), with a
 	// round disc at each joint/cap for widths ≥ ~2px — roads, casings, rivers.
 	// Always quad (not Bresenham) so it has a present-command representation.
-	const double half = std::max(0.5, lineWidth_ * 0.5);
-	const std::size_t nStarts = pathStarts_.size();
+	const double half = std::max(0.5, state_->lineWidth_ * 0.5);
+	const std::size_t nStarts = state_->pathStarts_.size();
 	for (std::size_t s = 0; s < nStarts; s++) {
-		const std::size_t a = static_cast<std::size_t>(pathStarts_[s]);
-		const std::size_t b = (s + 1 < nStarts) ? static_cast<std::size_t>(pathStarts_[s + 1]) : n;
+		const std::size_t a = static_cast<std::size_t>(state_->pathStarts_[s]);
+		const std::size_t b = (s + 1 < nStarts) ? static_cast<std::size_t>(state_->pathStarts_[s + 1]) : n;
 		if (b - a < 2) continue;
-		const std::size_t lastSeg = pathClosed_ ? b : b - 1;
+		const std::size_t lastSeg = state_->pathClosed_ ? b : b - 1;
 		for (std::size_t i = a; i < lastSeg; i++) {
 			const std::size_t j = (i + 1 < b) ? i + 1 : a;  // wrap when closed
-			const double dx = pathX_[j] - pathX_[i];
-			const double dy = pathY_[j] - pathY_[i];
+			const double dx = state_->pathX_[j] - state_->pathX_[i];
+			const double dy = state_->pathY_[j] - state_->pathY_[i];
 			const double len = std::sqrt(dx * dx + dy * dy);
 			if (len < 1e-6) continue;
 			const double px = -dy / len * half;  // perpendicular offset
 			const double py = dx / len * half;
-			const int ax0 = rounded(pathX_[i] + px), ay0 = rounded(pathY_[i] + py);
-			const int ax1 = rounded(pathX_[i] - px), ay1 = rounded(pathY_[i] - py);
-			const int bx0 = rounded(pathX_[j] + px), by0 = rounded(pathY_[j] + py);
-			const int bx1 = rounded(pathX_[j] - px), by1 = rounded(pathY_[j] - py);
+			const int ax0 = rounded(state_->pathX_[i] + px), ay0 = rounded(state_->pathY_[i] + py);
+			const int ax1 = rounded(state_->pathX_[i] - px), ay1 = rounded(state_->pathY_[i] - py);
+			const int bx0 = rounded(state_->pathX_[j] + px), by0 = rounded(state_->pathY_[j] + py);
+			const int bx1 = rounded(state_->pathX_[j] - px), by1 = rounded(state_->pathY_[j] - py);
 			if (rec) {
-				appendPresentFillTriangle(ax0, ay0, ax1, ay1, bx1, by1, strokeStyle_);
-				appendPresentFillTriangle(ax0, ay0, bx1, by1, bx0, by0, strokeStyle_);
+				appendPresentFillTriangle(ax0, ay0, ax1, ay1, bx1, by1, state_->strokeStyle_);
+				appendPresentFillTriangle(ax0, ay0, bx1, by1, bx0, by0, state_->strokeStyle_);
 			} else {
-				surface->fillTriangle(ax0, ay0, ax1, ay1, bx1, by1, strokeStyle_);
-				surface->fillTriangle(ax0, ay0, bx1, by1, bx0, by0, strokeStyle_);
+				surface->fillTriangle(ax0, ay0, ax1, ay1, bx1, by1, state_->strokeStyle_);
+				surface->fillTriangle(ax0, ay0, bx1, by1, bx0, by0, state_->strokeStyle_);
 			}
 		}
 		if (half >= 1.0) {
 			const int r = rounded(half);
 			for (std::size_t i = a; i < b; i++) {
-				const int cx = rounded(pathX_[i]);
-				const int cy = rounded(pathY_[i]);
-				if (rec) appendPresentFillCircle(cx, cy, r, strokeStyle_);
-				else surface->fillCircle(cx, cy, r, strokeStyle_);
+				const int cx = rounded(state_->pathX_[i]);
+				const int cy = rounded(state_->pathY_[i]);
+				if (rec) appendPresentFillCircle(cx, cy, r, state_->strokeStyle_);
+				else surface->fillCircle(cx, cy, r, state_->strokeStyle_);
 			}
 		}
 	}
@@ -2025,10 +2238,11 @@ void CanvasRenderingContext2D::stroke()
 
 void CanvasRenderingContext2D::fillText(const std::string &text, int x, int y)
 {
+	prepareBitmapOnlyDraw();
 	if (recordingPresentBatch()) {
 		const std::int64_t started = nowUs();
 		gCanvasPerfStats.fillTextCalls++;
-		appendPresentFillText(text, x, y, fillStyle_);
+		appendPresentFillText(text, x, y, state_->fillStyle_);
 		gCanvasPerfStats.fillTextUs += nowUs() - started;
 		return;
 	}
@@ -2037,19 +2251,21 @@ void CanvasRenderingContext2D::fillText(const std::string &text, int x, int y)
 	const std::int64_t started = nowUs();
 	gCanvasPerfStats.fillTextCalls++;
 	applyDrawState(*surface);
-	if (fontFamilyId_ >= 0) surface->drawTextFontFamily(text.c_str(), x, y, fillStyle_, fontFamilyId_, fontSizePx_);
-	else surface->drawText(text.c_str(), x, y, fillStyle_, fontScale_);
+	if (state_->fontFamilyId_ >= 0) surface->drawTextFontFamily(text.c_str(), x, y, state_->fillStyle_, state_->fontFamilyId_, state_->fontSizePx_);
+	else surface->drawText(text.c_str(), x, y, state_->fillStyle_, state_->fontScale_);
 	gCanvasPerfStats.fillTextUs += nowUs() - started;
 	markDrawDirty();
 }
 
 void CanvasRenderingContext2D::fillText(const std::string &text, double x, double y)
 {
+	prepareBitmapOnlyDraw();
 	fillText(text, rounded(x), rounded(y));
 }
 
 void CanvasRenderingContext2D::drawImage(int imageId, int dx, int dy)
 {
+	prepareBitmapOnlyDraw();
 	auto &images = gea::framework::graphics::ImageStore::instance();
 	const int srcW = images.width(imageId);
 	const int srcH = images.height(imageId);
@@ -2072,11 +2288,41 @@ void CanvasRenderingContext2D::drawImage(int imageId, int dx, int dy)
 
 void CanvasRenderingContext2D::drawImage(int imageId, double dx, double dy)
 {
+	prepareBitmapOnlyDraw();
 	drawImage(imageId, rounded(dx), rounded(dy));
+}
+
+void CanvasRenderingContext2D::drawPixelRows(const gea::framework::graphics::pixel::native_t *pixels, int stride, int width, int height, int dx, int dy)
+{
+	prepareBitmapOnlyDraw();
+	if (!pixels || width <= 0 || height <= 0 || stride < width) return;
+	const std::uint8_t previousAlpha = state_->globalAlpha_;
+	state_->globalAlpha_ = 255;
+	if (recordingPresentBatch()) {
+		for (int row = 0; row < height; ++row)
+			appendPresentDrawImage(pixels + static_cast<std::size_t>(row) * static_cast<std::size_t>(stride), nullptr, width, 1, dx, dy + row);
+	} else if (auto *surface = drawingCanvas()) {
+		applyDrawState(*surface);
+		for (int row = 0; row < height; ++row)
+			surface->drawImage(pixels + static_cast<std::size_t>(row) * static_cast<std::size_t>(stride), nullptr, width, 1, dx, dy + row);
+		markDrawDirty();
+	}
+	state_->globalAlpha_ = previousAlpha;
+}
+
+void CanvasRenderingContext2D::putImage(int imageId, int dx, int dy)
+{
+	prepareBitmapOnlyDraw();
+	// putImageData replaces the destination pixels: globalAlpha does not apply.
+	const std::uint8_t previousAlpha = state_->globalAlpha_;
+	state_->globalAlpha_ = 255;
+	drawImage(imageId, dx, dy);
+	state_->globalAlpha_ = previousAlpha;
 }
 
 void CanvasRenderingContext2D::drawImage(int imageId, int dx, int dy, int dw, int dh)
 {
+	prepareBitmapOnlyDraw();
 	gTotalDrawImage++;
 	auto &images = gea::framework::graphics::ImageStore::instance();
 	const int srcW = images.width(imageId);
@@ -2100,6 +2346,7 @@ void CanvasRenderingContext2D::drawImage(int imageId, int dx, int dy, int dw, in
 
 void CanvasRenderingContext2D::drawImage(int imageId, double dx, double dy, double dw, double dh)
 {
+	prepareBitmapOnlyDraw();
 	drawImage(imageId, rounded(dx), rounded(dy), rounded(dw), rounded(dh));
 }
 
@@ -2108,7 +2355,7 @@ double CanvasRenderingContext2D::measureTextInkCenter(const std::string &text)
 	auto *surface = drawingCanvas();
 	if (!surface) surface = canvas();
 	if (!surface) return 0.0;
-	return static_cast<double>(surface->measureTextInkCenterFontFamily(text.c_str(), fontFamilyId_, fontSizePx_));
+	return static_cast<double>(surface->measureTextInkCenterFontFamily(text.c_str(), state_->fontFamilyId_, state_->fontSizePx_));
 }
 
 double CanvasRenderingContext2D::measureText(const std::string &text)
@@ -2116,11 +2363,12 @@ double CanvasRenderingContext2D::measureText(const std::string &text)
 	auto *surface = drawingCanvas();
 	if (!surface) surface = canvas();
 	if (!surface) return 0.0;
-	return static_cast<double>(surface->measureTextFontFamily(text.c_str(), fontFamilyId_, fontSizePx_));
+	return static_cast<double>(surface->measureTextFontFamily(text.c_str(), state_->fontFamilyId_, state_->fontSizePx_));
 }
 
 void CanvasRenderingContext2D::drawImageCircle(int imageId, int dx, int dy, int dw, int dh)
 {
+	prepareBitmapOnlyDraw();
 	gTotalDrawImage++;
 	auto &images = gea::framework::graphics::ImageStore::instance();
 	const int srcW = images.width(imageId);
@@ -2146,11 +2394,13 @@ void CanvasRenderingContext2D::drawImageCircle(int imageId, int dx, int dy, int 
 
 void CanvasRenderingContext2D::drawImageCircle(int imageId, double dx, double dy, double dw, double dh)
 {
+	prepareBitmapOnlyDraw();
 	drawImageCircle(imageId, rounded(dx), rounded(dy), rounded(dw), rounded(dh));
 }
 
 void CanvasRenderingContext2D::drawImageRotated90CW(int imageId, int dx, int dy, int dw, int dh)
 {
+	prepareBitmapOnlyDraw();
 	gTotalDrawImage++;
 	auto &images = gea::framework::graphics::ImageStore::instance();
 	const int srcW = images.width(imageId);
@@ -2174,11 +2424,13 @@ void CanvasRenderingContext2D::drawImageRotated90CW(int imageId, int dx, int dy,
 
 void CanvasRenderingContext2D::drawImageRotated90CW(int imageId, double dx, double dy, double dw, double dh)
 {
+	prepareBitmapOnlyDraw();
 	drawImageRotated90CW(imageId, rounded(dx), rounded(dy), rounded(dw), rounded(dh));
 }
 
 void CanvasRenderingContext2D::drawImageTiledX(int imageId, int dx, int dy, int width)
 {
+	prepareBitmapOnlyDraw();
 	auto &images = gea::framework::graphics::ImageStore::instance();
 	const int srcW = images.width(imageId);
 	const int srcH = images.height(imageId);
@@ -2201,6 +2453,7 @@ void CanvasRenderingContext2D::drawImageTiledX(int imageId, int dx, int dy, int 
 
 void CanvasRenderingContext2D::drawImageTiledX(int imageId, double dx, double dy, double width)
 {
+	prepareBitmapOnlyDraw();
 	drawImageTiledX(imageId, rounded(dx), rounded(dy), rounded(width));
 }
 
@@ -2214,84 +2467,211 @@ void CanvasRenderingContext2D::flush()
 	gea::platform::display::Display::flush();
 }
 
+void CanvasRenderingContext2D::prepareBitmapOnlyDraw()
+{
+	if (state_->presentRecording_ && nodeId_ >= 0 && !Tree::instance().isDisplayBackedCanvas(nodeId_))
+		(void)drawingCanvas();
+}
+
+bool CanvasRenderingContext2D::retainNumericBatch()
+{
+	if (nodeId_ < 0 || state_->presentCommandCount_ == 0)
+		return false;
+	const auto &node = Tree::instance().node(nodeId_);
+	if (!retainedCanvasStyleEligible(node) || node.layout.width <= 0 || node.layout.height <= 0)
+		return false;
+	const auto *destination = gea::platform::display::Display::canvas();
+#if GEA_PIXEL_STORAGE_PACKED
+	return false;
+#else
+	if (!destination || destination->scrollRegionH() > 0)
+		return false;
+#if GEA_EMBEDDED_DISPLAY_ROTATE_LANDSCAPE
+	if (destination->isLandscapeRotated())
+		return false;
+#endif
+#endif
+	for (std::size_t index = 0; index < state_->presentCommandCount_; ++index)
+	{
+		switch (state_->presentCommands_[index].type)
+		{
+		case CanvasPresentCommandType::Clear:
+		case CanvasPresentCommandType::FillRectRgb565:
+		case CanvasPresentCommandType::StrokeRectRgb565:
+		case CanvasPresentCommandType::FillTriangleRgb565:
+		case CanvasPresentCommandType::FillCircleRgb565:
+		case CanvasPresentCommandType::StrokeCircleRgb565:
+		case CanvasPresentCommandType::FillCirclesRgb565:
+		case CanvasPresentCommandType::FillTrianglesRgb565:
+			break;
+		default:
+			return false;
+		}
+	}
+	auto commands = displayPresentCommands();
+	if (!state_->pendingRetainedFrame_)
+		state_->pendingRetainedFrame_ = std::make_shared<gea::framework::display_present::Frame>();
+	auto frame = state_->pendingRetainedFrame_;
+	if (!gea::framework::display_present::extractFrame(commands.data(), commands.size(), *frame, true) ||
+		!gea::framework::display_present::frameHasOpaqueBase(*frame, node.layout.width, node.layout.height))
+		return false;
+	using namespace gea::framework::display_present;
+	Rect damage;
+	const Frame *previous =
+		state_->retainedWidth_ == node.layout.width && state_->retainedHeight_ == node.layout.height
+			? state_->retainedFrame_.get()
+			: nullptr;
+	state_->retainedBatchChanged_ =
+		dirtyRects(previous, *frame, &damage, 1, node.layout.width, node.layout.height) != 0;
+	if (state_->retainedBatchChanged_)
+	{
+		// Keep one conservative pixel halo inside the canvas. Accumulate against
+		// earlier batches that have not reached the display yet, even if a later
+		// batch is identical to the most recently committed command frame.
+		damage = clampAndAlign({damage.x0 - 1, damage.y0 - 1, damage.x1 + 1, damage.y1 + 1},
+							   node.layout.width, node.layout.height);
+		const Rect pending{state_->retainedDamageX0_, state_->retainedDamageY0_, state_->retainedDamageX1_,
+						   state_->retainedDamageY1_};
+		if (gea::framework::display_present::valid(pending))
+			damage = unite(pending, damage);
+		state_->retainedDamageX0_ = damage.x0;
+		state_->retainedDamageY0_ = damage.y0;
+		state_->retainedDamageX1_ = damage.x1;
+		state_->retainedDamageY1_ = damage.y1;
+	}
+	state_->pendingRetainedFrame_ = std::move(state_->retainedFrame_);
+	state_->retainedFrame_ = std::move(frame);
+	state_->retainedWidth_ = node.layout.width;
+	state_->retainedHeight_ = node.layout.height;
+	return true;
+}
+
 void CanvasRenderingContext2D::beginBatch()
 {
 	gTotalBeginBatch++;
 	gCanvasPerfStats.batchBeginCalls++;
-	batchDepth_++;
-	if (batchDepth_ != 1) return;
-	batchDirty_ = false;
+	state_->batchDepth_++;
+	if (state_->batchDepth_ != 1)
+		return;
+	state_->batchDirty_ = false;
 	resetPresentCommands();
 	// Re-evaluate display-backed eligibility every frame without binding the
 	// display canvas: command-recorded batches do not need a framebuffer until
 	// they fall back to replay. This avoids expensive target-side preservation
 	// on double-buffered panels.
-	if (nodeId_ >= 0 && Tree::instance().markDisplayBackedCanvas(nodeId_)) {
-		presentRecording_ = true;
-		batchCanvas_ = nullptr;
+	if (nodeId_ >= 0 && Tree::instance().markDisplayBackedCanvas(nodeId_))
+	{
+		state_->presentRecording_ = true;
+		state_->batchCanvas_ = nullptr;
 		return;
 	}
-	if (nodeId_ >= 0) Tree::instance().ensureCanvas(nodeId_);
-	if (nodeId_ >= 0 && Tree::instance().isDisplayBackedCanvas(nodeId_)) {
-		presentRecording_ = true;
-		batchCanvas_ = nullptr;
-		return;
-	}
-	presentRecording_ = false;
-	batchCanvas_ = canvas();
+	// An old display-backed slot must leave that mode after eligibility changes.
+	// Owned/retained slots need no pixels until an operation demands fallback.
+	if (nodeId_ >= 0 && Tree::instance().isDisplayBackedCanvas(nodeId_))
+		Tree::instance().ensureCanvas(nodeId_);
+	state_->presentRecording_ = true;
+	state_->batchCanvas_ = nullptr;
 }
 
 void CanvasRenderingContext2D::endBatch()
 {
 	gTotalEndBatch++;
 	gCanvasPerfStats.batchEndCalls++;
-	if (batchDepth_ <= 0) return;
-	batchDepth_--;
-	if (batchDepth_ > 0) return;
-	batchCanvas_ = nullptr;
-	if (batchDirty_ && nodeId_ >= 0) {
-		if (Tree::instance().isDisplayBackedCanvas(nodeId_)) {
+	if (state_->batchDepth_ <= 0)
+		return;
+	state_->batchDepth_--;
+	if (state_->batchDepth_ > 0)
+		return;
+	state_->batchCanvas_ = nullptr;
+	if (state_->batchDirty_ && nodeId_ >= 0)
+	{
+		if (Tree::instance().isDisplayBackedCanvas(nodeId_))
+		{
 			const std::int64_t started = nowUs();
 			gCanvasPerfStats.batchFlushCalls++;
 			bool presented = false;
-			if (presentRecording_) presented = presentBatch();
-			if (presented) {
+			if (state_->presentRecording_)
+				presented = presentBatch();
+			if (presented)
+			{
 				Tree::instance().clearNodeDisplayCommandDirty(nodeId_);
 			}
-			if (!presented) {
+			if (!presented)
+			{
 				// Replay+flush paints the OFF-SCREEN composed buffer over the
 				// scanout — when this interleaves with a double-buffered present
 				// path the screen alternates fresh/stale frames (flicker).
 				// Loud while diagnosing that exact symptom.
 				static int replayFalls = 0;
 				replayFalls++;
-				if ((replayFalls & 7) == 1) std::printf("[canvas] presentBatch REJECTED -> replay+flush (#%d)\n", replayFalls);
-				presentRecording_ = false;
+				if ((replayFalls & 7) == 1)
+					std::printf("[canvas] presentBatch REJECTED -> replay+flush (#%d)\n", replayFalls);
+				state_->presentRecording_ = false;
 				auto *surface = canvas();
-				if (surface) replayPresentBatchToCanvas(*surface);
+				if (surface)
+					replayPresentBatchToCanvas(*surface);
 				gea::platform::display::Display::flush();
 			}
 			gCanvasPerfStats.batchFlushUs += nowUs() - started;
-		} else {
-			Tree::instance().markCanvasDirty(nodeId_);
+		}
+		else
+		{
+			const bool retained = state_->presentRecording_ && retainNumericBatch();
+			if (state_->presentRecording_ && !retained)
+			{
+				auto *surface = canvas();
+				if (surface)
+					replayPresentBatchToCanvas(*surface);
+			}
+			if (!retained || state_->retainedBatchChanged_ ||
+				state_->retainedDamageX0_ <= state_->retainedDamageX1_)
+				Tree::instance().markCanvasDirty(nodeId_);
 		}
 	}
 	resetPresentCommands();
-	presentRecording_ = false;
-	batchDirty_ = false;
+	state_->presentRecording_ = false;
+	state_->batchDirty_ = false;
 }
 
 void CanvasRenderer::record(const Node &node)
 {
 	const Node *nodes = Tree::instance().nodes();
 	const int id = static_cast<int>(&node - nodes);
-	if (Tree::instance().isDisplayBackedCanvas(id)) return;
+	if (Tree::instance().isDisplayBackedCanvas(id))
+		return;
+
+	if (CanvasRenderingContext2D::hasRetainedCanvas(id))
+	{
+		if (retainedCanvasStyleEligible(node) &&
+			node.layout.width == CanvasRenderingContext2D::stateFor(id)->retainedWidth_ &&
+			node.layout.height == CanvasRenderingContext2D::stateFor(id)->retainedHeight_)
+		{
+			DisplayCommand *cmd = DisplayList::instance().append();
+			if (!cmd)
+				return;
+			cmd->type = DisplayCommandType::ReplayCanvasBatch;
+			cmd->bx = node.layout.x;
+			cmd->by = node.layout.y;
+			cmd->bw = node.layout.width;
+			cmd->bh = node.layout.height;
+			cmd->canvasBatch = {static_cast<int16_t>(id),
+								node.layout.x,
+								node.layout.y,
+								node.layout.width,
+								node.layout.height,
+								CanvasRenderingContext2D::stateFor(id)->identity_};
+			return;
+		}
+		CanvasRenderingContext2D::materializeRetainedCanvas(id);
+	}
 
 	const auto *surface = Tree::instance().canvas(id);
-	if (!surface || !surface->pixels() || surface->width() <= 0 || surface->height() <= 0) return;
+	if (!surface || !surface->pixels() || surface->width() <= 0 || surface->height() <= 0)
+		return;
 
 	DisplayCommand *cmd = DisplayList::instance().append();
-	if (!cmd) return;
+	if (!cmd)
+		return;
 	cmd->type = DisplayCommandType::BlitImage;
 	cmd->bx = node.layout.x;
 	cmd->by = node.layout.y;
@@ -2311,4 +2691,4 @@ void CanvasRenderer::record(const Node &node)
 
 #endif
 
-}  // namespace gea::embedded::ui
+} // namespace gea::embedded::ui

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "absolute_leaf_refresh.h"
 #include "dirty_regions.h"
+#include "debugger_overlay.h"
+#include "canvas_element.h"
 #include "display.h"
+#include "display_underlay.h"
 #include "document.h"
 #include "internal.h"
 #include "layout_snapshot.h"
@@ -137,6 +140,119 @@ namespace gea::embedded::ui
 			const DisplayReplayRegion region{ox, oy, ox + width - 1, oy + height - 1, -1};
 			DisplayList::instance().replayDirectDirtyRegions(&region, 1);
 			gea::platform::display::Display::popClip();
+		}
+#endif
+
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+		// Banded (framebuffer-free) retained rendering.
+		//
+		// Every frame that reaches the panel is rasterized band by band straight into
+		// the display's internal-RAM DMA staging chunks: the chunk is cleared, the
+		// native underlay (gea3d) paints it, the display list replays clipped to it,
+		// and the display streams it while the next chunk renders. The PSRAM
+		// framebuffer is neither written nor read back for these frames.
+		//
+		// Nothing may therefore depend on the framebuffer holding the last frame.
+		// The paths that do are bypassed while banded: the root-scroll pixel shift,
+		// the horizontal-pan memcpy, the in-place background recolor, and the
+		// static-backdrop cache (never baked). Scenes that still need old pixels —
+		// filter: blur() captures its backdrop from the framebuffer over the node's
+		// whole bounds, and a display-backed <canvas> draws into it directly — fall
+		// back to the framebuffer path, after one full repaint that makes the
+		// framebuffer current again.
+		bool gBandedFramebufferStaleFlag = false;
+
+		bool bandedUiEligible()
+		{
+			if (Document::directCanvasContextUsed())
+				return false;
+			if (!gea::platform::display::Display::canvas())
+				return false;
+			auto &state = treeState();
+#if GEA_CSS_FILTERS
+			for (int i = 0; i < state.nodeCount; i++)
+			{
+				if (rstyle(state.nodes[i].computedStyle()).filter_blur_radius > 0)
+					return false;
+			}
+#endif
+			bool displayBackedCanvas = false;
+			state.canvases.forEach([&](const CanvasSurfaceState &surface)
+														 { displayBackedCanvas = displayBackedCanvas || surface.displayBacked(); });
+			return !displayBackedCanvas;
+		}
+
+		struct BandedRasterCtx
+		{
+			int screenW;
+			int screenH;
+			// The frame may use the direct dirty-region replay (same gate as the
+			// framebuffer path's direct_replay). Otherwise the conservative full
+			// replay runs, clipped to the band.
+			bool direct;
+		};
+
+		// Replays [x0,x1] x [y0,y1] into the bound canvas, whose clip is already that
+		// region. The underlay is painted first so the tree lands on top of it; the
+		// direct replay restores its own clear base, which would paint over an
+		// underlay, so a frame with one always takes the full replay.
+		void bandedReplayRegion(int x0, int y0, int x1, int y1, bool direct)
+		{
+			if (direct && !gea::framework::display::Underlay::active())
+			{
+				const DisplayReplayRegion region{x0, y0, x1, y1, -1};
+				DisplayList::instance().replayDirectDirtyRegions(&region, 1);
+				return;
+			}
+			gea::framework::display::Underlay::paint(x0, y0, x1, y1);
+			DisplayList::instance().replay();
+		}
+
+		// Display::flushRectsRasterized callback: `pixels` holds rows [oy, oy+height)
+		// x columns [ox, ox+width) with stride `width`. The canvas is bound onto it
+		// through an offset base pointer so absolute screen coordinates land in the
+		// chunk; the clip keeps every write inside it.
+		void bandedRaster(gea::framework::graphics::pixel::native_t *pixels, int width, int height, int ox, int oy, void *user)
+		{
+			auto *ctx = static_cast<BandedRasterCtx *>(user);
+			auto *canvas = gea::platform::display::Display::canvas();
+			if (!canvas || !ctx)
+				return;
+			using PixT = gea::framework::graphics::pixel::native_t;
+			const std::int64_t replayStartUs = refreshPerfNowUs();
+			// The framebuffer path starts from Display::clearNoFlush()'s black; so
+			// does every band (a scene that leaves pixels uncovered shows black, never
+			// the previous band's bytes).
+			std::fill_n(pixels, static_cast<std::size_t>(width) * static_cast<std::size_t>(height),
+			            gea::framework::graphics::pixel::fromRgb565(0x0000));
+			PixT *base = pixels - (static_cast<std::ptrdiff_t>(oy) * width + ox);
+			canvas->bindPixels(base, ctx->screenW, ctx->screenH, width);
+			gea::platform::display::Display::resetClip();
+			gea::platform::display::Display::setAlpha(255);
+			gea::platform::display::Display::pushClip(ox, oy, width, height);
+			gBandedRasterActive = true;
+			bandedReplayRegion(ox, oy, ox + width - 1, oy + height - 1, ctx->direct);
+			gBandedRasterActive = false;
+			gea::platform::display::Display::popClip();
+			GEA_REFRESH_PERF(refreshPerfStatsMutable().treeReplayUs += refreshPerfNowUs() - replayStartUs);
+		}
+
+		void bandedFlush(const gea::platform::display::DisplayFlushRect *rects, int count, int width, int height, bool direct)
+		{
+			if (!rects || count <= 0)
+				return;
+			BandedRasterCtx ctx{width, height, direct};
+			gea::platform::display::Display::flushRectsRasterized(rects, count, bandedRaster, &ctx, /*allowPerChunkDrain=*/false);
+			gea::platform::display::Display::rebindCanvasToFramebuffer();
+			gBandedFramebufferStaleFlag = true;
+		}
+
+		void bandedFlushFullScreen(int width, int height, bool direct)
+		{
+			if (width <= 0 || height <= 0)
+				return;
+			const gea::platform::display::DisplayFlushRect full{0, 0, width - 1, height - 1};
+			bandedFlush(&full, 1, width, height, direct);
 		}
 #endif
 
@@ -1555,6 +1671,7 @@ namespace gea::embedded::ui
 			state.canvases.forEach([](CanvasSurfaceState &surface)
 														 {
 		if (auto *canvas = surface.canvas()) canvas->resetDirty(); });
+		CanvasRenderingContext2D::clearRetainedCanvasDamage();
 			GEA_REFRESH_PERF(refreshPerfStatsMutable().treePanReplayCalls++);
 			if (directRegions > 0)
 				GEA_REFRESH_PERF(refreshPerfStatsMutable().treeDirectReplayCalls++);
@@ -1571,10 +1688,68 @@ namespace gea::embedded::ui
 	// The caller must hold AppState::lock() so the frame task isn't using the shared canvas
 	// or mutating the list. Returns false for non-retained (canvas/present) apps, whose
 	// pixels aren't in the retained command list — the caller falls back to the present path.
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+	bool gBandedRasterActive = false;
+
+	bool retainedFramebufferStale()
+	{
+		return gBandedFramebufferStaleFlag;
+	}
+#endif
+
+	bool gSnapshotRasterActive = false;
+
 	bool renderRetainedSnapshotRgb565(std::uint16_t *dst, int width, int height)
 	{
 		if (!dst || width <= 0 || height <= 0)
 			return false;
+		struct SnapshotRasterScope
+		{
+			bool previous = gSnapshotRasterActive;
+			bool rebound = false;
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+			bool previousBanded = gBandedRasterActive;
+#endif
+
+			SnapshotRasterScope() { gSnapshotRasterActive = true; }
+
+			~SnapshotRasterScope()
+			{
+				if (rebound)
+					gea::platform::display::Display::rebindCanvasToFramebuffer();
+				gSnapshotRasterActive = previous;
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+				gBandedRasterActive = previousBanded;
+#endif
+			}
+		} scope;
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+		// A banded frame lives only on the panel: render it again the way the
+		// bands did — black base, the underlay, then the whole display list.
+		if (gBandedFramebufferStaleFlag && DisplayList::instance().commandCount() > 0)
+		{
+			auto *bandCanvas = gea::platform::display::Display::canvas();
+			if (!bandCanvas)
+				return false;
+			using PixT = gea::framework::graphics::pixel::native_t;
+			PixT *base = reinterpret_cast<PixT *>(dst);
+			std::fill_n(base, static_cast<std::size_t>(width) * static_cast<std::size_t>(height),
+			            gea::framework::graphics::pixel::fromRgb565(0x0000));
+			scope.rebound = true;
+			bandCanvas->bindPixels(base, width, height, width);
+			gea::platform::display::Display::resetClip();
+			gea::platform::display::Display::setAlpha(255);
+			gea::platform::display::Display::pushClip(0, 0, width, height);
+			gBandedRasterActive = true;
+			bandedReplayRegion(0, 0, width - 1, height - 1, /*direct=*/false);
+			gBandedRasterActive = false;
+			gea::platform::display::Display::popClip();
+			const int pixels = width * height;
+			for (int i = 0; i < pixels; i++)
+				dst[i] = gea::framework::graphics::pixel::toRgb565(base[i]);
+			return true;
+		}
+#endif
 		if (DisplayList::instance().commandCount() < 2)
 			return false; // canvas/present app: nothing retained to replay
 		auto *canvas = gea::platform::display::Display::canvas();
@@ -1582,6 +1757,9 @@ namespace gea::embedded::ui
 			return false;
 		using PixT = gea::framework::graphics::pixel::native_t;
 		PixT *base = reinterpret_cast<PixT *>(dst);
+		std::fill_n(base, static_cast<std::size_t>(width) * static_cast<std::size_t>(height),
+		            gea::framework::graphics::pixel::fromRgb565(0x0000));
+		scope.rebound = true;
 		canvas->bindPixels(base, width, height, width);
 		gea::platform::display::Display::resetClip();
 		gea::platform::display::Display::setAlpha(255);
@@ -1593,12 +1771,19 @@ namespace gea::embedded::ui
 		// (rows recorded beyond the scroll viewport printed above it in every
 		// snapshot, reading as a phantom on-screen ghost during debugging).
 		{
-			const DisplayReplayRegion region{0, 0, width - 1, height - 1, -1};
-			DisplayList::instance().replayDirectDirtyRegions(&region, 1);
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+			// Highlights append commands outside node paint ranges. Their forced
+			// full record includes ancestor clips, so replay that complete stream.
+			if (debuggerOverlay.slot >= 0)
+				DisplayList::instance().replay();
+			else
+#endif
+			{
+				const DisplayReplayRegion region{0, 0, width - 1, height - 1, -1};
+				DisplayList::instance().replayDirectDirtyRegions(&region, 1);
+			}
 		}
 		gea::platform::display::Display::popClip();
-		// Restore the shared canvas onto the real framebuffer before the frame task resumes.
-		gea::platform::display::Display::rebindCanvasToFramebuffer();
 		const int pixels = width * height;
 		for (int i = 0; i < pixels; i++)
 			dst[i] = gea::framework::graphics::pixel::toRgb565(base[i]);
@@ -1675,9 +1860,25 @@ namespace gea::embedded::ui
 		DisplayList::instance().clear();
 		DisplayList::instance().recordNode(root, 255);
 		DisplayList::instance().weldTransformedFaces();
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+		if (!styleMountBatchActive() && bandedUiEligible())
+		{
+			state.displayListDirty = false;
+			state.displayListRebuildStructural = false;
+			bandedFlushFullScreen(width, height, /*direct=*/false);
+			// The framebuffer was cleared above but holds none of this frame.
+			gea::platform::display::Display::canvas()->resetDirty();
+		}
+		else
+#endif
+		{
+		gea::framework::display::Underlay::paint(0, 0, width - 1, height - 1);
 		DisplayList::instance().replay();
 		state.displayListDirty = false;
 		state.displayListRebuildStructural = false; // this path already repainted everything
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+		gBandedFramebufferStaleFlag = false; // the framebuffer holds the whole frame again
+#endif
 
 		// Don't present the very first mount while the initial style batch is still
 		// open: per-node class styles haven't been applied yet, so this frame is
@@ -1686,9 +1887,11 @@ namespace gea::embedded::ui
 		// avoiding a flash of unstyled content (text + images, no CSS) at boot.
 		if (!styleMountBatchActive())
 			gea::platform::display::Display::flush();
+		}
 		state.canvases.forEach([](CanvasSurfaceState &surface)
 													 {
 		if (auto *canvas = surface.canvas()) canvas->resetDirty(); });
+		CanvasRenderingContext2D::clearRetainedCanvasDamage();
 		LayoutSnapshot::capture();
 	}
 
@@ -1847,6 +2050,24 @@ namespace gea::embedded::ui
 			}
 			return -1;
 		}
+		// A transformed parent re-records its whole subtree (its descendants'
+		// corners all move). When no descendant paints anything -- the empty slot
+		// of `{done ? <img/> : null}` inside a pulsing dot -- there is nothing to
+		// move, and the node's own commands re-record in place like a leaf's. A
+		// descendant that starts painting cannot splice into its empty range, so
+		// rerecordNodeCommands refuses and the frame still falls back to a full
+		// record. Ember's flow dot otherwise rebuilt the whole list every frame.
+		bool descendantsPaintNothing(TreeState &state, int node)
+		{
+			for (int child = state.nodes[node].first_child; child >= 0; child = state.nodes[child].next_sibling)
+			{
+				if (DisplayList::instance().nodeCommandCount(child) != 0)
+					return false;
+				if (!descendantsPaintNothing(state, child))
+					return false;
+			}
+			return true;
+		}
 	} // namespace
 
 	void Tree::refresh(int root, int width, int height)
@@ -1857,6 +2078,9 @@ namespace gea::embedded::ui
 		auto &state = treeState();
 		if (root < 0 || root >= state.nodeCount)
 			return;
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+		debuggerOverlay.prepare();
+#endif
 		const bool viewportChanged = gLayoutViewportRoot != root ||
 		    gLayoutViewportWidth != width || gLayoutViewportHeight != height;
 		if (viewportChanged) {
@@ -1874,6 +2098,24 @@ namespace gea::embedded::ui
 		GEA_REFRESH_PERF(perf.treeRefreshCalls++);
 		DisplayList::instance().clearRetainedBackgroundRecolors();
 
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+		// Banded frames never touch the framebuffer (see bandedUiEligible). A frame
+		// that must take the framebuffer path after banded ones first repaints the
+		// whole viewport into it: a structural rebuild does exactly that.
+		const bool banded = bandedUiEligible();
+		const bool framebufferReadable = !GEA_EMBEDDED_DISPLAY_FUSE_REPLAY_FLUSH && !banded && !gBandedFramebufferStaleFlag;
+		if (!banded && gBandedFramebufferStaleFlag)
+		{
+			state.displayListDirty = true;
+			state.displayListRebuildStructural = true;
+			state.nodes[root].render.dirty = true;
+			state.nodes[root].render.layout_dirty = true;
+			gBandedFramebufferStaleFlag = false;
+		}
+#else
+		constexpr bool banded = false;
+		constexpr bool framebufferReadable = !GEA_EMBEDDED_DISPLAY_FUSE_REPLAY_FLUSH;
+#endif
 		const bool textClipDependencies = DisplayList::instance().hasTextClippedBackgrounds();
 		if (textClipDependencies) {
 			bool changed = state.displayListDirty;
@@ -1888,8 +2130,29 @@ namespace gea::embedded::ui
 				state.nodes[root].render.dirty = true;
 			}
 		}
-		if (!textClipDependencies && state.pendingScrollIntoViewNode < 0 && RootScrollOnlyRefresh::refresh(root, width, height))
+		if (framebufferReadable && !textClipDependencies && state.pendingScrollIntoViewNode < 0 && RootScrollOnlyRefresh::refresh(root, width, height))
 			return;
+
+		bool scrollFallbackRepaint = false;
+#if GEA_CSS_SCROLLING
+		// A rejected scroll blit still moves every descendant's geometry during
+		// layout. The reflow guard deliberately leaves those descendants clean
+		// when their movement equals the ancestor scroll delta, so their retained
+		// commands cannot be left unchanged on this fallback path. Re-record the
+		// existing tree and repaint its underlay: a transparent scroller has no
+		// background command capable of erasing the previous content. Fused flush
+		// also cannot blit its stale PSRAM framebuffer; it draws directly into DMA.
+		for (int i = 0; i < state.nodeCount; ++i) {
+			const Node &node = state.nodes[i];
+			if (node.render.scroll_dirty &&
+			    (node.layout.scroll_x != node.layout.previous_scroll_x ||
+			     node.layout.scroll_y != node.layout.previous_scroll_y)) {
+				markDisplayListContentDirty();
+				scrollFallbackRepaint = true;
+				break;
+			}
+		}
+#endif
 
 		// This frame is NOT a pure scroll, so the software scroll register's
 		// circular row rotation (engaged by Display::scrollRect during the fast
@@ -2214,9 +2477,20 @@ namespace gea::embedded::ui
 					}
 #endif
 				}
+			}
+			// Allocation order is not tree order: component text can precede
+			// its parent panel. Finish translating all retained commands before
+			// recording any replacements at their final layout coordinates, or
+			// a later parent translation moves freshly recorded text twice.
+			for (int i = 0; can_keep_display_list && i < state.nodeCount; i++)
+			{
+				Node *n = &state.nodes[i];
+				if (!n->render.dirty)
+					continue;
 				if (layoutSizeChangeNeedsCommandRerecord(*n))
 					state.nodeCommandDirty[i] = 1;
-				if (state.nodeCommandDirty[i] && n->render.transform_dirty && n->first_child >= 0)
+				if (state.nodeCommandDirty[i] && n->render.transform_dirty && n->first_child >= 0 &&
+						!descendantsPaintNothing(state, i))
 				{
 					rebuild_for_transform = 1;
 					continue;
@@ -2347,6 +2621,10 @@ namespace gea::embedded::ui
 			GEA_REFRESH_PERF(perf.treeRecordedNodes += state.nodeCount);
 			GEA_REFRESH_PERF(perf.treeRecordedCommands += DisplayList::instance().commandCount());
 		}
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+		if (displayListFullRecord)
+			debuggerOverlay.record(root, width, height);
+#endif
 		if (displayListFullRecord)
 			GEA_REFRESH_PERF(perf.treeFullRecords++);
 		if (reprojected)
@@ -2356,7 +2634,7 @@ namespace gea::embedded::ui
 		// Horizontal-pan fast path: when a camera/world wrapper translated the viewport
 		// this frame (and nothing structural changed), memcpy-shift the viewport instead
 		// of re-replaying the whole panned scene. Handles the frame fully when it engages.
-		if (tryHorizontalPanRefresh(root, width, height, framebuffer_was_dirty,
+		if (framebufferReadable && tryHorizontalPanRefresh(root, width, height, framebuffer_was_dirty,
 																display_list_was_dirty, display_list_was_structural,
 																displayListFullRecord))
 		{
@@ -2369,6 +2647,12 @@ namespace gea::embedded::ui
 		int flush_rect_count = 0;
 		bool preserveFlushOnlyRecolorRegions = false;
 		const std::int64_t dirtyCollectStartUs = refreshPerfNowUs();
+		// A fresh content-only recording is just as replayable as retained
+		// commands. Re-evaluate the compositing guard after recording rather
+		// than forcing unrelated static content into the general path merely
+		// because an empty image range needed its first command.
+		if (displayListFullRecord && !display_list_was_structural)
+			direct_replay = DisplayList::instance().canReplayDirectDirtyRegions(width, height);
 		if (framebuffer_was_dirty)
 			direct_replay = 0;
 		const int transformedShapeCount = transformedLeafDirtyShapeCount();
@@ -2411,9 +2695,67 @@ namespace gea::embedded::ui
 			int canvas_x0 = 0, canvas_y0 = 0, canvas_x1 = -1, canvas_y1 = -1;
 			const auto *canvas_surface = n->type == NodeType::Canvas ? state.canvases.find(i) : nullptr;
 			const auto *canvas = canvas_surface ? canvas_surface->canvas() : nullptr;
-			const bool canvas_dirty = canvas_surface &&
-																canvas &&
-																canvas->dirty(&canvas_x0, &canvas_y0, &canvas_x1, &canvas_y1);
+			const bool bitmap_canvas_dirty =
+				canvas_surface && canvas && canvas->dirty(&canvas_x0, &canvas_y0, &canvas_x1, &canvas_y1);
+			int retained_x0, retained_y0, retained_x1, retained_y1;
+			const bool retained_canvas_dirty =
+				n->type == NodeType::Canvas && CanvasRenderingContext2D::retainedCanvasDamage(
+												   i, retained_x0, retained_y0, retained_x1, retained_y1);
+			bool canvas_dirty = bitmap_canvas_dirty || retained_canvas_dirty;
+
+			// Drawing into an unchanged owned bitmap cannot spill beyond its pixels.
+			// CSS antialiasing guards belong to style/geometry changes, not this damage.
+			bool exactCanvasPixelDamage =
+				canvas_dirty &&
+				(retained_canvas_dirty || (canvas_surface && !canvas_surface->displayBacked())) &&
+				n->render.canvas_pixels_only_dirty && !n->render.layout_dirty && !n->render.transform_dirty &&
+				n->first_child < 0 && n->layout.x == n->layout.previous_x &&
+				n->layout.y == n->layout.previous_y && n->layout.width == n->layout.previous_width &&
+				n->layout.height == n->layout.previous_height &&
+				(retained_canvas_dirty ||
+				 (canvas && canvas->width() == n->layout.width && canvas->height() == n->layout.height)) &&
+				!ViewRenderer::anyTransformActive();
+			int canvasAncestorSteps = 0;
+			for (int ancestor = i; exactCanvasPixelDamage && ancestor >= 0;
+				 ancestor = state.nodes[ancestor].parent)
+			{
+				if (ancestor >= state.nodeCount || ++canvasAncestorSteps > state.nodeCount)
+				{
+					exactCanvasPixelDamage = false;
+					break;
+				}
+				const auto &owner = state.nodes[ancestor];
+				const auto &style = owner.computedStyle();
+				exactCanvasPixelDamage = !hasAnyBorder(style) && style.mask_right_fade_width == 0 &&
+										 (GEA_CSS_FILTERS ? rstyle(style).filter_blur_radius : 0) <= 0 &&
+										 owner.render.previous_filter_blur_radius <= 0 &&
+										 (GEA_CSS_BOX_SHADOW ? rstyle(style).box_shadow_alpha : 0) == 0;
+			}
+
+			if (retained_canvas_dirty && exactCanvasPixelDamage)
+			{
+				if (bitmap_canvas_dirty)
+				{
+					canvas_x0 = std::min(canvas_x0, retained_x0);
+					canvas_y0 = std::min(canvas_y0, retained_y0);
+					canvas_x1 = std::max(canvas_x1, retained_x1);
+					canvas_y1 = std::max(canvas_y1, retained_y1);
+				}
+				else
+				{
+					canvas_x0 = retained_x0;
+					canvas_y0 = retained_y0;
+					canvas_x1 = retained_x1;
+					canvas_y1 = retained_y1;
+				}
+			}
+			if (canvas_dirty && !exactCanvasPixelDamage)
+			{
+				// A style/geometry invalidation is not a content-only repaint. Both
+				// bitmap and retained hints must yield to full previous/current boxes;
+				// otherwise a moved canvas leaves its old fringe behind.
+				canvas_dirty = false;
+			}
 
 			// Glyph-incremental text dirty: setText found that only a middle run of glyphs
 			// changed within an unchanged box. Flush just that run across the node's height
@@ -2445,7 +2787,8 @@ namespace gea::embedded::ui
 				continue;
 			}
 
-			if (!canvas_dirty &&
+			if (framebufferReadable &&
+					!canvas_dirty &&
 					direct_replay &&
 					n->render.bg_recolor_pending &&
 					n->first_child < 0 &&
@@ -2682,13 +3025,15 @@ namespace gea::embedded::ui
 			// replaying overlapping siblings, such as overlay labels, in the
 			// original draw order.
 			const DirtyRegions::Rect dirtyRect =
-					dirtyRectWithRasterGuard(*n, DirtyRegions::Rect{dr_x0, dr_y0, dr_x1, dr_y1, i});
+					exactCanvasPixelDamage ? DirtyRegions::Rect{dr_x0, dr_y0, dr_x1, dr_y1, i}
+														: dirtyRectWithRasterGuard(*n, DirtyRegions::Rect{dr_x0, dr_y0, dr_x1, dr_y1, i});
 			addDirtyRegion(rects, &rect_count, dirtyRect, width, height);
 			if (!unifiedRectPath)
 				addDirtyRegion(flush_rects, &flush_rect_count, dirtyRect, width, height);
 		}
-		if (display_list_was_dirty && display_list_was_structural && width > 0 && height > 0)
+		if (((display_list_was_dirty && display_list_was_structural) || scrollFallbackRepaint) && width > 0 && height > 0)
 		{
+			// A scroll fallback must erase old content through its root underlay.
 			// A STRUCTURAL command-list rebuild can change draw order, alpha scopes,
 			// or which commands exist. Repaint the viewport once so the framebuffer
 			// matches the rebuilt scene instead of relying on stale incremental
@@ -2819,8 +3164,14 @@ namespace gea::embedded::ui
 		}
 #endif
 		const bool hasFlushOnlyRecolorRegions = preserveFlushOnlyRecolorRegions && flush_rect_count > 0;
+		DisplayReplayRegion simpleTransferRegions[DirtyRegions::kMaxRects];
+		for (int i = 0; i < flush_rect_count; ++i)
+		{
+			const auto &r = flush_rects[i];
+			simpleTransferRegions[i] = DisplayReplayRegion{r.x0, r.y0, r.x1, r.y1, -1};
+		}
 		const bool simpleDirtyReplayAvailable =
-				direct_replay && unifiedRectPath && DisplayList::instance().canReplaySimpleDirtyRegions(width, height);
+				direct_replay && unifiedRectPath && DisplayList::instance().canReplaySimpleDirtyRegions(width, height, simpleTransferRegions, flush_rect_count);
 		const bool simpleUnifiedReplay = simpleDirtyReplayAvailable && rect_count > 0 && !hasFlushOnlyRecolorRegions;
 		const bool interleavedUnifiedFlush =
 				direct_replay && unifiedRectPath && rect_count > 0 && !simpleDirtyReplayAvailable && !hasFlushOnlyRecolorRegions;
@@ -2833,6 +3184,38 @@ namespace gea::embedded::ui
 					(int)simpleUnifiedReplay, (int)interleavedUnifiedFlush, (int)hasFlushOnlyRecolorRegions,
 					(int)GEA_EMBEDDED_DISPLAY_FUSE_REPLAY_FLUSH);
 		}
+#endif
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+		if (banded)
+		{
+			// Every pixel the panel receives is re-rendered into its band, so the band
+			// set is everything this frame repaints (rects) or transmits (flush_rects).
+			DirtyRegions::Rect bandRegions[DirtyRegions::kMaxRects];
+			int bandRegionCount = 0;
+			for (int i = 0; i < flush_rect_count; i++)
+				addDirtyRegion(bandRegions, &bandRegionCount, flush_rects[i], width, height);
+			for (int i = 0; i < rect_count; i++)
+				addDirtyRegion(bandRegions, &bandRegionCount, rects[i], width, height);
+			coalesceLowCostDirtyRegions(bandRegions, &bandRegionCount);
+			gea::platform::display::DisplayFlushRect bandRects[DirtyRegions::kMaxRects];
+			int bandRectCount = 0;
+			for (int i = 0; i < bandRegionCount; i++)
+			{
+				const DirtyRegions::Rect &r = bandRegions[i];
+				if (r.x0 > r.x1 || r.y0 > r.y1)
+					continue;
+				bandRects[bandRectCount++] = gea::platform::display::DisplayFlushRect{r.x0, r.y0, r.x1, r.y1};
+			}
+			const std::int64_t flushStartUs = refreshPerfNowUs();
+			if (bandRectCount > 0)
+			{
+				if (direct_replay)
+					GEA_REFRESH_PERF(perf.treeDirectReplayCalls++);
+				bandedFlush(bandRects, bandRectCount, width, height, direct_replay != 0);
+			}
+			GEA_REFRESH_PERF(perf.treeFlushRectsUs += refreshPerfNowUs() - flushStartUs);
+		}
+		else
 #endif
 		if (simpleUnifiedReplay)
 		{
@@ -3048,6 +3431,7 @@ namespace gea::embedded::ui
 					gea::platform::display::Display::resetClip();
 					gea::platform::display::Display::setAlpha(255);
 					gea::platform::display::Display::pushClip(r->x0, r->y0, r->x1 - r->x0 + 1, r->y1 - r->y0 + 1);
+					gea::framework::display::Underlay::paint(r->x0, r->y0, r->x1, r->y1);
 					DisplayList::instance().replay();
 					gea::platform::display::Display::popClip();
 				}
@@ -3073,18 +3457,21 @@ namespace gea::embedded::ui
 										display_list_was_structural ? 1 : 0, rect_count, flush_rect_count);
 		}
 #endif
+		// Banded: never bake — the cache is a second full-screen PSRAM copy whose
+		// blits are exactly the read-back this mode removes (directReplay=false
+		// keeps it invalid).
 		DisplayList::instance().maybeBakeStaticBackdrop(
 				width,
 				height,
 				!display_list_was_structural && staticBackdropStable,
-				direct_replay != 0 && !simpleDirtyReplayAvailable && staticBackdropStable,
+				!banded && direct_replay != 0 && !simpleDirtyReplayAvailable && staticBackdropStable,
 				staticBackdropEligible);
 
 		const std::int64_t flushRectsStartUs = refreshPerfNowUs();
 #if defined(ESP_PLATFORM) && CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
 		const auto diagnosticReplayEnd = esp_timer_get_time();
 #endif
-		if (!simpleUnifiedReplay && !interleavedUnifiedFlush)
+		if (!banded && !simpleUnifiedReplay && !interleavedUnifiedFlush)
 		{
 			for (int i = 0; i < flush_rect_count; i++)
 			{
@@ -3117,6 +3504,7 @@ namespace gea::embedded::ui
 		state.canvases.forEach([](CanvasSurfaceState &surface)
 													 {
 		if (auto *canvas = surface.canvas()) canvas->resetDirty(); });
+		CanvasRenderingContext2D::clearRetainedCanvasDamage();
 #if !defined(GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT) || !GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT
 		// displayCanvas is only declared when the direct-canvas context is off (see the
 		// guard at its declaration above); with direct canvas it is always null, so the
@@ -3146,6 +3534,9 @@ namespace gea::embedded::ui
 		if (timestamp_ms < 0)
 			timestamp_ms = 0;
 		state.lastFrameMs = timestamp_ms;
+#if defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+		debuggerOverlay.prepare();
+#endif
 
 		if (state.inputTickRequired)
 			tickInput(timestamp_ms);
@@ -3223,6 +3614,9 @@ namespace gea::embedded::ui
 				}
 				n->render.dirty = 1;
 				n->render.layout_dirty = 1;
+				// record() copies the latest camera pixels into the retained surface.
+				// A repaint alone can replay the cached blit without refreshing it.
+				markNodeDisplayCommandsDirty(i);
 #if GEA_CSS_SCROLLING
 				n->render.non_scroll_dirty = 1;
 #endif

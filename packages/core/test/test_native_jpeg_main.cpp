@@ -11,6 +11,9 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
 #include <fstream>
 #include <iterator>
 #include <unordered_map>
@@ -34,7 +37,14 @@ namespace gea::framework::memory {
 void *Allocator::allocatePreferSpiram(std::size_t bytes, std::size_t alignment)
 {
     void *p = nullptr;
+#if defined(_WIN32)
+    // The Windows CRT has no posix_memalign; its aligned blocks go back
+    // through _aligned_free (below).
+    p = _aligned_malloc(std::max(bytes, std::size_t(1)), std::max(alignment, sizeof(void *)));
+    if (!p) return nullptr;
+#else
     if (posix_memalign(&p, std::max(alignment, sizeof(void *)), std::max(bytes, std::size_t(1)))) return nullptr;
+#endif
     allocations[p] = bytes;
     liveBytes += bytes;
     peakBytes = std::max(peakBytes, liveBytes);
@@ -47,7 +57,11 @@ void Allocator::free(void *p) noexcept
     assert(it != allocations.end());
     liveBytes -= it->second;
     allocations.erase(it);
+#if defined(_WIN32)
+    _aligned_free(p);
+#else
     std::free(p);
+#endif
 }
 }
 

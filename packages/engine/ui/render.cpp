@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-#include "renderer_features.h"
-#include "internal.h"
-#include "state_init.h"
 #include "canvas.h"
+#include <image.h>
+#include "canvas_element.h"
 #include "display.h"
 #include "graphics/font.h"
+#include "internal.h"
 #include "memory.h"
-#include "tree_state.h"
+#include "renderer_features.h"
+#include "state_init.h"
 #include "style_values.h"
+#include "tree_state.h"
 #include <pixel.h>
 
 #include <algorithm>
@@ -137,6 +139,15 @@ extern "C" __attribute__((weak)) void *gea_display_command_buffer(int *cap_comma
 		*cap_commands = 0;
 	return nullptr;
 }
+
+// Offscreen snapshots and banded raster callbacks temporarily bind the primary
+// canvas to another buffer. The worker canvas still addresses the framebuffer,
+// so neither command replay nor individual fills may split across cores.
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+#define GEA_RENDER_SPLIT_ALLOWED (!gea::embedded::ui::gSnapshotRasterActive && !gea::embedded::ui::gBandedRasterActive)
+#else
+#define GEA_RENDER_SPLIT_ALLOWED (!gea::embedded::ui::gSnapshotRasterActive)
+#endif
 
 // 2nd-core fill offload. The target may provide a worker pinned to the other CPU;
 // submit() hands it a row band (returns false if there's no worker), wait() joins.
@@ -320,6 +331,10 @@ int gLastScrollUiFrame = -1000;
 					return "BlitImage";
 				case DisplayCommandType::BlitImageScaled:
 					return "BlitImageScaled";
+				case DisplayCommandType::BlitImageProjected:
+					return "BlitImageProjected";
+				case DisplayCommandType::ReplayCanvasBatch:
+					return "ReplayCanvasBatch";
 				case DisplayCommandType::BeginFilterBlur:
 					return "BeginFilterBlur";
 				case DisplayCommandType::ApplyFilterBlur:
@@ -466,6 +481,12 @@ int gLastScrollUiFrame = -1000;
 			return cp;
 		}
 
+		int followingProjectedTextCodepoint(const char *text, int textTransform, bool wordStart)
+		{
+			if (!text || !*text || *text == '\n') return 0;
+			return transformedTextCodepoint(nextUtf8Codepoint(text), textTransform, wordStart);
+		}
+
 		struct FilterBlurCacheEntry
 		{
 			// Colour buffers are native pixels — the blur runs in this board's colour
@@ -518,6 +539,7 @@ int gLastScrollUiFrame = -1000;
 			int commandCapacity = 0;
 			bool commandsExternal = false;
 			int commandCount = 0;
+			bool imageReferences[gea::framework::graphics::kImageMax]{};
 			bool textClippedBackgrounds = false;
 			// Sticky: an append() was dropped because the command buffer is full.
 			// Reset by clear(); lets a caller detect a truncated record.
@@ -1578,6 +1600,25 @@ int gLastScrollUiFrame = -1000;
 			out->brRy8 = scaleRadius8(r.brRy8, scaleY);
 			out->blRx8 = scaleRadius8(r.blRx8, scaleX);
 			out->blRy8 = scaleRadius8(r.blRy8, scaleY);
+			// A scaled circle's box rounds to whole pixels independently of its
+			// radii; rounding the box down leaves each radius up to a pixel past
+			// half the box, and the Canvas primitive refused it -- about half the
+			// frames of any scale animation then took the per-pixel shader. CSS
+			// clamps such a radius to the box anyway; clamp the rounding slack.
+			const int maxRx8 = std::min(out->w, out->h) * 4;
+			const int maxRy8 = maxRx8;
+			auto clampSlack = [](int &radius8, int max8) {
+				if (radius8 > max8 && radius8 - max8 <= 8)
+					radius8 = max8;
+			};
+			clampSlack(out->tlRx8, maxRx8);
+			clampSlack(out->trRx8, maxRx8);
+			clampSlack(out->brRx8, maxRx8);
+			clampSlack(out->blRx8, maxRx8);
+			clampSlack(out->tlRy8, maxRy8);
+			clampSlack(out->trRy8, maxRy8);
+			clampSlack(out->brRy8, maxRy8);
+			clampSlack(out->blRy8, maxRy8);
 			return true;
 		}
 
@@ -1817,19 +1858,133 @@ int gLastScrollUiFrame = -1000;
 
 		int fillQuadCoverage(const int *xs, const int *ys, int x, int y, int samples)
 		{
+			// Every sample lies within half a pixel of the pixel centre, so a pixel
+			// whose centre clears each edge by that half-pixel reach (plus a bound on
+			// the float rounding of the per-sample test) classifies all of its samples
+			// at once. Exact integer math in half-pixel units; only the pixels an edge
+			// actually crosses pay for the per-sample test, which is unchanged. Small
+			// quads were ~7 us per pixel on the S31 doing every sample.
+			int positive = 0, negative = 0;
+			for (int i = 0; i < 4; ++i)
+			{
+				const int j = (i + 1) & 3;
+				const std::int64_t dx = static_cast<std::int64_t>(xs[j]) - xs[i];
+				const std::int64_t dy = static_cast<std::int64_t>(ys[j]) - ys[i];
+				const std::int64_t ry = 2 * static_cast<std::int64_t>(y) + 1 - 2 * static_cast<std::int64_t>(ys[i]);
+				const std::int64_t rx = 2 * static_cast<std::int64_t>(x) + 1 - 2 * static_cast<std::int64_t>(xs[i]);
+				const std::int64_t adx = dx < 0 ? -dx : dx;
+				const std::int64_t ady = dy < 0 ? -dy : dy;
+				const std::int64_t centre = dx * ry - dy * rx;
+				const std::int64_t reach = adx + ady;
+				const std::int64_t rounding = ((adx * ((ry < 0 ? -ry : ry) + 1) + ady * ((rx < 0 ? -rx : rx) + 1)) >> 20) + 1;
+				const std::int64_t margin = reach + rounding;
+				if (centre > margin)
+					positive |= 1 << i;
+				else if (centre < -margin)
+					negative |= 1 << i;
+			}
+			if (positive && negative)
+				return 0;
+			if (positive == 0xf || negative == 0xf)
+				return samples * samples;
+			float offsets[16];
+			const int n = std::min(samples, 16);
+			for (int i = 0; i < n; ++i)
+				offsets[i] = antialiasOffset(i, samples);
 			int coverage = 0;
 			for (int iy = 0; iy < samples; ++iy)
 			{
-				const float oy = antialiasOffset(iy, samples);
+				const float oy = iy < 16 ? offsets[iy] : antialiasOffset(iy, samples);
 				for (int ix = 0; ix < samples; ++ix)
 				{
-					const float ox = antialiasOffset(ix, samples);
+					const float ox = ix < 16 ? offsets[ix] : antialiasOffset(ix, samples);
 					if (convexQuadContainsFast(xs, ys, static_cast<float>(x) + ox, static_cast<float>(y) + oy))
 						++coverage;
 				}
 			}
 			return coverage;
 		}
+
+		// Per-command preparation for fillQuadCoverage. With 2x2 or 4x4 sampling the
+		// sample offsets are exact binary fractions, and while every edge's cross
+		// product stays below 2^21 the float test in convexQuadContainsFast never
+		// rounds — so the same signs come out of exact integers in 1/(2n) pixel
+		// units. Each edge is then a linear function stepped across the sample grid:
+		// a pixel it clears entirely costs two compares, and only the edges that
+		// cross the pixel fill in per-sample sign bits. Thin rotated quads (dial
+		// ticks) are almost all edge pixels; they were ~3 us per pixel on the S31.
+		struct QuadCoverage
+		{
+			const int *xs;
+			const int *ys;
+			int samples;
+			bool exact;
+			int a[4], b[4];
+			unsigned full;
+
+			QuadCoverage(const int *qx, const int *qy, int n, int x0, int y0, int x1, int y1)
+					: xs(qx), ys(qy), samples(n), exact(false), full(0)
+			{
+				if (n != 2 && n != 4)
+					return;
+				std::int64_t worst = 0;
+				for (int i = 0; i < 4; ++i)
+				{
+					const int j = (i + 1) & 3;
+					const std::int64_t dx = static_cast<std::int64_t>(qx[j]) - qx[i];
+					const std::int64_t dy = static_cast<std::int64_t>(qy[j]) - qy[i];
+					const std::int64_t spanX = std::max(std::llabs(static_cast<std::int64_t>(x0) - qx[i]), std::llabs(static_cast<std::int64_t>(x1) - qx[i])) + 1;
+					const std::int64_t spanY = std::max(std::llabs(static_cast<std::int64_t>(y0) - qy[i]), std::llabs(static_cast<std::int64_t>(y1) - qy[i])) + 1;
+					worst = std::max<std::int64_t>(worst, std::llabs(dx) * spanY + std::llabs(dy) * spanX);
+					a[i] = static_cast<int>(-dy);
+					b[i] = static_cast<int>(dx);
+				}
+				if (worst >= (std::int64_t(1) << 20))
+					return;
+				exact = true;
+				full = (1u << (n * n)) - 1u;
+			}
+
+			int at(int x, int y) const
+			{
+				if (!exact)
+					return fillQuadCoverage(xs, ys, x, y, samples);
+				const int n = samples;
+				const int unit = 2 * n;
+				unsigned anyPositive = 0, anyNegative = 0;
+				for (int i = 0; i < 4; ++i)
+				{
+					const int stepX = 2 * a[i], stepY = 2 * b[i];
+					const int base = b[i] * (unit * (y - ys[i]) + 1) + a[i] * (unit * (x - xs[i]) + 1);
+					const int reachX = stepX * (n - 1), reachY = stepY * (n - 1);
+					const int lo = base + std::min(0, reachX) + std::min(0, reachY);
+					const int hi = base + std::max(0, reachX) + std::max(0, reachY);
+					if (lo > 0)
+						anyPositive = full;
+					else if (hi < 0)
+						anyNegative = full;
+					else if (lo != 0 || hi != 0)
+					{
+						unsigned bit = 1;
+						int row = base;
+						for (int iy = 0; iy < n; ++iy, row += stepY)
+						{
+							int v = row;
+							for (int ix = 0; ix < n; ++ix, v += stepX, bit <<= 1)
+							{
+								if (v > 0)
+									anyPositive |= bit;
+								else if (v < 0)
+									anyNegative |= bit;
+							}
+						}
+					}
+					if ((anyPositive & anyNegative) == full)
+						return 0;
+				}
+				return __builtin_popcount(full & ~(anyPositive & anyNegative));
+			}
+		};
 
 		int combinedCoverageAlpha(int alpha, int coverage, int sampleCount)
 		{
@@ -2561,18 +2716,19 @@ int gLastScrollUiFrame = -1000;
 				const int cp = transformedTextCodepoint(nextUtf8Codepoint(p), command.projectedText.textTransform, wordStart);
 				if (!font.glyph(cp, &glyph))
 				{
-					penX += font.sizePx() / 2;
+					penX += font.advance(
+						cp, followingProjectedTextCodepoint(p, command.projectedText.textTransform, wordStart));
 					continue;
 				}
 
 				const int gx = penX + glyph.bearingX;
 				const int gy = command.projectedText.srcY + font.ascender() - glyph.bearingY;
-				if (sourceX >= gx && sourceX < gx + glyph.width &&
-						sourceY >= gy && sourceY < gy + glyph.height)
+				if (sourceX >= gx && sourceX < gx + glyph.width && sourceY >= gy && sourceY < gy + glyph.height)
 				{
 					return font.coverage(glyph, sourceY - gy, sourceX - gx);
 				}
-				penX += glyph.advance;
+				penX += font.advance(
+					cp, followingProjectedTextCodepoint(p, command.projectedText.textTransform, wordStart));
 			}
 			return 0;
 		}
@@ -2634,7 +2790,8 @@ int gLastScrollUiFrame = -1000;
 				const int cp = transformedTextCodepoint(nextUtf8Codepoint(p), command.projectedText.textTransform, wordStart);
 				if (!font.glyph(cp, &glyph))
 				{
-					penX += font.sizePx() / 2;
+					penX += font.advance(
+						cp, followingProjectedTextCodepoint(p, command.projectedText.textTransform, wordStart));
 					continue;
 				}
 				const int gx = penX + glyph.bearingX;
@@ -2665,7 +2822,8 @@ int gLastScrollUiFrame = -1000;
 						}
 					}
 				}
-				penX += glyph.advance;
+				penX += font.advance(
+					cp, followingProjectedTextCodepoint(p, command.projectedText.textTransform, wordStart));
 			}
 		}
 
@@ -2703,7 +2861,7 @@ int gLastScrollUiFrame = -1000;
 
 			gea::framework::graphics::RasterizedFont font =
 					gea::framework::graphics::FontRegistry::rasterizedFamily(command.projectedText.fontId,
-																																	 command.projectedText.fontSize);
+																																	 command.projectedText.fontSize,command.projectedText.fontWeight,command.projectedText.fontStretch);
 			if (!font.valid())
 				return;
 
@@ -2774,6 +2932,9 @@ int gLastScrollUiFrame = -1000;
 #endif
 					std::uint32_t hash = 0;
 					int fontId = -2, fontSize = -1, srcW = -1, srcH = -1, textTransform = -1;
+#if GEA_CSS_FONT_STRETCH
+					int fontWeight=400,fontStretch=1000;
+#endif
 					int bytes = 0;
 					int ink[4] = {0, 0, -1, -1};
 					bool valid = false;
@@ -2808,6 +2969,9 @@ int gLastScrollUiFrame = -1000;
 				for (auto &e : cache)
 				{
 					if (e.valid && e.hash == textHash && e.fontId == fid && e.fontSize == fsz &&
+#if GEA_CSS_FONT_STRETCH
+ e.fontWeight==command.projectedText.fontWeight && e.fontStretch==command.projectedText.fontStretch &&
+#endif
 							e.srcW == srcW && e.srcH == srcH && e.textTransform == ttf)
 					{
 						hit = &e;
@@ -2831,6 +2995,9 @@ int gLastScrollUiFrame = -1000;
 					e.hash = textHash;
 					e.fontId = fid;
 					e.fontSize = fsz;
+#if GEA_CSS_FONT_STRETCH
+ e.fontWeight=command.projectedText.fontWeight;e.fontStretch=command.projectedText.fontStretch;
+#endif
 					e.srcW = srcW;
 					e.srcH = srcH;
 					e.textTransform = ttf;
@@ -3287,7 +3454,7 @@ int gLastScrollUiFrame = -1000;
 					gSplitN = gInlineN = gSplitRows = gInlineRows = gMaxRows = 0;
 				}
 			};
-			if (rows >= kMinRowsToSplit)
+			if (GEA_RENDER_SPLIT_ALLOWED && rows >= kMinRowsToSplit)
 			{
 				const int mid = (y0 + y1) >> 1;
 				struct Trampoline
@@ -4208,6 +4375,7 @@ int gLastScrollUiFrame = -1000;
 			const int coverageArea = (drawXMax - drawXMin + 1) * (drawY1 - drawY0 + 1);
 			const int aaSamples = gea::framework::graphics::Canvas::antialiasSamples();
 			const int aaSampleCount = aaSamples * aaSamples;
+			const QuadCoverage quadCoverage(xs, ys, aaSamples, drawXMin, drawY0, drawXMax, drawY1);
 			if (aaSamples >= 2 && drawXMin <= drawXMax && coverageArea > 0 && coverageArea <= kAntialiasFullCoverageAreaLimit)
 			{
 				int dirtyX0 = canvas->width();
@@ -4219,7 +4387,7 @@ int gLastScrollUiFrame = -1000;
 					gea::framework::graphics::pixel::native_t *row = canvas->pixels() + canvas->rowToPhysical(y) * stride;
 					for (int x = drawXMin; x <= drawXMax; ++x)
 					{
-						const int coverage = fillQuadCoverage(xs, ys, x, y, aaSamples);
+						const int coverage = quadCoverage.at(x, y);
 						if (coverage <= 0)
 							continue;
 						paintCoveragePixel(row[x], command.quad.color, alpha, coverage, aaSampleCount);
@@ -4302,7 +4470,7 @@ int gLastScrollUiFrame = -1000;
 
 					for (int x = aaLX0; x <= aaLX1; x++)
 					{
-						const int coverage = fillQuadCoverage(xs, ys, x, y, aaSamples);
+						const int coverage = quadCoverage.at(x, y);
 						if (coverage > 0)
 							paintCoveragePixel(row[x], quadColor, alpha, coverage, aaSampleCount);
 					}
@@ -4323,7 +4491,7 @@ int gLastScrollUiFrame = -1000;
 
 					for (int x = aaRX0; x <= aaRX1; x++)
 					{
-						const int coverage = fillQuadCoverage(xs, ys, x, y, aaSamples);
+						const int coverage = quadCoverage.at(x, y);
 						if (coverage > 0)
 							paintCoveragePixel(row[x], quadColor, alpha, coverage, aaSampleCount);
 					}
@@ -4595,6 +4763,111 @@ int gLastScrollUiFrame = -1000;
 			inner.blRx8 = std::max(0, s.rx8[3] - 8 * s.lineWidth); inner.blRy8 = std::max(0, s.ry8[3] - 8 * s.lineWidth);
 		}
 
+		// Whole-pixel answers for roundedRectContainsFast over a pixel's sample box.
+		// Valid only while no two corner radii overlap along a side: the contained
+		// set is then the convex rounded rect, so four inside corners mean every
+		// sample is inside, and a box wholly in one corner's quadrant whose nearest
+		// point lies outside that ellipse has every sample outside. The margins
+		// dwarf the float rounding of the per-sample test; anything closer than
+		// that is left to it.
+		struct RoundedRectPixelClassifier
+		{
+			bool valid = false;
+			bool empty = false;
+			float left = 0, top = 0, right = 0, bottom = 0;
+			float cx[4]{}, cy[4]{}, irx[4]{}, iry[4]{};
+			bool rounded[4]{};
+
+			explicit RoundedRectPixelClassifier(const TransformedRoundedRectCommand &r)
+			{
+				if (r.lw <= 0 || r.lh <= 0)
+				{
+					valid = true;
+					empty = true;
+					return;
+				}
+				left = static_cast<float>(r.lx);
+				top = static_cast<float>(r.ly);
+				right = left + static_cast<float>(r.lw);
+				bottom = top + static_cast<float>(r.lh);
+				const int rx8[4] = {std::max(0, int(r.tlRx8)), std::max(0, int(r.trRx8)), std::max(0, int(r.brRx8)), std::max(0, int(r.blRx8))};
+				const int ry8[4] = {std::max(0, int(r.tlRy8)), std::max(0, int(r.trRy8)), std::max(0, int(r.brRy8)), std::max(0, int(r.blRy8))};
+				if (rx8[0] + rx8[1] > 8 * r.lw || rx8[3] + rx8[2] > 8 * r.lw ||
+				    ry8[0] + ry8[3] > 8 * r.lh || ry8[1] + ry8[2] > 8 * r.lh)
+					return;
+				for (int k = 0; k < 4; ++k)
+				{
+					rounded[k] = rx8[k] > 0 && ry8[k] > 0;
+					if (!rounded[k])
+						continue;
+					// Below 2px the normalized margins shrink toward float error.
+					if (rx8[k] < 16 || ry8[k] < 16)
+						return;
+					const float rx = rx8[k] * 0.125f, ry = ry8[k] * 0.125f;
+					cx[k] = (k == 0 || k == 3) ? left + rx : right - rx;
+					cy[k] = (k == 0 || k == 1) ? top + ry : bottom - ry;
+					irx[k] = 1.0f / rx;
+					iry[k] = 1.0f / ry;
+				}
+				valid = true;
+			}
+
+			// The corner quadrant a point lies in: the region where the per-sample
+			// test consults that ellipse.
+			bool inQuadrant(int k, float px, float py, float m) const
+			{
+				const bool xSide = (k == 0 || k == 3) ? px < cx[k] - m : px > cx[k] + m;
+				const bool ySide = (k == 0 || k == 1) ? py < cy[k] - m : py > cy[k] + m;
+				return xSide && ySide;
+			}
+
+			bool pointSurelyInside(float px, float py) const
+			{
+				const float m = 1e-3f;
+				if (px < left + m || py < top + m || px >= right - m || py >= bottom - m)
+					return false;
+				for (int k = 0; k < 4; ++k)
+				{
+					if (!rounded[k])
+						continue;
+					const bool nearX = (k == 0 || k == 3) ? px < cx[k] + m : px > cx[k] - m;
+					const bool nearY = (k == 0 || k == 1) ? py < cy[k] + m : py > cy[k] - m;
+					if (!nearX || !nearY)
+						continue;
+					const float dx = (px - cx[k]) * irx[k], dy = (py - cy[k]) * iry[k];
+					if (dx * dx + dy * dy > 1.0f - 1e-3f)
+						return false;
+				}
+				return true;
+			}
+
+			// 1: every sample inside, -1: every sample outside, 0: undecided.
+			int box(float x0, float y0, float x1, float y1) const
+			{
+				if (empty)
+					return -1;
+				const float m = 1e-3f;
+				if (x1 < left - m || y1 < top - m || x0 >= right + m || y0 >= bottom + m)
+					return -1;
+				for (int k = 0; k < 4; ++k)
+				{
+					if (!rounded[k])
+						continue;
+					const float nx = (k == 0 || k == 3) ? x1 : x0;
+					const float ny = (k == 0 || k == 1) ? y1 : y0;
+					if (!inQuadrant(k, nx, ny, m))
+						continue;
+					const float dx = (nx - cx[k]) * irx[k], dy = (ny - cy[k]) * iry[k];
+					if (dx * dx + dy * dy > 1.0f + 1e-3f)
+						return -1;
+				}
+				if (pointSurelyInside(x0, y0) && pointSurelyInside(x1, y0) &&
+				    pointSurelyInside(x0, y1) && pointSurelyInside(x1, y1))
+					return 1;
+				return 0;
+			}
+		};
+
 		int cssRoundedBorderCoverage(const TransformedRoundedRectCommand &outer,
 		                             const TransformedRoundedRectCommand &inner,
 		                             int x, int y, int samples)
@@ -4614,6 +4887,11 @@ int gLastScrollUiFrame = -1000;
 			if (!canvas || !canvas->pixels() || s.w <= 0 || s.h <= 0 || s.lineWidth <= 0) return;
 			TransformedRoundedRectCommand outer{}, inner{};
 			cssRoundedBorderContours(s, outer, inner);
+			// A circular 2px ring is all corner box: every pixel ran 2 x 16
+			// containment tests (3.5 ms for an 88px ring on the S31). Settle whole
+			// pixels first; only the ones a contour crosses are sampled.
+			const RoundedRectPixelClassifier outerClass(outer), innerClass(inner);
+			const bool classify = outerClass.valid && innerClass.valid;
 			int x0, y0, x1, y1;
 			gea::platform::display::Display::clip(&x0, &y0, &x1, &y1);
 			x0 = std::max({x0, 0, int(s.x)}); y0 = std::max({y0, 0, int(s.y)});
@@ -4624,14 +4902,135 @@ int gLastScrollUiFrame = -1000;
 			const int alpha = gea::platform::display::Display::alpha();
 			if (!alpha) return;
 			const int stride = canvas->strideBytes() / sizeof(gea::framework::graphics::pixel::native_t);
+			const int full = samples * samples;
+			// Only the corner boxes need sampling. Outside them both contours are
+			// plain rectangles (the inner corners lie inside the outer corner
+			// boxes), so a pixel is fully covered when it is outside the inner
+			// rectangle and uncovered inside it -- exactly what sampling would
+			// give. Rows between the corners only touch the two side bands.
+			const int radiusX = (std::max({s.rx8[0], s.rx8[1], s.rx8[2], s.rx8[3]}) + 7) / 8;
+			const int radiusY = (std::max({s.ry8[0], s.ry8[1], s.ry8[2], s.ry8[3]}) + 7) / 8;
+			const int cornerX0 = s.x + radiusX, cornerX1 = s.x + s.w - radiusX;
+			const int cornerY0 = s.y + radiusY, cornerY1 = s.y + s.h - radiusY;
+			const int innerX0 = s.x + s.lineWidth, innerX1 = s.x + s.w - s.lineWidth;
+			const int innerY0 = s.y + s.lineWidth, innerY1 = s.y + s.h - s.lineWidth;
 			for (int y = y0; y <= y1; ++y) {
 				auto *row = canvas->pixels() + canvas->rowToPhysical(y) * stride;
+				const bool cornerRow = y < cornerY0 || y >= cornerY1;
+				const bool innerRow = y >= innerY0 && y < innerY1;
+				if (!cornerRow && innerRow) {
+					for (int x = x0; x <= std::min(x1, innerX0 - 1); ++x) paintCoveragePixel(row[x], s.color, alpha, full, full);
+					for (int x = std::max(x0, innerX1); x <= x1; ++x) paintCoveragePixel(row[x], s.color, alpha, full, full);
+					continue;
+				}
 				for (int x = x0; x <= x1; ++x) {
-					const int coverage = cssRoundedBorderCoverage(outer, inner, x, y, samples);
-					if (coverage) paintCoveragePixel(row[x], s.color, alpha, coverage, samples * samples);
+					int coverage;
+					if (cornerRow && (x < cornerX0 || x >= cornerX1))
+					{
+						int decided = -1;
+						if (classify)
+						{
+							const float o0 = 0.5f / samples, o1 = 1.0f - o0;
+							const float bx0 = x + o0, by0 = y + o0, bx1 = x + o1, by1 = y + o1;
+							const int out = outerClass.box(bx0, by0, bx1, by1);
+							if (out < 0)
+								decided = 0;
+							else
+							{
+								const int in = innerClass.box(bx0, by0, bx1, by1);
+								if (in > 0)
+									decided = 0;
+								else if (out > 0 && in < 0)
+									decided = full;
+							}
+						}
+						coverage = decided >= 0 ? decided : cssRoundedBorderCoverage(outer, inner, x, y, samples);
+					}
+					else
+						coverage = innerRow && x >= innerX0 && x < innerX1 ? 0 : full;
+					if (coverage) paintCoveragePixel(row[x], s.color, alpha, coverage, full);
 				}
 			}
 			canvas->markDirty(x0, y0, x1, y1);
+		}
+
+		void drawProjectedImage(const DisplayCommand &command)
+		{
+			auto *canvas = gea::platform::display::Display::canvas();
+			const auto &image = command.projectedBlit;
+			if (!canvas || !image.pixels || image.sourceWidth <= 0 || image.sourceHeight <= 0 ||
+				image.width <= 0 || image.height <= 0)
+				return;
+			if (image.backfaceHidden)
+			{
+				long area = 0;
+				for (int i = 0; i < 4; ++i)
+				{
+					const int next = (i + 1) % 4;
+					area += long(image.xs[i]) * image.ys[next] - long(image.xs[next]) * image.ys[i];
+				}
+				if (area <= 0)
+					return;
+			}
+			double coefficients[8]{};
+			if (!screenToLocalRectHomography(image.xs, image.ys, 0, 0, image.sourceWidth, image.sourceHeight,
+											 coefficients))
+				return;
+			float h[8];
+			for (int i = 0; i < 8; ++i)
+				h[i] = static_cast<float>(coefficients[i]);
+			const bool affine = std::abs(h[6]) < 0.000000001f && std::abs(h[7]) < 0.000000001f;
+			const bool rounded = image.tl || image.tr || image.br || image.bl;
+			const float localScaleX = float(image.width) / image.sourceWidth;
+			const float localScaleY = float(image.height) / image.sourceHeight;
+			int x0, y0, x1, y1;
+			gea::platform::display::Display::clip(&x0, &y0, &x1, &y1);
+			x0 = std::max({x0, 0, int(command.bx)});
+			y0 = std::max({y0, 0, int(command.by)});
+			x1 = std::min({x1, canvas->width() - 1, command.bx + command.bw - 1});
+			y1 = std::min({y1, canvas->height() - 1, command.by + command.bh - 1});
+			const int globalAlpha = canvas->globalAlpha();
+			for (int y = y0; y <= y1; ++y)
+			{
+				const float py = y + 0.5f;
+				for (int x = x0; x <= x1; ++x)
+				{
+					const float px = x + 0.5f;
+					const float divisor = affine ? 1.0f : h[6] * px + h[7] * py + 1.0f;
+					if (std::abs(divisor) < 0.000001f)
+						continue;
+					const float inverse = affine ? 1.0f : 1.0f / divisor;
+					const float sx = (h[0] * px + h[1] * py + h[2]) * inverse;
+					const float sy = (h[3] * px + h[4] * py + h[5]) * inverse;
+					if (!(sx >= 0 && sx < image.sourceWidth && sy >= 0 && sy < image.sourceHeight))
+						continue;
+					if (rounded)
+					{
+						const float lx = sx * localScaleX;
+						const float ly = sy * localScaleY;
+						const bool right = lx >= image.width / 2.0f;
+						const bool bottom = ly >= image.height / 2.0f;
+						const int radius =
+							bottom ? (right ? image.br : image.bl) : (right ? image.tr : image.tl);
+						const float r = std::min(float(radius), std::min(image.width, image.height) / 2.0f);
+						const float cx = right ? image.width - lx : lx;
+						const float cy = bottom ? image.height - ly : ly;
+						if (r > 0 && cx < r && cy < r && (cx - r) * (cx - r) + (cy - r) * (cy - r) > r * r)
+							continue;
+					}
+					const int source = int(sy) * image.sourceWidth + int(sx);
+					const int alpha = ((image.alpha ? image.alpha[source] : 255) * globalAlpha) / 255;
+					if (!alpha)
+						continue;
+					const auto color = alpha == 255
+										   ? image.pixels[source]
+										   : gea::framework::graphics::pixel::blendNative(
+												 image.pixels[source], canvas->readPixelNative(x, y), alpha);
+					canvas->writePixelNativeExact(x, y, color);
+				}
+			}
+			if (x0 <= x1 && y0 <= y1)
+				canvas->markDirty(x0, y0, x1, y1);
 		}
 
 		void drawTransformedRoundedRect(const DisplayCommand &command)
@@ -5056,6 +5455,18 @@ int gLastScrollUiFrame = -1000;
 					c->projectedText.y2 += dy;
 					c->projectedText.x3 += dx;
 					c->projectedText.y3 += dy;
+					break;
+				case DisplayCommandType::ReplayCanvasBatch:
+					c->canvasBatch.x += dx;
+					c->canvasBatch.y += dy;
+					break;
+				case DisplayCommandType::BlitImageProjected:
+					c->projectedBlit.x += dx;
+					c->projectedBlit.y += dy;
+					for (int corner = 0; corner < 4; ++corner) {
+						c->projectedBlit.xs[corner] += dx;
+						c->projectedBlit.ys[corner] += dy;
+					}
 					break;
 				case DisplayCommandType::BlitImage:
 					c->blit.dx += dx;
@@ -5647,11 +6058,11 @@ int gLastScrollUiFrame = -1000;
 #ifndef GEA_EMBEDDED_GRADIENT_LUT_SLOTS
 #define GEA_EMBEDDED_GRADIENT_LUT_SLOTS 1
 #endif
-// GEA_EMBEDDED_LAZY_GRADIENT_LUTS=1 allocates the dither tables on first use
-// instead of as static arrays: the slots above plus the radial table below
-// otherwise sit in .bss whether or not the app ever draws a gradient.
+// Allocate dither tables on first use by default. An app that never draws a
+// gradient must not reserve these ~20 KB in internal RAM. The slot count still
+// controls caching when gradients are actually used.
 #ifndef GEA_EMBEDDED_LAZY_GRADIENT_LUTS
-#define GEA_EMBEDDED_LAZY_GRADIENT_LUTS 0
+#define GEA_EMBEDDED_LAZY_GRADIENT_LUTS 1
 #endif
 #if GEA_EMBEDDED_RENDERER_LINEAR_GRADIENTS
 				struct LutSlot
@@ -6432,7 +6843,7 @@ int gLastScrollUiFrame = -1000;
 					TextRenderer::drawWrapped(c.text.text, c.text.x, c.text.y,
 																		c.text.maxWidth, c.text.color, c.text.scale,
 																		c.text.align, c.text.containerWidth, c.text.fontId, c.text.textTransform, c.text.lineHeight,
-																		c.text.whiteSpace, c.text.textOverflow, c.text.maxHeight, c.text.firstLineIndent);
+																		c.text.whiteSpace, c.text.textOverflow, c.text.maxHeight, c.text.firstLineIndent,c.text.fontWeight,c.text.fontStretch);
 					break;
 				case DisplayCommandType::BlitImage:
 #if GEA_PIXEL_STORAGE_PACKED
@@ -6452,6 +6863,13 @@ int gLastScrollUiFrame = -1000;
 #endif
 					gea::platform::display::Display::blitImage(c.blit.pixels, c.blit.alpha, c.blit.sourceWidth, c.blit.sourceHeight,
 																										 c.blit.dx, c.blit.dy);
+					break;
+				case DisplayCommandType::ReplayCanvasBatch:
+					CanvasRenderingContext2D::replayRetainedCanvas(c.canvasBatch.nodeId, c.canvasBatch.identity,
+					    c.canvasBatch.x, c.canvasBatch.y, c.canvasBatch.width, c.canvasBatch.height);
+					break;
+				case DisplayCommandType::BlitImageProjected:
+					drawProjectedImage(c);
 					break;
 				case DisplayCommandType::BlitImageScaled:
 #if GEA_PIXEL_STORAGE_PACKED
@@ -6544,6 +6962,8 @@ int gLastScrollUiFrame = -1000;
 					GEA_REFRESH_PERF(__perf.treeReplayGradientUs += __replayDt);
 					break;
 				case DisplayCommandType::BlitImage:
+				case DisplayCommandType::ReplayCanvasBatch:
+				case DisplayCommandType::BlitImageProjected:
 				case DisplayCommandType::BlitImageScaled:
 					GEA_REFRESH_PERF(__perf.treeReplayImageUs += __replayDt);
 					break;
@@ -6690,6 +7110,10 @@ int gLastScrollUiFrame = -1000;
 			{
 				if (!state.hasNodeScratchFor(id))
 					return;
+				if (isStructuralNodeType(Tree::instance().node(id).type)) {
+					state.clearNodeRange(id);
+					return;
+				}
 				// Backdrop-cache record skip: skip recording a subtree only when it's fully
 				// static — neither containing a dirty node (subtreeDirty) NOR sitting under one
 				// (insideDirty, set once we descend into a dirty node so the cube's faces are
@@ -6702,6 +7126,13 @@ int gLastScrollUiFrame = -1000;
 					return;
 				}
 				Node *n = &Tree::instance().nodes()[id];
+				// Plain leaf text fades through a retained alpha scope. Keeping the
+				// scope at 255 and its glyph command at zero avoids a whole-list
+				// rebuild whenever a label begins or ends a fade.
+				const bool retainedTextAlpha = n->type == NodeType::Text && n->first_child < 0 &&
+				                               !n->text.empty() && n->computedStyle().text_alpha == 255 &&
+				                               n->layout.height >= std::max(16, static_cast<int>(n->computedStyle().font_size)) &&
+				                               n->layout.height >= n->computedStyle().line_height;
 				if (n->computedStyle().display == 1 || isCollapsedFlexSubtree(*n) || ViewRenderer::backfaceSubtreeHidden(*n))
 				{
 					state.clearNodeRange(id);
@@ -6735,7 +7166,7 @@ int gLastScrollUiFrame = -1000;
 						}
 					}
 				}
-				if (n->computedStyle().opacity == 0 && !contributesTextMask)
+				if (n->computedStyle().opacity == 0 && !contributesTextMask && !retainedTextAlpha)
 				{
 					state.clearNodeRange(id);
 					return;
@@ -6771,7 +7202,7 @@ int gLastScrollUiFrame = -1000;
 				uint8_t cur_alpha = parent_alpha;
 				const Node *active_mask = mask_node;
 
-				if (n->computedStyle().opacity < 255)
+				if (n->computedStyle().opacity < 255 || retainedTextAlpha)
 				{
 					cur_alpha = (parent_alpha * n->computedStyle().opacity) / 255;
 					DisplayCommand *cmd = list.append();
@@ -6898,7 +7329,7 @@ int gLastScrollUiFrame = -1000;
 				if (filtered && !nativeTextInput)
 					recordFilterBlur(id, *n, DisplayCommandType::ApplyFilterBlur, cur_alpha);
 
-				if (n->computedStyle().opacity < 255)
+				if (n->computedStyle().opacity < 255 || retainedTextAlpha)
 				{
 					DisplayCommand *cmd = list.append();
 					if (cmd)
@@ -7639,7 +8070,44 @@ int gLastScrollUiFrame = -1000;
 							 command.clip.y + command.clip.h >= height;
 			}
 
-			static bool canUseSimpleDirtyReplay(int width, int height)
+			static bool simpleTextAlphaNode(int id, Node *nodes, int count)
+			{
+				if (id < 0 || id >= count || !state.hasNodeScratchFor(id)) return false;
+				const Node &node = nodes[id];
+				const int start = state.nodeDrawStart[id];
+				const int end = state.nodeDrawEnd[id];
+				return node.type == NodeType::Text && node.first_child < 0 &&
+				       node.computedStyle().text_alpha == 255 &&
+				       node.layout.height >= std::max(16, static_cast<int>(node.computedStyle().font_size)) &&
+				       node.layout.height >= node.computedStyle().line_height &&
+				       start >= 0 && end == start + 1 && end <= state.commandCount &&
+				       state.commands[start].type == DisplayCommandType::DrawText;
+			}
+
+			// Only leaf text may carry partial opacity in simple replay. Its one
+			// glyph command needs a local alpha, not ancestor/compositing traversal.
+			struct SimpleTextAlphaScope
+			{
+				UniformRoundedRectBatch &batch;
+				bool changed;
+				SimpleTextAlphaScope(const Node &node, UniformRoundedRectBatch &rects)
+				    : batch(rects), changed(node.computedStyle().opacity != 255)
+				{
+					if (changed) {
+						batch.flush();
+						gea::platform::display::Display::setAlpha(node.computedStyle().opacity);
+					}
+				}
+				~SimpleTextAlphaScope()
+				{
+					if (changed) {
+						batch.flush();
+						gea::platform::display::Display::setAlpha(255);
+					}
+				}
+			};
+
+			static bool canUseSimpleDirtyReplay(int width, int height, const DisplayReplayRegion *regions = nullptr, int count = 0)
 			{
 				if (DisplayList::instance().hasTextClippedBackgrounds()) return false;
 #if GEA_EMBEDDED_SIMPLE_REPLAY_DEBUG
@@ -7658,16 +8126,31 @@ int gLastScrollUiFrame = -1000;
 					if ((GEA_CSS_FILTERS ? rstyle(node.computedStyle()).filter_blur_radius : 0) > 0)
 						{ SRDBG("blur node", i); return false; }
 					if (node.computedStyle().opacity != 255 && node.computedStyle().opacity != 0)
-						{ SRDBG("opacity node", i); return false; }
+						if (!simpleTextAlphaNode(i, nodes, nodeCount))
+							{ SRDBG("opacity node", i); return false; }
 					if (node.computedStyle().mask_right_fade_width > 0)
 						{ SRDBG("mask node", i); return false; }
-					if (hasRetainedTransformState(node))
-						{ SRDBG("transform node", i); return false; }
+					if (hasRetainedTransformState(node) || (regions && nodeHasTransformChain(i, nodes, nodeCount)))
+					{
+						if (!regions || count <= 0 || !state.hasNodeScratchFor(i))
+							{ SRDBG("transform node", i); return false; }
+						// Projected command bounds include the transform of every
+						// ancestor. A static transformed subtree outside all transfer
+						// windows cannot affect their replay; intersecting ink still
+						// requires the general path, even if its layout box is outside.
+						for (int ri = 0; ri < count; ++ri)
+							if (commandRangeBBoxOverlaps(state.nodeDrawStart[i], state.nodeDrawEnd[i],
+							                            regions[ri].x0, regions[ri].y0, regions[ri].x1, regions[ri].y1))
+								{ SRDBG("transform region", i); return false; }
+					}
 				}
 				for (int ci = 0; ci < state.commandCount; ci++)
 				{
 					const DisplayCommand &command = state.commands[ci];
-					if (command.type == DisplayCommandType::SetAlpha ||
+					const bool plainTextAlpha = command.type == DisplayCommandType::SetAlpha &&
+					                            command.alpha.recordParentAlpha == 255 &&
+					                            simpleTextAlphaNode(command.alpha.nodeId, nodes, nodeCount);
+					if ((command.type == DisplayCommandType::SetAlpha && command.alpha.alpha != 255 && !plainTextAlpha) ||
 							command.type == DisplayCommandType::BeginFilterBlur ||
 							command.type == DisplayCommandType::ApplyFilterBlur)
 						{ SRDBG("alpha/blur cmd type", (int)command.type); return false; }
@@ -7714,6 +8197,8 @@ int gLastScrollUiFrame = -1000;
 						continue;
 					const int start = state.nodeDrawStart[node_id];
 					const int end = state.nodeDrawEnd[node_id];
+					if (node.computedStyle().opacity == 0) continue;
+					SimpleTextAlphaScope alpha(node, roundedRects);
 					replaySimpleCommandRangeInRegions(start, end, regions, count, roundedRects);
 				}
 				roundedRects.flush();
@@ -7767,6 +8252,8 @@ int gLastScrollUiFrame = -1000;
 			const int end = state.nodeDrawEnd[node_id];
 			if (start < 0 || end <= start || end > state.commandCount)
 				return;
+			if (node.computedStyle().opacity == 0) return;
+			SimpleTextAlphaScope alpha(node, roundedRects);
 			for (int ci = start; ci < end; ci++)
 			{
 				DisplayCommand *c = &state.commands[ci];
@@ -7823,6 +8310,8 @@ int gLastScrollUiFrame = -1000;
 					const int end = state.nodeDrawEnd[node_id];
 					if (start < 0 || end <= start || end > state.commandCount)
 						continue;
+					if (node.computedStyle().opacity == 0) continue;
+					SimpleTextAlphaScope alpha(node, roundedRects);
 					for (int ci = start; ci < end; ci++)
 					{
 						DisplayCommand *c = &state.commands[ci];
@@ -7911,7 +8400,7 @@ int gLastScrollUiFrame = -1000;
 				constexpr int kMinPixelsToSplitFrame = GEA_EMBEDDED_RENDER_PARALLEL_MIN_PIXELS;
 				const int regionW = x1 - x0 + 1;
 				const int regionH = y1 - y0 + 1;
-				if (GEA_EMBEDDED_RENDER_PARALLEL_DIRTY_REPLAY && allowSplit && regionW > 0 && regionH >= kMinRowsToSplitFrame &&
+				if (GEA_EMBEDDED_RENDER_PARALLEL_DIRTY_REPLAY && GEA_RENDER_SPLIT_ALLOWED && allowSplit && regionW > 0 && regionH >= kMinRowsToSplitFrame &&
 						regionW * regionH >= kMinPixelsToSplitFrame)
 				{
 					int mainRows = (regionH * gea_render_parallel_main_share_permille()) / 1000;
@@ -8285,7 +8774,7 @@ int gLastScrollUiFrame = -1000;
 				constexpr int kMinPixelsToSplitFrame = GEA_EMBEDDED_RENDER_PARALLEL_MIN_PIXELS;
 				const int regionW = x1 - x0 + 1;
 				const int regionH = y1 - y0 + 1;
-				if (GEA_EMBEDDED_RENDER_PARALLEL_DIRTY_REPLAY && allowSplit && regionW > 0 && regionH >= kMinRowsToSplitFrame &&
+				if (GEA_EMBEDDED_RENDER_PARALLEL_DIRTY_REPLAY && GEA_RENDER_SPLIT_ALLOWED && allowSplit && regionW > 0 && regionH >= kMinRowsToSplitFrame &&
 						regionW * regionH >= kMinPixelsToSplitFrame)
 				{
 					int mainRows = (regionH * gea_render_parallel_main_share_permille()) / 1000;
@@ -8433,17 +8922,23 @@ int gLastScrollUiFrame = -1000;
 				gea::platform::display::Display::fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1, base);
 			}
 
-			// Painter's-algorithm occlusion cull: the LAST node (in draw order) whose
-			// first command is an opaque fill or image covering the region occludes
-			// everything drawn before it — the replay walk can start there. A page-sized
-			// UI (e-reader page turn) stacks several full-bleed paper fills under the
-			// content; each is a full PSRAM write of the region, so skipping the covered
-			// ones removes ~100 ms/turn on a 540×960 GRAY4 panel. Conservative: the
-			// cover must be untransformed, at full effective alpha,
-			// its node's first command, never blinking, and not shrunk by any ancestor
-			// overflow clip smaller than the region.
+			// Painter's-algorithm occlusion cull: the LAST node (in draw order) from
+			// which the opaque fills or images that open the nodes drawn from there on
+			// cover the region together occludes everything drawn before it — the
+			// replay walk can start there. A page-sized UI (e-reader page turn) stacks
+			// several full-bleed paper fills under the content; each is a full PSRAM
+			// write of the region, so skipping the covered ones removes ~100 ms/turn on
+			// a 540×960 GRAY4 panel. A carousel mid-slide shows two side-by-side
+			// full-height images over a page background that neither covers alone but
+			// both do together. Conservative: a cover must span the region's full
+			// height, be untransformed, at full effective alpha, its node's first
+			// command, never blinking, and is narrowed to every ancestor overflow clip.
 			static int GEA_RENDER_HOT_SRAM occlusionCullStartIndex(int x0, int y0, int x1, int y1, Node *nodes, int nodeCount)
 			{
+				constexpr int kMaxCovers = 8;
+				int coverX0[kMaxCovers];
+				int coverX1[kMaxCovers];
+				int coverCount = 0;
 				for (int oi = state.drawNodeOrderCount - 1; oi > 0; --oi)
 				{
 					const int node_id = state.drawNodeOrder[oi];
@@ -8456,22 +8951,42 @@ int gLastScrollUiFrame = -1000;
 					if (start < 0 || end <= start || end > state.commandCount)
 						continue;
 					const DisplayCommand &c = state.commands[start];
-					bool covers = false;
+					int spanX0 = 0;
+					int spanX1 = -1;
 					if (c.type == DisplayCommandType::FillRect)
-						covers = c.fill.x <= x0 && c.fill.y <= y0 &&
-						         c.fill.x + c.fill.w - 1 >= x1 && c.fill.y + c.fill.h - 1 >= y1;
+					{
+						if (c.fill.y <= y0 && c.fill.y + c.fill.h - 1 >= y1)
+						{
+							spanX0 = c.fill.x;
+							spanX1 = c.fill.x + c.fill.w - 1;
+						}
+					}
 					else if (c.type == DisplayCommandType::BlitImage)
-						covers = c.blit.pixels && !c.blit.alpha &&
-						         c.blit.dx <= x0 && c.blit.dy <= y0 &&
-						         c.blit.dx + c.blit.sourceWidth - 1 >= x1 &&
-						         c.blit.dy + c.blit.sourceHeight - 1 >= y1;
-					if (!covers || c.textClipOwner >= 0)
+					{
+						if (c.blit.pixels && !c.blit.alpha && c.blit.dy <= y0 &&
+								c.blit.dy + c.blit.sourceHeight - 1 >= y1)
+						{
+							spanX0 = c.blit.dx;
+							spanX1 = c.blit.dx + c.blit.sourceWidth - 1;
+						}
+					}
+					if (spanX0 < x0)
+						spanX0 = x0;
+					if (spanX1 > x1)
+						spanX1 = x1;
+					if (spanX0 > spanX1 || c.textClipOwner >= 0)
 						continue;
-					// The recorded paint bbox must also cover the region (guards against
+					// The recorded paint bbox must also cover the span (guards against
 					// any recording that paints less than the command rect suggests).
-					if (c.bx > x0 || c.by > y0 || c.bx + c.bw - 1 < x1 || c.by + c.bh - 1 < y1)
+					if (c.by > y0 || c.by + c.bh - 1 < y1)
 						continue;
-					// Read node state only for a command large enough to cover the region.
+					if (spanX0 < c.bx)
+						spanX0 = c.bx;
+					if (spanX1 > c.bx + c.bw - 1)
+						spanX1 = c.bx + c.bw - 1;
+					if (spanX0 > spanX1)
+						continue;
+					// Read node state only for a command that covers part of the region.
 					Node *n = &nodes[node_id];
 					if (n->computedStyle().display == 1)
 						continue;
@@ -8485,9 +9000,16 @@ int gLastScrollUiFrame = -1000;
 						if (!nodeRecordsOverflowClip(cursor, nodes, nodeCount))
 							continue;
 						const Node &clip = nodes[cursor];
-						if (clip.layout.x > x0 || clip.layout.y > y0 ||
-								clip.layout.x + clip.layout.width - 1 < x1 ||
-								clip.layout.y + clip.layout.height - 1 < y1)
+						if (clip.layout.y > y0 || clip.layout.y + clip.layout.height - 1 < y1)
+						{
+							clipped = true;
+							break;
+						}
+						if (spanX0 < clip.layout.x)
+							spanX0 = clip.layout.x;
+						if (spanX1 > clip.layout.x + clip.layout.width - 1)
+							spanX1 = clip.layout.x + clip.layout.width - 1;
+						if (spanX0 > spanX1)
 						{
 							clipped = true;
 							break;
@@ -8495,7 +9017,29 @@ int gLastScrollUiFrame = -1000;
 					}
 					if (clipped)
 						continue;
-					return oi;
+					if (spanX0 == x0 && spanX1 == x1)
+						return oi;
+					if (coverCount == kMaxCovers)
+						return 0;
+					coverX0[coverCount] = spanX0;
+					coverX1[coverCount] = spanX1;
+					++coverCount;
+					// Covered when [x0, x1] can be walked left to right through the spans.
+					int reach = x0;
+					for (bool advanced = true; advanced && reach <= x1;)
+					{
+						advanced = false;
+						for (int i = 0; i < coverCount; ++i)
+						{
+							if (coverX0[i] <= reach && coverX1[i] >= reach)
+							{
+								reach = coverX1[i] + 1;
+								advanced = true;
+							}
+						}
+					}
+					if (reach > x1)
+						return oi;
 				}
 				return 0;
 			}
@@ -8754,7 +9298,7 @@ int gLastScrollUiFrame = -1000;
 				auto *canvas = gea::platform::display::Display::canvas();
 				const int width = canvas ? canvas->width() : 0;
 				const int height = canvas ? canvas->height() : 0;
-				if (canUseSimpleDirtyReplay(width, height))
+				if (canUseSimpleDirtyReplay(width, height, regions, count))
 				{
 					replaySimpleDirtyRegions(regions, count);
 					return;
@@ -8801,7 +9345,7 @@ int gLastScrollUiFrame = -1000;
 				constexpr int kMaxSplitRegions = 32;
 				constexpr int kMinRowsToSplitFrame = GEA_EMBEDDED_RENDER_PARALLEL_MIN_ROWS;
 				constexpr int kMinPixelsToSplitFrame = GEA_EMBEDDED_RENDER_PARALLEL_MIN_PIXELS;
-				if (GEA_EMBEDDED_RENDER_PARALLEL_DIRTY_REPLAY && allowSplit && count <= kMaxSplitRegions)
+				if (GEA_EMBEDDED_RENDER_PARALLEL_DIRTY_REPLAY && GEA_RENDER_SPLIT_ALLOWED && allowSplit && count <= kMaxSplitRegions)
 				{
 					int minY = 0x7fffffff, maxY = -0x7fffffff;
 					int totalArea = 0;
@@ -9118,7 +9662,7 @@ int gLastScrollUiFrame = -1000;
 		auto walk = [&](auto &&self, int parent, bool withinGroup) -> void {
 			std::vector<int> children;
 			for (int child = nodes[parent].first_child; child >= 0; child = nodes[child].next_sibling)
-				if (!isDisplayNone(nodes[child].computedStyle())) children.push_back(child);
+				if (!isStructuralNodeType(nodes[child].type) && !isDisplayNone(nodes[child].computedStyle())) children.push_back(child);
 			if (nodes[parent].computedStyle().display == kDisplayFlex || isDisplayGrid(nodes[parent].computedStyle())) {
 				std::stable_sort(children.begin(), children.end(), [&](int a, int b) {
 					const int oa = isOutOfFlowPosition(nodes[a].computedStyle().position) ? 0 : nodes[a].computedStyle().order;
@@ -9257,6 +9801,34 @@ int gLastScrollUiFrame = -1000;
 		return command;
 	}
 
+	void DisplayList::retainImage(int id)
+	{
+		auto &images = gea::framework::graphics::ImageStore::instance();
+		if (id >= 0 && id < gea::framework::graphics::kImageMax && !state.imageReferences[id])
+			state.imageReferences[id] = images.retain(id);
+	}
+
+	void DisplayList::pruneImageReferences()
+	{
+		bool referenced[gea::framework::graphics::kImageMax]{};
+		auto &images = gea::framework::graphics::ImageStore::instance();
+		for (int i = 0; i < state.commandCount; ++i) {
+			const auto &command = state.commands[i];
+			const gea::framework::graphics::pixel::native_t *pixels = nullptr;
+			if (command.type == DisplayCommandType::BlitImage) pixels = command.blit.pixels;
+			else if (command.type == DisplayCommandType::BlitImageScaled) pixels = command.scaledBlit.pixels;
+			else if (command.type == DisplayCommandType::BlitImageProjected) pixels = command.projectedBlit.pixels;
+			const int id = images.idForPixels(pixels);
+			if (id >= 0) referenced[id] = true;
+		}
+		for (int id = 0; id < gea::framework::graphics::kImageMax; ++id) {
+			if (state.imageReferences[id] && !referenced[id]) {
+				state.imageReferences[id] = false;
+				images.release(id);
+			}
+		}
+	}
+
 	void DisplayList::clear()
 	{
 		Tree &tree = Tree::instance();
@@ -9266,6 +9838,7 @@ int gLastScrollUiFrame = -1000;
 		state.filterBlurCacheHits = 0;
 		state.filterBlurCacheMisses = 0;
 		state.commandCount = 0;
+		pruneImageReferences();
 		state.textClippedBackgrounds = false;
 		state.commandOverflow = false;
 		state.drawNodeOrderCount = 0;
@@ -9281,6 +9854,7 @@ int gLastScrollUiFrame = -1000;
 	void DisplayList::resetStorage()
 	{
 		state.resetStorage();
+		pruneImageReferences();
 		invalidateStaticBackdrop();
 	}
 
@@ -9678,6 +10252,15 @@ int gLastScrollUiFrame = -1000;
 					c.quad.x3 = xs[3];
 					c.quad.y3 = ys[3];
 				}
+				else if (c.type == DisplayCommandType::BlitImageProjected)
+				{
+					ViewRenderer::transformedRectCorners(n, false, c.projectedBlit.x, c.projectedBlit.y,
+					    c.projectedBlit.width, c.projectedBlit.height, xs, ys);
+					for (int corner = 0; corner < 4; ++corner) {
+						c.projectedBlit.xs[corner] = xs[corner];
+						c.projectedBlit.ys[corner] = ys[corner];
+					}
+				}
 				else if (c.type == DisplayCommandType::DrawProjectedText)
 				{
 					ViewRenderer::transformedRectCorners(n, false, c.projectedText.srcX, c.projectedText.srcY,
@@ -10036,6 +10619,12 @@ int gLastScrollUiFrame = -1000;
 				c.blit.alpha = nullptr;
 				c.bw = 0;
 				c.bh = 0;
+			}
+			else if (c.type == DisplayCommandType::BlitImageProjected && c.projectedBlit.pixels == pixels)
+			{
+				c.projectedBlit.pixels = nullptr;
+				c.projectedBlit.alpha = nullptr;
+				c.bw = c.bh = 0;
 			}
 			else if (c.type == DisplayCommandType::BlitImageScaled && c.scaledBlit.pixels == pixels)
 			{
@@ -11120,6 +11709,8 @@ int gLastScrollUiFrame = -1000;
 			case DisplayCommandType::DrawProjectedText:
 			case DisplayCommandType::DrawText:
 			case DisplayCommandType::BlitImage:
+			case DisplayCommandType::ReplayCanvasBatch:
+			case DisplayCommandType::BlitImageProjected:
 			case DisplayCommandType::BlitImageScaled:
 			case DisplayCommandType::FillTransformedLinearGradient:
 			case DisplayCommandType::FillTransformedRoundedRect:
@@ -12397,6 +12988,7 @@ int gLastScrollUiFrame = -1000;
 			state.nodeDrawEnd[node] = -1;
 		}
 		state.shiftNodeDrawRangesAfter(end, delta, node);
+		pruneImageReferences();
 		return true;
 	}
 
@@ -12483,6 +13075,11 @@ int gLastScrollUiFrame = -1000;
 	bool DisplayList::canReplaySimpleDirtyRegions(int width, int height) const
 	{
 		return DisplayCommandReplayer::canReplaySimpleDirtyRegions(width, height);
+	}
+
+	bool DisplayList::canReplaySimpleDirtyRegions(int width, int height, const DisplayReplayRegion *regions, int count) const
+	{
+		return regions && count > 0 && DisplayCommandReplayer::canUseSimpleDirtyReplay(width, height, regions, count);
 	}
 
 	void DisplayList::replaySimpleClippedDirtyRegion(int x0, int y0, int x1, int y1, int origin)

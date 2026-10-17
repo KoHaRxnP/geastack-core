@@ -35,6 +35,7 @@ int EventTarget::pressValue() const
 
 const char *PointerEvent::typeName() const
 {
+	if (!subscriberTypeName.empty()) return subscriberTypeName.c_str();
 	switch (type) {
 	case PointerEventType::TouchStart:
 		return "touchstart";
@@ -46,10 +47,22 @@ const char *PointerEvent::typeName() const
 		return "click";
 	case PointerEventType::Input:
 		return "input";
+	case PointerEventType::FocusIn: return "focusin";
+	case PointerEventType::FocusOut: return "focusout";
+	case PointerEventType::Change:
+		return "change";
+	case PointerEventType::PointerCancel:
+		return "pointercancel";
+	case PointerEventType::KeyUp:
+		return "keyup";
 	case PointerEventType::KeyDown:
 		return "keydown";
 	case PointerEventType::Rotary:
 		return "rotary";
+	case PointerEventType::WindowBlur:
+		return "blur";
+	case PointerEventType::WindowResize:
+		return "resize";
 	case PointerEventType::Scroll:
 		return "scroll";
 	}

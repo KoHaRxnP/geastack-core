@@ -8,6 +8,15 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
+
+// Framebuffer-free retained rendering: each dirty band is rasterized into the
+// display's internal-RAM DMA chunk and streamed to the panel while the next
+// band renders (tree_render.cpp). A board capability, set by the target's
+// CMake; off everywhere else, where it compiles out entirely.
+#ifndef GEA_EMBEDDED_DISPLAY_BANDED_UI
+#define GEA_EMBEDDED_DISPLAY_BANDED_UI 0
+#endif
 
 namespace gea::embedded::ui {
 
@@ -28,6 +37,8 @@ public:
 	int createView();
 	int createButton();
 	int createText();
+	int createComment();
+	int createDocumentFragment();
 	int createImage();
 	int createCanvas();
 	int createCamera();
@@ -44,6 +55,8 @@ public:
 
 	void setParent(int child, int parent);
 	void insertBefore(int child, int parent, int reference);
+	void detachNode(int child);
+	void replaceChildren(int parent, const std::vector<int> &children);
 	void setStyle(int node, Property prop, int value);
 	void setDefaultStyle(int node, Property prop, int value);
 	void setStyleFromClass(int node, Property prop, int value);
@@ -78,6 +91,8 @@ public:
 	// event types not tracked by the listener tables.
 	bool hasListenersForType(const char *type) const;
 	bool dispatchEvent(gea::framework::events::PointerEvent &event);
+	bool dispatchEventAlongPath(gea::framework::events::PointerEvent &event,
+	    const std::vector<gea::framework::events::EventTarget> &path);
 	bool containsNode(int ancestor, int node) const;
 	void removeNode(int node);
 	gea::framework::graphics::Canvas *ensureCanvas(int node, int width = 0, int height = 0);
@@ -133,6 +148,10 @@ public:
 	// setActiveInput(-1) clears focus.
 	int activeInputId() const;
 	void setActiveInput(int nodeId);
+	// Pixel user-edit boundary, separate from programmatic attribute writes.
+	bool activeInputAdmitted() const;
+	void markActiveInputEdited();
+	void commitActiveInput();
 	bool activeInputCaretVisible() const;
 	void tickInputCaret(int timestampMs);
 
@@ -156,15 +175,17 @@ private:
 	Tree() = default;
 };
 
-// Document-level (off-tree) events: `rotary` always, and `keydown` bound on a
-// non-input element. These belong to `document`, not to any node, so they are
-// stored as singletons (not per-node listener slots) and dispatched directly by
-// the runtime rather than through Tree::dispatchEvent's tree walk.
+// Legacy anonymous registration and native document-target producers. The
+// off-tree registry owns callback identity/capture/once; mounted pointer/key
+// delivery reaches it through explicit document phases, never a body proxy.
 void setDocumentEventListener(const char *type, gea::framework::events::EventListener listener);
 void dispatchDocumentRotary(int delta);
 bool dispatchDocumentKeyDown(gea::framework::events::PointerEvent &event);
+bool dispatchDocumentKeyUp(gea::framework::events::PointerEvent &event);
+// Native keyboard root authority: real window capture, node/document phases, window bubble.
+bool dispatchRootKeyEvent(gea::framework::events::PointerEvent &event, bool legacyDocumentFirst = false);
 void resetDocumentEventListeners();
-void resetDocumentDelegatedEventListeners();
+void resetRootEventListeners() noexcept;
 
 // Deliver a pointer/touch event straight to document-level listeners with no
 // tree walk. Immediate-mode apps (Display.ctx games) mount no UI tree, so there
@@ -206,5 +227,22 @@ void releaseRareData(int node);          // frees the block back to the pool
 // screenshot, working around the fused flush leaving the PSRAM framebuffer stale.
 // Caller must hold AppState::lock(). Returns false for canvas/present apps.
 bool renderRetainedSnapshotRgb565(std::uint16_t *dst, int width, int height);
+
+// Snapshot replay temporarily binds only the primary canvas to an offscreen
+// buffer. A worker canvas still addresses the display framebuffer.
+extern bool gSnapshotRasterActive;
+
+#if GEA_EMBEDDED_DISPLAY_BANDED_UI
+// Banded UI mode: the retained tree renders each dirty band straight into the
+// display's DMA staging buffers, so the PSRAM framebuffer does not hold the
+// frame on the panel. True once a banded frame has been presented (until a
+// full repaint into the framebuffer makes it current again) — a screenshot
+// must then re-render instead of copying the framebuffer.
+bool retainedFramebufferStale();
+// Set while a banded raster callback replays into a staging chunk. The 2-core
+// replay split must not engage then: the worker core's canvas is bound to the
+// framebuffer, not to the chunk.
+extern bool gBandedRasterActive;
+#endif
 
 }  // namespace gea::embedded::ui

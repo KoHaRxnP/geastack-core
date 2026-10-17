@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "document.h"
+#include "selector.h"
+#include "tree_state.h"
 
 #include "internal.h"
 
 #include "display.h"
+#include "display_underlay.h"
 #include "tree_internal.h"
+#include "tree_events.h"
 
 #include <algorithm>
 #include <cctype>
@@ -34,24 +38,6 @@ std::string lowerAscii(std::string value)
 {
 	for (char &ch : value) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
 	return value;
-}
-
-bool matchesSelector(Tree &tree, int nodeId, const std::string &selector)
-{
-	if (selector.empty()) return false;
-	if (selector == "body") {
-		const int mountedRoot = tree.mountedRoot();
-		return (mountedRoot >= 0 && nodeId == mountedRoot) || (mountedRoot < 0 && nodeId == 0);
-	}
-	if (selector[0] == '#') {
-		if (selector.size() <= 1) return false;
-		return std::strcmp(tree.getAttribute(nodeId, "id"), selector.c_str() + 1) == 0;
-	}
-	if (selector[0] == '.') {
-		if (selector.size() <= 1) return false;
-		return tree.hasClass(nodeId, selector.substr(1));
-	}
-	return lowerAscii(tree.tagName(nodeId)) == lowerAscii(selector);
 }
 
 NodeHandle findElementById(Tree &tree, const char *id)
@@ -134,12 +120,26 @@ NodeHandle Document::createAudio() const
 
 NodeHandle Document::createDocumentFragment() const
 {
-	return NodeHandle(Tree::instance().createView());
+	return NodeHandle(Tree::instance().createDocumentFragment());
+}
+
+NodeHandle Document::createComment(const char *text) const
+{
+	auto &tree = Tree::instance();
+	const int id = tree.createComment();
+	if (id >= 0) tree.setText(id, text ? text : "");
+	return NodeHandle(id);
 }
 
 ViewElement Document::createVirtualList() const
 {
 	return ViewElement(Tree::instance().createVirtualList());
+}
+
+NodeHandle Document::activeElement() const {
+ const auto native=queryNativeFocus();
+ auto node=native.handled?native.node:NodeHandle(Tree::instance().activeInputId());
+ return node.valid()&&node.isConnected()?node:NodeHandle();
 }
 
 NodeHandle Document::createElement(const char *tag) const
@@ -149,6 +149,7 @@ NodeHandle Document::createElement(const char *tag) const
 	NodeHandle node;
 	if (lowered == "button") node = createButton();
 	else if (lowered == "canvas") node = createCanvas();
+	else if (lowered == "camera") node = createCamera();
 	else if (lowered == "audio") node = createAudio();
 	else if (lowered == "img" || lowered == "image" || lowered == "video") node = createImage();
 	else if (lowered == "virtual-list") node = createVirtualList();
@@ -159,36 +160,28 @@ NodeHandle Document::createElement(const char *tag) const
 
 NodeHandle Document::getElementById(const char *id) const
 {
-	if (!id || id[0] == '\0') return NodeHandle();
-	Tree &tree = Tree::instance();
-	NodeHandle existing = findElementById(tree, id);
-	if (existing) return existing;
-	return std::strcmp(id, "app") == 0 ? ensureAppRoot("app") : NodeHandle();
+ if (!id || !*id) return {};
+ auto &tree=Tree::instance();
+ if(tree.mountedRoot()<0) return std::strcmp(id,"app")==0?ensureAppRoot("app"):NodeHandle();
+ NodeHandle root(tree.mountedRoot());
+ if(root.valid()&&std::strcmp(root.getAttribute("id"),id)==0)return root;
+ for(auto node:root.querySelectorAll("*"))if(std::strcmp(node.getAttribute("id"),id)==0)return node;
+ return {};
 }
-
-NodeHandle Document::querySelector(const char *selector) const
+NodeHandle Document::querySelector(const char *s) const
 {
-	const std::string normalized = normalizeSelector(selector);
-	if (normalized == "body" || normalized == "#app") return ensureAppRoot("app");
-	const std::vector<NodeHandle> matches = querySelectorAll(normalized.c_str());
-	return matches.empty() ? NodeHandle() : matches.front();
+ auto all=querySelectorAll(s);return all.empty()?NodeHandle():all.front();
 }
-
-std::vector<NodeHandle> Document::querySelectorAll(const char *selector) const
+std::vector<NodeHandle> Document::querySelectorAll(const char *s) const
 {
-	std::vector<NodeHandle> matches;
-	const std::string normalized = normalizeSelector(selector);
-	if (normalized.empty()) return matches;
-	if (normalized == "body" || normalized == "#app") {
-		matches.push_back(ensureAppRoot("app"));
-		return matches;
-	}
-
-	Tree &tree = Tree::instance();
-	for (int nodeId = 0; nodeId < tree.nodeCount(); nodeId++) {
-		if (matchesSelector(tree, nodeId, normalized)) matches.push_back(NodeHandle(nodeId));
-	}
-	return matches;
+ auto q=selector::parse(s);q.requireValid();auto &tree=Tree::instance();
+ // Generated application bootstrap queries its single native root before
+ // any node is mounted. Ordinary queries never manufacture nodes.
+ const auto normalized=normalizeSelector(s);
+ if(tree.mountedRoot()<0&&(normalized=="body"||normalized=="#app"))ensureAppRoot("app");
+ NodeHandle root(tree.mountedRoot());std::vector<NodeHandle> out;if(!root.valid())return out;
+ if(q.matches(tree,root.id(),root.id()))out.push_back(root);
+ auto descendants=root.querySelectorAll(s);out.insert(out.end(),descendants.begin(),descendants.end());return out;
 }
 
 namespace {
@@ -197,29 +190,6 @@ namespace {
 // fullscreen targets get the panel-sized root instead of kWidth × kHeight.
 int g_preferred_mount_w = 0;
 int g_preferred_mount_h = 0;
-
-struct DocumentEventListener {
-	std::string type;
-	gea::framework::events::EventListener listener;
-	int boundRoot = -1;
-};
-
-std::vector<DocumentEventListener> &documentEventListeners()
-{
-	static std::vector<DocumentEventListener> listeners;
-	return listeners;
-}
-
-void bindDocumentEventListeners()
-{
-	const int root = Tree::instance().mountedRoot();
-	if (root < 0) return;
-	for (auto &entry : documentEventListeners()) {
-		if (entry.boundRoot == root) continue;
-		Tree::instance().setEventListener(root, entry.type.c_str(), entry.listener);
-		entry.boundRoot = root;
-	}
-}
 
 // Map a pointer/touch event type to a slot index, aliasing pointer* onto its
 // touch* sibling (the web binds onPointerDown/Move/Up; the device synthesizes
@@ -230,9 +200,8 @@ int pointerTypeIndex(const char *type)
 	if (std::strcmp(type, "click") == 0) return 0;
 	if (std::strcmp(type, "touchstart") == 0 || std::strcmp(type, "pointerdown") == 0) return 1;
 	if (std::strcmp(type, "touchmove") == 0 || std::strcmp(type, "pointermove") == 0) return 2;
-	if (std::strcmp(type, "touchend") == 0 || std::strcmp(type, "pointerup") == 0 ||
-	    std::strcmp(type, "pointercancel") == 0)
-		return 3;
+	if (std::strcmp(type, "touchend") == 0 || std::strcmp(type, "pointerup") == 0) return 3;
+ if (std::strcmp(type, "pointercancel") == 0 || std::strcmp(type, "touchcancel") == 0) return 4;
 	return -1;
 }
 }  // namespace
@@ -241,21 +210,13 @@ bool dispatchDocumentPointer(gea::framework::events::PointerEvent &event)
 {
 	const int wantIdx = pointerTypeIndex(event.typeName());
 	if (wantIdx < 0) return false;
-	bool fired = false;
-	for (auto &entry : documentEventListeners()) {
-		if (pointerTypeIndex(entry.type.c_str()) != wantIdx) continue;
-		if (!static_cast<bool>(entry.listener)) continue;
-		entry.listener(event);
-		fired = true;
-		if (event.propagationStopped) break;
-	}
+ bool fired = dispatchWindowEvent(event, true);
+ if (!event.propagationStopped) fired = dispatchDocumentEvent(event, true) || fired;
+ if (!event.propagationStopped) fired = dispatchDocumentEvent(event, false) || fired;
+ if (!event.propagationStopped && event.bubbles) fired = dispatchWindowEvent(event, false) || fired;
 	return fired;
 }
 
-void resetDocumentDelegatedEventListeners()
-{
-	documentEventListeners().clear();
-}
 
 void Document::setPreferredMountSize(int width, int height)
 {
@@ -322,7 +283,6 @@ void Document::mount(NodeHandle root, int width, int height) const
 		root.style().height(height);
 	}
 	Tree::instance().mount(root.id(), width, height);
-	bindDocumentEventListeners();
 }
 
 void Document::refresh(NodeHandle root, int width, int height) const
@@ -350,18 +310,51 @@ void Document::frame(int timestampMs) const
 
 void Document::addEventListener(const char *type, gea::framework::events::EventListener listener) const
 {
-	if (!type || type[0] == '\0' || !listener) return;
-	// `rotary` (and `keydown` bound on a non-input) is a genuine document-level
-	// event — it has no element target, so it is stored off-tree as a singleton
-	// and dispatched directly by the runtime, never bound to a node.
-	if (std::strcmp(type, "rotary") == 0 || std::strcmp(type, "keydown") == 0) {
-		setDocumentEventListener(type, std::move(listener));
-		return;
-	}
-	// Everything else delegates through the native body node (event bubbles up
-	// the tree to the mounted root, where this listener filters by target).
-	documentEventListeners().push_back(DocumentEventListener{type, std::move(listener), -1});
-	bindDocumentEventListeners();
+ setDocumentEventListener(type, std::move(listener));
 }
 
 }  // namespace gea::embedded::ui
+
+namespace
+{
+	gea::framework::display::Underlay::Paint underlayPaint = nullptr;
+	void *underlayUser = nullptr;
+	int underlayX0 = 0, underlayY0 = 0, underlayX1 = -1, underlayY1 = -1;
+}  // namespace
+
+bool gea::framework::display::Underlay::composited()
+{
+	return !gea::embedded::ui::Document::directCanvasContextUsed() && gea::embedded::ui::Tree::instance().mountedRoot() >= 0;
+}
+
+void gea::framework::display::Underlay::set(Paint paint, void *user, int x0, int y0, int x1, int y1)
+{
+	underlayPaint = paint;
+	underlayUser = user;
+	underlayX0 = x0;
+	underlayY0 = y0;
+	underlayX1 = x1;
+	underlayY1 = y1;
+}
+
+void gea::framework::display::Underlay::clear()
+{
+	underlayPaint = nullptr;
+	underlayUser = nullptr;
+}
+
+bool gea::framework::display::Underlay::active()
+{
+	return underlayPaint != nullptr;
+}
+
+void gea::framework::display::Underlay::paint(int x0, int y0, int x1, int y1)
+{
+	if (!underlayPaint) return;
+	x0 = std::max(x0, underlayX0);
+	y0 = std::max(y0, underlayY0);
+	x1 = std::min(x1, underlayX1);
+	y1 = std::min(y1, underlayY1);
+	if (x0 > x1 || y0 > y1) return;
+	underlayPaint(x0, y0, x1, y1, underlayUser);
+}

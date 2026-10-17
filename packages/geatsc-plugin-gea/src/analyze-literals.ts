@@ -8,6 +8,9 @@ import path from 'node:path'
 export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaque: boolean) {
   const sources = new Map([...files].filter(([file]) => !/\.css$/i.test(file)).map(([file, text]) =>
     [file, ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, /\.[jt]sx$/i.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS)]))
+  // Ownership by identity: the program hands back these very SourceFiles, but
+  // with fileName normalized to forward slashes, which no Windows key matches.
+  const owned = new Set<ts.SourceFile>(sources.values())
   const variables = new Map<string, ts.Expression | undefined>()
   const properties = new Map<string, Array<ts.Expression | undefined>>()
   const arrays = new Set<string>(), escapedArrays = new Set<string>()
@@ -77,7 +80,7 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
     if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = typeChecker().getAliasedSymbol(symbol)
     const declaration = symbol?.valueDeclaration
     return declaration && ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) &&
-      sources.has(declaration.getSourceFile().fileName) && ts.isVariableDeclarationList(declaration.parent) &&
+      owned.has(declaration.getSourceFile()) && ts.isVariableDeclarationList(declaration.parent) &&
       (declaration.parent.flags & ts.NodeFlags.Const) ? declaration : undefined
   }
   const localReceiver = (node: ts.Expression, seen = new Set<ts.Node>()): boolean => {
@@ -95,13 +98,13 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
       if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = typeChecker().getAliasedSymbol(symbol)
       const exported = symbol?.valueDeclaration
       return !!exported && ts.isExportAssignment(exported) &&
-        sources.has(exported.getSourceFile().fileName) && localReceiver(exported.expression, seen)
+        owned.has(exported.getSourceFile()) && localReceiver(exported.expression, seen)
     }
     if (ts.isNewExpression(node)) {
       let symbol = typeChecker().getSymbolAtLocation(node.expression)
       if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = typeChecker().getAliasedSymbol(symbol)
       const declaration = symbol?.valueDeclaration
-      if (!declaration || !ts.isClassDeclaration(declaration) || !sources.has(declaration.getSourceFile().fileName)) return false
+      if (!declaration || !ts.isClassDeclaration(declaration) || !owned.has(declaration.getSourceFile())) return false
       // A constructor returning another object breaks the local-instance proof.
       let returnsObject = false
       const visit = (child: ts.Node): void => { if (ts.isReturnStatement(child) && child.expression) returnsObject = true; ts.forEachChild(child, visit) }
@@ -130,7 +133,7 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
     if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression)) && localReceiver(node.expression.expression)) {
       const declaration = typeChecker().getResolvedSignature(node)?.declaration
       // An opaque method receives the object implicitly through `this`.
-      if (!declaration || !sources.has(declaration.getSourceFile().fileName) ||
+      if (!declaration || !owned.has(declaration.getSourceFile()) ||
           !(ts.isMethodDeclaration(declaration) || ts.isFunctionDeclaration(declaration) || ts.isFunctionExpression(declaration) || ts.isArrowFunction(declaration))) opaque = true
     }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
@@ -201,7 +204,7 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
       if (!(ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) || !localReceiver(node.expression)) return undefined
       const at = ts.isPropertyAccessExpression(node) ? node.name : ts.isElementAccessExpression(node) ? node.argumentExpression : node
       const symbol = at && typeChecker().getSymbolAtLocation(at)
-      if (!symbol?.declarations?.some(declaration => sources.has(declaration.getSourceFile().fileName) &&
+      if (!symbol?.declarations?.some(declaration => owned.has(declaration.getSourceFile()) &&
           (ts.isPropertyDeclaration(declaration) || ts.isGetAccessorDeclaration(declaration) || ts.isPropertyAssignment(declaration)))) return undefined
       const key = 'property:' + name; if (seen.has(key)) return undefined; seen.add(key)
       const values = properties.get(name); return values?.length ? merge(values.map(value => resolve(value, new Set(seen)))) : undefined
@@ -215,6 +218,17 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
   for (const source of sources.values()) index(source)
   const original = (node: ts.Expression): ts.Expression | undefined => expressions.get(`${node.getSourceFile().fileName}:${node.pos}:${node.end}`)
   return Object.assign((node: ts.Expression): string[] | undefined => resolve(original(node)), {
+    // String operations do not mutate stylesheets. Use the receiver's type
+    // rather than the finite-literal proof: parameters, mutable variables and
+    // imported return values can be strings without having known contents.
+    // Mixed string/object unions and unresolved any/unknown retain support.
+    isString(node: ts.Expression): boolean {
+      const at = original(node)
+      if (!at || initiallyOpaque) return false
+      const type = typeChecker().getTypeAtLocation(at)
+      const alternatives = type.isUnion() ? type.types : [type]
+      return alternatives.every(value => !!(value.flags & ts.TypeFlags.StringLike))
+    },
     // A boolean named animate is an application flag, never a Web Animations
     // API reference. Unknown or mixed types still retain animation support.
     isBoolean(node: ts.Expression): boolean {
@@ -246,7 +260,7 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
         if (symbol && (symbol.flags & ts.SymbolFlags.Alias)) symbol = typeChecker().getAliasedSymbol(symbol)
         const declarations = symbol?.declarations
         if (declarations?.length && declarations.every(declaration =>
-          sources.has(declaration.getSourceFile().fileName) && ts.isFunctionDeclaration(declaration) && !!declaration.body)) {
+          owned.has(declaration.getSourceFile()) && ts.isFunctionDeclaration(declaration) && !!declaration.body)) {
           let reassigned = false
           const checkWrites = (child: ts.Node): void => {
             if (ts.isBinaryExpression(child) && child.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
@@ -270,7 +284,7 @@ export function sourceLiteralResolver(files: Map<string, string>, initiallyOpaqu
       const name = ts.isPropertyAccessExpression(access) ? access.name : access.argumentExpression
       const declarations = name && typeChecker().getSymbolAtLocation(name)?.declarations
       return !!declarations?.length && declarations.every(declaration =>
-        sources.has(declaration.getSourceFile().fileName) && ts.isMethodDeclaration(declaration) && !!declaration.body)
+        owned.has(declaration.getSourceFile()) && ts.isMethodDeclaration(declaration) && !!declaration.body)
     },
   })
 }

@@ -6,11 +6,8 @@
 
 namespace gea::host {
 
-#if defined(GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT) && GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT
-using AnimationFrameTimestamp = float;
-#else
-using AnimationFrameTimestamp = double;
-#endif
+// Application::frame supplies integer milliseconds on every native target.
+using AnimationFrameTimestamp = int;
 
 using AnimationFrameCallback = std::function<void(AnimationFrameTimestamp)>;
 using TimerCallback = std::function<void()>;
@@ -28,13 +25,18 @@ struct AnimationFramePerfStats {
 
 double setTimeout(TimerCallback callback, double delayMs);
 double setInterval(TimerCallback callback, double delayMs);
-void clearTimeout(double id);
-void clearInterval(double id);
+void clearTimeout(double id = 0);
+void clearInterval(double id = 0);
 void resetScheduledTimers();
 
 double requestAnimationFrame(AnimationFrameCallback callback);
 void runAnimationFrameCallbacks(AnimationFrameTimestamp timestampMs);
+const char *animationFrameCallbackStage();
 void resetAnimationFrameCallbacks();
+// Process-terminal, idempotent, called on the application thread before native
+// realm/static teardown. Permanently rejects new timers/RAF (returning 0),
+// including reentrant capture destructors; never use for an app remount.
+void retireScheduledCallbacks();
 void animationFramePerfStatsReset();
 AnimationFramePerfStats animationFramePerfStatsRead();
 

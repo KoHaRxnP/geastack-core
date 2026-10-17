@@ -1,3 +1,4 @@
+import path from 'node:path'
 import ts from 'typescript'
 
 // This proof is intentionally narrower than "no JSX". The canvas frame/boot
@@ -21,25 +22,31 @@ const canvasModule = /^(?:gea-embedded|@geastack\/core)$/
 
 export function inferCanvasOnly(sources: ReadonlyMap<string, string>, unknown: boolean): boolean {
   if (unknown || !sources.size) return false
+  // Keyed by resolved path: TypeScript asks the host for `C:/app/index.tsx`
+  // where discovery recorded `C:\app\index.tsx`, and a missed lookup left the
+  // checker binding no file at all on Windows.
+  const key = (file: string): string => path.resolve(file)
   const files = new Map<string, ts.SourceFile>()
+  const texts = new Map<string, string>()
   for (const [file, text] of sources) {
     if (!/\.[cm]?[jt]sx?$/.test(file)) return false
     const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true,
       /\.[jt]sx$/.test(file) ? ts.ScriptKind.TSX : /\.[cm]?js$/.test(file) ? ts.ScriptKind.JS : ts.ScriptKind.TS)
     if ((source as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length) return false
-    files.set(file, source)
+    files.set(key(file), source)
+    texts.set(key(file), text)
   }
   // Binding local names avoids both a host-global blacklist (which misses new
   // APIs) and false positives for ordinary app methods named fetch/document.
   // No library or filesystem resolution: discovery already owns the graph.
   const options: ts.CompilerOptions = { noLib: true, noResolve: true, types: [], allowJs: true, target: ts.ScriptTarget.Latest }
   const host = ts.createCompilerHost(options)
-  host.getSourceFile = file => files.get(file)
+  host.getSourceFile = file => files.get(key(file))
   host.resolveModuleNames = names => names.map(() => undefined)
   host.directoryExists = () => false
   host.getDirectories = () => []
-  host.fileExists = file => files.has(file)
-  host.readFile = file => sources.get(file)
+  host.fileExists = file => files.has(key(file))
+  host.readFile = file => texts.get(key(file))
   const checker = ts.createProgram([...files.keys()], options, host).getTypeChecker()
   let safe = true
   let display = false

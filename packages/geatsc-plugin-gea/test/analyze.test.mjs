@@ -14,11 +14,33 @@ function analyzeSourceHostBindings(entry) {
 function app(t, files) {
   const root = path.resolve('/virtual-gea-plugin-analyze')
   const sources = new Map(Object.entries(files).map(([name, text]) => [path.join(root, name), text]))
-  t.mock.method(fs, 'existsSync', (file) => sources.has(file))
+  // TypeScript asks for `C:/x/index.tsx` where path.join wrote `C:\x\index.tsx`;
+  // the file system takes either, so the mock must too.
+  const key = (file) => path.resolve(String(file))
+  t.mock.method(fs, 'existsSync', (file) => sources.has(key(file)))
   t.mock.method(fs, 'statSync', () => ({ isFile: () => true }))
-  t.mock.method(fs, 'readFileSync', (file) => sources.get(file))
+  t.mock.method(fs, 'readFileSync', (file) => sources.get(key(file)))
   return path.join(root, 'index.tsx')
 }
+
+test('microphone capture and PCM playback report automatic AEC prerequisites', (t) => {
+  const entry = app(t, { 'index.tsx': 'navigator.mediaDevices.getUserMedia({ audio: true }); new PcmAudioStream(24000);' })
+  const analysis = analyzeSourceHostBindings(entry)
+  assert.ok(analysis.features.includes('audio-capture'))
+  assert.ok(analysis.features.includes('audio-playback'))
+})
+
+test('video capture detects camera without enabling microphone capture', (t) => {
+  const entry = app(t, { 'index.tsx': 'navigator.mediaDevices.getUserMedia({ audio: false, video: true }); new PcmAudioStream(24000);' })
+  const analysis = analyzeSourceHostBindings(entry)
+  assert.ok(analysis.bindings.includes('camera'))
+  assert.ok(!analysis.features.includes('audio-capture'))
+})
+
+test('a microphone example in a comment does not opt playback into AEC', (t) => {
+  const entry = app(t, { 'index.tsx': '// navigator.mediaDevices.getUserMedia({ audio: true })\nnew PcmAudioStream(24000);' })
+  assert.ok(!analyzeSourceHostBindings(entry).features.includes('audio-capture'))
+})
 
 test('an https literal reached through a relative import reports the https feature', (t) => {
   const entry = app(t, {
@@ -1217,10 +1239,104 @@ test('attribute selectors retain owners even when quoted values contain delimite
   assert.ok(features.includes('node-attributes'))
 })
 
+
+test('UUID string replacement does not enable stylesheet caches', (t) => {
+  const entry = app(t, { 'index.tsx': "const uuid = 'xxxx-yyyy'.replace(/[xy]/g, letter => Math.random().toString(16)); const view = <div />" })
+  const features = analyzeSourceHostBindings(entry).features
+  assert.ok(!features.includes('renderer-linear-gradients'))
+  assert.ok(!features.includes('renderer-radial-gradients'))
+  assert.ok(!features.includes('renderer-transforms'))
+})
+
+for (const source of [
+  'function uuid(pattern: string) { return pattern.replace(/[xy]/g, letter => letter) }',
+  'let pattern = "xxxx-yyyy"; pattern = "yyyy-xxxx"; pattern.replace(/[xy]/g, letter => letter)',
+  'function uuid(pattern: "xxxx" | "yyyy") { return pattern["replace"](/[xy]/g, letter => letter) }',
+  'class Generator { pattern: string = "xxxx"; uuid() { return this.pattern.replace(/x/g, () => "0") } }',
+  'function pattern(): string { return "xxxx" } pattern().replace(/x/g, () => "0")',
+]) test(`primitive string replacement does not enable stylesheet caches: ${source}`, t => {
+  const features = analyzeAllFeatures(app(t, { 'index.tsx': source })).features
+  for (const feature of ['renderer-linear-gradients', 'renderer-radial-gradients', 'renderer-transforms', 'css-transforms']) {
+    assert.ok(!features.includes(feature), feature)
+  }
+})
+
+test('imported string replacement does not enable stylesheet caches', t => {
+  const entry = app(t, {
+    'index.tsx': 'import { pattern } from "./uuid"; pattern.replace(/x/g, () => "0")',
+    'uuid.ts': 'export function template(): string { return "xxxx" } export const pattern = template()',
+  })
+  const features = analyzeAllFeatures(entry).features
+  assert.ok(!features.includes('renderer-transforms'))
+  assert.ok(!features.includes('renderer-linear-gradients'))
+  assert.ok(!features.includes('renderer-radial-gradients'))
+})
+
+for (const source of [
+  'interface Sheet { replace(css: string): void } function update(sheet: Sheet, css: string) { sheet.replace(css) }',
+  'interface Sheet { replace(css: string): void } function update(value: string | Sheet, css: string) { value.replace(css) }',
+  'function update(value: any, css: string) { value.replace(css) }',
+]) test(`non-string replacement retains stylesheet caches: ${source}`, t => {
+  const features = analyzeAllFeatures(app(t, { 'index.tsx': source })).features
+  for (const feature of ['renderer-linear-gradients', 'renderer-radial-gradients', 'renderer-transforms', 'css-transforms']) {
+    assert.ok(features.includes(feature), feature)
+  }
+})
+
+test('string replacement callbacks still contribute stylesheet operations', t => {
+  const source = 'function uuid(pattern: string) { return pattern.replace(/x/g, () => { sheet.replace(cssFromNetwork); return "0" }) }'
+  const features = analyzeAllFeatures(app(t, { 'index.tsx': source })).features
+  assert.ok(features.includes('renderer-transforms'))
+  assert.ok(features.includes('renderer-linear-gradients'))
+  assert.ok(features.includes('renderer-radial-gradients'))
+})
+
+test('unknown stylesheet replacement retains stylesheet caches', (t) => {
+  const entry = app(t, { 'index.tsx': 'sheet.replace(cssFromNetwork)' })
+  const features = analyzeSourceHostBindings(entry).features
+  assert.ok(features.includes('renderer-linear-gradients'))
+  assert.ok(features.includes('renderer-radial-gradients'))
+  assert.ok(features.includes('renderer-transforms'))
+})
+
+
+test('imported image and JSON data are not parsed as executable renderer code', (t) => {
+  const entry = app(t, {
+    'index.tsx': "import portrait from './portrait.jpg'; import config from './config.json'; const image = <img src={portrait} alt={config.name} />",
+    'portrait.jpg': '\u00ff\u00d8 invalid TS image bytes',
+    'config.json': '{"name": "Test"}'
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).features, ['renderer-analysis-v1'])
+})
+
+test('JSON data used as an unknown style still retains renderer support', (t) => {
+  const entry = app(t, {
+    'index.tsx': "import config from './config.json'; const image = <div style={config} />",
+    'config.json': '{"background": "linear-gradient(red, blue)"}'
+  })
+  assert.ok(analyzeSourceHostBindings(entry).features.includes('renderer-linear-gradients'))
+})
+
+
 test('canvas inference retains services for imports lowered to native asset loaders', (t) => {
   const entry = app(t, {
     'index.tsx': "import { Display } from '@geastack/core'; import image from './picture.png'; Display.ctx.drawImage(image, 0, 0)",
     'picture.png': 'image data',
   })
   assert.ok(!analyzeAllFeatures(entry).features.includes('runtime-canvas-only'))
+})
+
+
+test('streaming PCM playback independently enables the audio capability', (t) => {
+  const entry = app(t, { 'index.tsx': 'const output = new PcmAudioStream(24000); output.writeBase64("AAA=")' })
+  assert.ok(analyzeSourceHostBindings(entry).bindings.includes('audio'))
+})
+
+test('gea.moduleAliases redirect the scan to the module the build compiles', (t) => {
+  const entry = app(t, {
+    'package.json': JSON.stringify({ gea: { moduleAliases: { 'host-audio': 'silent-audio.ts' } } }),
+    'index.tsx': "import { createContext } from 'host-audio'\ncreateContext()\n",
+    'silent-audio.ts': "export function createContext() { return new WebSocket('ws://device.local/stream') }\n",
+  })
+  assert.deepEqual(analyzeSourceHostBindings(entry).bindings, ['websocket'])
 })

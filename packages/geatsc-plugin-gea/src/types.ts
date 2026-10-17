@@ -13,7 +13,19 @@ export interface PluginCppContext {
 }
 
 export interface HostShimDefinitions {
+  /** Exact host-owned declarations for the compiler's CommonJS module records. */
+  commonJsGlobals?: Record<
+    string,
+    {
+      global: "require" | "exports" | "module";
+      declarationName: string;
+      declarationFileName: string;
+    }
+  >;
   nativeTypes?: Record<string, string>;
+  nativeReferenceIdentities?: string[];
+  /** Identity-preserving views: destination carrier -> source carrier -> {value} template. */
+  nativeViews?: Record<string, Record<string, string>>;
   /**
    * `new <AmbientConstructor>(...)` construct spellings, for a declared
    * ambient constructor interface whose instance type already has a
@@ -94,6 +106,8 @@ export interface HostShimDefinitions {
   canvasContextPropertySetters?: Record<string, string>;
   embeddedHostConstants?: Record<string, { emit: string; type: string }>;
   embeddedHostFunctions?: Record<string, string>;
+  /** Headers inspected for native signatures; no duplicated scalar/callback type metadata. */
+  nativeFunctionSignatureSources?: Record<string, { packageName: string; header: string }>;
   embeddedHostNoThrowFunctions?: string[];
   hostNamespaceNoThrowMethods?: Record<string, string[]>;
   embeddedHostFunctionReturnTypes?: Record<string, string>;
@@ -160,8 +174,7 @@ export interface HostRuntimeDynamicRecordSchema {
 }
 
 export type HostRuntimeCallbackParameterRole =
-  | HostRuntimeValueRole
-  | HostRuntimeDynamicRecordParameterRole;
+  HostRuntimeValueRole | HostRuntimeDynamicRecordParameterRole;
 
 export interface HostRuntimeCallbackArgumentRole {
   readonly kind: "callback";
@@ -171,8 +184,7 @@ export interface HostRuntimeCallbackArgumentRole {
 }
 
 export type HostRuntimeCallableArgumentRole =
-  | HostRuntimeValueRole
-  | HostRuntimeCallbackArgumentRole;
+  HostRuntimeValueRole | HostRuntimeCallbackArgumentRole;
 
 export interface TrackedProxyProtocolRoles {
   readonly helperFunctions: Readonly<{
@@ -282,8 +294,7 @@ export interface HostNativeCallableSidecarFrameworkProtocol {
         readonly receiverRole: "host-native-handle";
         readonly valueRole: "callable";
         readonly parameterTransports?: readonly (
-          | "checker-carrier"
-          | HostRuntimeDynamicRecordParameterRole
+          "checker-carrier" | HostRuntimeDynamicRecordParameterRole
         )[];
       }>[];
       readonly dataExpandoProperties?: readonly Readonly<{
@@ -574,10 +585,7 @@ export interface GeaIrStoreMethodParam {
 }
 
 export type GeaIrConstantPrimitiveType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "null";
+  "string" | "number" | "boolean" | "null";
 
 export interface GeaIrConstantObjectField {
   name: string;

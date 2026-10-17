@@ -121,7 +121,7 @@ bool suppressAnonymousWhitespace(const Node *nodes, int parent, int child)
 	// Whitespace at a line boundary or between block boxes creates no line.
 	// Preserve the text node itself and spaces between inline siblings.
 	auto adjacentInline = [&](int sibling, bool forward) {
-		while (sibling >= 0 && (isDisplayNone(nodes[sibling].computedStyle()) || isOutOfFlowPosition(nodes[sibling].computedStyle().position) ||
+		while (sibling >= 0 && (isLayoutExcluded(nodes[sibling]) || isOutOfFlowPosition(nodes[sibling].computedStyle().position) ||
 		       (isAnonymousTextNode(nodes[sibling]) && (nodes[sibling].computedStyle().white_space == 0 || nodes[sibling].computedStyle().white_space == 1) &&
 		        nodes[sibling].text.find_first_not_of(" \t\r\n\f") == std::string::npos)))
 			sibling = forward ? nodes[sibling].next_sibling : nodes[sibling].prev_sibling;
@@ -139,7 +139,7 @@ bool startsFormattingLine(const Node *nodes, int id)
 	while (LayoutEngine::isCssInlineLevelBox(nodes[id]) && LayoutEngine::isInlineLevelNode(nodes[id])) {
 		for (int sibling = nodes[id].prev_sibling; sibling >= 0; sibling = nodes[sibling].prev_sibling) {
 			const Node &previous = nodes[sibling];
-			if (isDisplayNone(previous.computedStyle()) || isOutOfFlowPosition(previous.computedStyle().position) || previous.computedStyle().float_side)
+			if (isLayoutExcluded(previous) || isOutOfFlowPosition(previous.computedStyle().position) || previous.computedStyle().float_side)
 				continue;
 			if (isAnonymousTextNode(previous) &&
 			    (previous.computedStyle().white_space == 0 || previous.computedStyle().white_space == 1 || previous.computedStyle().white_space == 4) &&
@@ -209,6 +209,16 @@ public:
 		return lines_ + depth * kMaxFlexLines;
 	}
 
+	// Parallel to a depth's children slice: the width a zero-basis text item
+	// measured before applyFlexBasis zeroed it. Allocated on first use only.
+	int16_t *measuredWidthsFor(const int *children)
+	{
+		if (!children_ || !children) return nullptr;
+		if (!measuredWidths_) measuredWidths_ = static_cast<int16_t *>(allocate(sizeof(int16_t) * kScratchDepth * kMaxChildren));
+		if (!measuredWidths_) return nullptr;
+		return measuredWidths_ + (children - children_);
+	}
+
 private:
 	static void *allocate(size_t size)
 	{
@@ -218,6 +228,7 @@ private:
 	int depth_ = 0;
 	int *children_ = nullptr;
 	FlexLine *lines_ = nullptr;
+	int16_t *measuredWidths_ = nullptr;
 };
 
 class ScratchFrame {
@@ -469,6 +480,28 @@ bool definiteFlexCrossSize(const Node &parent, const Node &child, bool row)
 	       (row ? hasExplicitHeight(parent) : hasExplicitWidth(parent));
 }
 
+// CSS Flexbox 9.8.1: a single-line container's stretched item has a definite
+// cross size when the container's cross size is definite — and that container
+// may itself be a stretched item. definiteFlexCrossSize() above only accepts an
+// AUTHORED container size, so a `display:flex` row stretched inside an auto-width
+// column, inside a fixed-width app, read as indefinite: its `flex: 1` items kept
+// their max-content width as basis instead of growing from zero (a long todo
+// title overflowed its row). Walks only stretch links; anything else stays
+// conservative (indefinite).
+bool definiteStretchedSize(const Node &node, bool horizontal)
+{
+	if (horizontal ? hasExplicitWidth(node) : hasExplicitHeight(node)) return true;
+	if (node.parent < 0 || isOutOfFlowPosition(node.computedStyle().position) || intrinsicSizeConstraint(node, horizontal) ||
+	    isIntrinsicSizeExpression(horizontal ? node.computedStyle().width_expression : node.computedStyle().height_expression)) return false;
+	const Node &parent = Tree::instance().nodes()[node.parent];
+	if (parent.computedStyle().display != kDisplayFlex) return false;
+	const bool parentRow = flexRowDirection(parent.computedStyle()) != (writingMode(parent) != 0);
+	if (parentRow == horizontal) return false;
+	const int alignment = node.computedStyle().align_self >= 0 ? node.computedStyle().align_self : parent.computedStyle().align_items;
+	if (parent.computedStyle().flex_wrap != 0 || alignment != 0 || (node.computedStyle().margin_auto & (parentRow ? 5 : 10))) return false;
+	return definiteStretchedSize(parent, horizontal);
+}
+
 void applyPreferredRatio(Node &node, int availableWidth, int availableHeight)
 {
 	if (!preferredRatio(node) || (node.type != NodeType::View && node.type != NodeType::Image)) return;
@@ -632,11 +665,18 @@ public:
 				engine_.layoutNode(child, childAvailWidth, childAvailHeight);
 			}
 			if (node_.computedStyle().display == kDisplayFlex) {
-				applyFlexBasis(child);
+				applyFlexBasis(i, child);
 				Node &item = Tree::instance().nodes()[child];
-				const int floor = automaticMinimumMainSize(item);
-				int16_t &main = isRow_ ? item.layout.width : item.layout.height;
-				if (main < floor) { main = clampInt16(floor); engine_.repositionChildren(child); }
+				// A growing item with a zero flex basis (`flex: 1`) starts from zero; its
+				// automatic minimum floors the FINAL flexed size (growFlexChildren), not the
+				// basis. Flooring the basis hands content-bearing items a head start over their
+				// siblings and unbalances equal-flex rows (a tic-tac-toe cell holding "X" grew
+				// wider than its empty neighbours).
+				if (!zeroBasisGrowItem(item)) {
+					const int floor = automaticMinimumMainSize(item);
+					int16_t &main = isRow_ ? item.layout.width : item.layout.height;
+					if (main < floor) { main = clampInt16(floor); engine_.repositionChildren(child); }
+				}
 			}
 		}
 	}
@@ -748,7 +788,7 @@ public:
 				bool firstInFlow = true;
 				for (int sibling = nodes[parent].first_child; sibling >= 0 && sibling != ancestor;
 				     sibling = nodes[sibling].next_sibling) {
-					if (!isDisplayNone(nodes[sibling].computedStyle()) &&
+					if (!isLayoutExcluded(nodes[sibling]) &&
 					    !isOutOfFlowPosition(nodes[sibling].computedStyle().position) &&
 					    !nodes[sibling].computedStyle().float_side &&
 					    !suppressAnonymousWhitespace(nodes, parent, sibling)) {
@@ -775,7 +815,7 @@ public:
 		std::vector<std::pair<int, int>> staticBoundaries;
 		int flowIndex = 0;
 		for (int child = node_.first_child; child >= 0; child = nodes[child].next_sibling) {
-			if (isDisplayNone(nodes[child].computedStyle()) || suppressAnonymousWhitespace(nodes, parentId, child)) continue;
+			if (isLayoutExcluded(nodes[child]) || suppressAnonymousWhitespace(nodes, parentId, child)) continue;
 			if (isOutOfFlowPosition(nodes[child].computedStyle().position)) {
 				if (auto *rare = rareDataFor(child)) rare->inlineStaticPosition.valid = false;
 				if (LayoutEngine::isCssInlineLevelBox(nodes[child], true))
@@ -1156,7 +1196,7 @@ public:
 		int run = -1;
 		for (int c = wrapper.first_child; c >= 0; c = nodes[c].next_sibling) {
 			const Node &child = nodes[c];
-			if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position)) continue;
+			if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position)) continue;
 			if (run >= 0) return -1;  // more than one in-flow child
 			if (child.type != NodeType::Text) return -1;
 			if (child.computedStyle().margin[0] || child.computedStyle().margin[1] || child.computedStyle().margin[2] ||
@@ -1286,6 +1326,7 @@ public:
 		for (int lineIndex = 0; lineIndex < lineCount; lineIndex++) {
 			FlexLine &line = lines_[lineIndex];
 			int remaining = mainContentBox - line.mainSize;
+			textReflowed_ = false;
 
 			const int totalGrow = totalFlexGrowForLine(line, nodes);
 			if (remaining > 0 && totalGrow > 0) {
@@ -1320,7 +1361,17 @@ public:
 					Node &childNode = nodes[child];
 					if (childNode.computedStyle().flex <= 0) continue;
 					const int mainSize = isRow_ ? childNode.layout.width : childNode.layout.height;
-					if (mainSize == 0) engine_.repositionChildren(child);
+					if (mainSize == 0) {
+						if (isRow_ && childNode.type == NodeType::Text) {
+							if (!zeroBasisGrowItem(childNode)) continue;
+							childNode.layout.width = clampInt16(clampFlexMainSize(childNode, textAutomaticMinimum(childNode)));
+							reflowFlexedText(child, childNode, false);
+							continue;
+						}
+						const int floor = automaticMinimumMainSize(childNode);
+						if (floor > 0) (isRow_ ? childNode.layout.width : childNode.layout.height) = clampInt16(floor);
+						engine_.repositionChildren(child);
+					}
 				}
 			}
 			bool hasRatio = false;
@@ -1331,7 +1382,10 @@ public:
 				measuredCross = std::max(measuredCross, isRow_ ? child.layout.height + child.computedStyle().margin[0] + child.computedStyle().margin[2]
 				                                                    : child.layout.width + child.computedStyle().margin[1] + child.computedStyle().margin[3]);
 			}
-			if (node_.computedStyle().display == kDisplayFlex && hasRatio && !definiteCross) {
+			// A re-wrapped text item changes the line's cross size the same way. Only
+			// while this container sizes itself from content: in an assigned pass the
+			// parent already owns its cross size and has placed its siblings.
+			if (node_.computedStyle().display == kDisplayFlex && (hasRatio || (textReflowed_ && !assignedSize_)) && !definiteCross) {
 				line.crossSize = std::max(line.strutSize, baselineCrossSize(line.start, line.count, measuredCross));
 				ratioCrossChanged = true;
 			}
@@ -1469,6 +1523,7 @@ private:
 			if (written > start && wrap) finish();
 			main += childMain + (written > start ? mainGap_ : 0);
 			cross = std::max(cross, childCross);
+			if (measuredWidths_) measuredWidths_[written] = measuredWidths_[i];
 			children_[written++] = id;
 		}
 		finish();
@@ -1506,7 +1561,15 @@ private:
 		return count;
 	}
 
+	// Constant for the pass (node_, axis and assignedSize_ are fixed), but asked
+	// per item and the stretch walk climbs ancestors: resolve it once.
 	int flexPercentageBasis() const
+	{
+		if (percentageBasis_ == kUnresolvedBasis) percentageBasis_ = resolveFlexPercentageBasis();
+		return percentageBasis_;
+	}
+
+	int resolveFlexPercentageBasis() const
 	{
 		if (isRow_ ? hasExplicitWidth(node_) : hasExplicitHeight(node_)) return mainAvail_;
 		// A normal block's automatic inline size fills its containing block.
@@ -1518,22 +1581,40 @@ private:
 			const Node &parent = Tree::instance().nodes()[node_.parent];
 			if (parent.computedStyle().display == kDisplayFlex) {
 				const bool parentRow = flexRowDirection(parent.computedStyle()) != (writingMode(parent) != 0);
-				if (isRow_ != parentRow ? definiteFlexCrossSize(parent, node_, parentRow)
+				if (isRow_ != parentRow ? definiteStretchedSize(node_, isRow_)
 				                       : (isRow_ ? hasExplicitWidth(parent) : hasExplicitHeight(parent))) return mainAvail_;
 			}
 		}
 		return -1;
 	}
 
-	void applyFlexBasis(int child)
+	// True when applyFlexBasis zeroed this item: it grows from nothing.
+	bool zeroBasisGrowItem(const Node &childNode) const
+	{
+		if (hasFlexBasis(childNode) || childNode.computedStyle().flex <= 0) return false;
+		if (flexPercentageBasis() < 0) return false;
+		return !(isRow_ ? hasExplicitWidth(childNode) : hasExplicitHeight(childNode));
+	}
+
+	void applyFlexBasis(int index, int child)
 	{
 		Node &childNode = Tree::instance().nodes()[child];
 		// Authored bases were measured on the physical main axis above. Preserve
 		// that result, including content sizing for an indefinite percentage.
 		if (hasFlexBasis(childNode)) return;
 		if (childNode.computedStyle().flex <= 0) return;
+		// The shorthand's zero percentage basis resolves to content when the
+		// container's main size is indefinite, including auto-height columns.
+		if (flexPercentageBasis() < 0) return;
 		if (isRow_) {
 			if (hasExplicitWidth(childNode)) return;
+			if (childNode.type == NodeType::Text) {
+				// Keep the width this text just measured (wrapped at mainAvail_):
+				// a final width at least this wide keeps every line break, so the
+				// grow needs no second measurement (reflowFlexedText).
+				if (!measuredWidths_) measuredWidths_ = LayoutScratch::instance().measuredWidthsFor(children_);
+				if (measuredWidths_) measuredWidths_[index] = childNode.layout.width;
+			}
 			if (childNode.layout.width == 0) return;
 			childNode.layout.width = 0;
 		} else {
@@ -1625,21 +1706,20 @@ private:
 	{
 		if (totalGrow <= 0 || delta <= 0) return;
 		int applied = 0;
-		int lastGrowChild = -1;
+		int lastGrow = -1;
+		for (int i = 0; i < line.count; i++)
+			if (nodes[children_[line.start + i]].computedStyle().flex > 0) lastGrow = i;
 
-		for (int i = 0; i < line.count; i++) {
+		for (int i = 0; i <= lastGrow; i++) {
 			const int child = children_[line.start + i];
 			Node &childNode = nodes[child];
 			if (childNode.computedStyle().flex <= 0) continue;
-			lastGrowChild = child;
-			const int change = (delta * childNode.computedStyle().flex) / totalGrow;
-			applied += applyFlexMainSizeDelta(child, childNode, change);
-		}
-
-		const int remainder = delta - applied;
-		if (remainder > 0 && lastGrowChild >= 0) {
-			Node &childNode = nodes[lastGrowChild];
-			applyFlexMainSizeDelta(lastGrowChild, childNode, remainder);
+			// The last growing item also takes the integer remainder (and whatever
+			// earlier items could not absorb) in the same resize, so its subtree —
+			// or its text re-wrap — is laid out once, not twice.
+			const int share = (delta * childNode.computedStyle().flex) / totalGrow;
+			const int change = i == lastGrow ? std::max(share, delta - applied) : share;
+			applied += applyFlexMainSizeDelta(child, childNode, change, line.start + i);
 		}
 	}
 
@@ -1688,7 +1768,7 @@ private:
 		int extent = 0;
 		for (int c = childNode.first_child; c >= 0; c = nodes[c].next_sibling) {
 			const Node &grand = nodes[c];
-			if (isDisplayNone(grand.computedStyle()) || isOutOfFlowPosition(grand.computedStyle().position)) continue;
+			if (isLayoutExcluded(grand) || isOutOfFlowPosition(grand.computedStyle().position)) continue;
 			// layout.{x,y} are still parent-relative here: resolveAbsoluteCoords runs
 			// after the whole layout pass.
 			const int end = isRow_
@@ -1712,12 +1792,57 @@ private:
 		return extent;
 	}
 
-	int applyFlexMainSizeDelta(int child, Node &childNode, int delta)
+	// CSS `min-width: auto` for a row's text item: its MIN-CONTENT width — the
+	// longest unbreakable run ("stopwatch"), never the whole single line. Same
+	// exemptions as automaticMinimumMainSize: an authored min-width replaces it,
+	// a scroll container has none, and max-width caps it.
+	int textAutomaticMinimum(const Node &text) const
+	{
+		const ComputedStyle &style = text.computedStyle();
+		if (style.min_width != kUnset || isScrollableOverflow(overflowX(style))) return 0;
+		int extent = TextRenderer::minContentWidth(text) + boxInsets(style, true);
+		if (style.max_width != kUnset) extent = std::min(extent, contentSizeToBorderSize(style, style.max_width, true));
+		return extent;
+	}
+
+	// A text leaf's height IS its wrapped content height (see
+	// childMainSizeIsShrinkable), so a row that flexes its width must re-wrap
+	// it — once, at the final width. A zero-basis item is also floored at its
+	// min-content width (Flexbox 4.5), checked only when that one measurement
+	// reports an unbreakable run wider than the box. Returns the final width.
+	int reflowFlexedText(int child, Node &text, bool floorAtMinContent, int measuredWidth = -1)
+	{
+		// Wrapping at no less than the measured width (and no more than the width it
+		// was measured against) breaks every line in the same place: the height
+		// stands and min-content <= measured width, so no second measurement.
+		if (measuredWidth >= 0 && text.layout.width >= measuredWidth && text.layout.width <= mainAvail_) return text.layout.width;
+		const int previousHeight = text.layout.height;
+		const int widest = TextRenderer::reflowToBoxWidth(child);
+		if (floorAtMinContent && widest > text.layout.width) {
+			const int floor = textAutomaticMinimum(text);
+			if (floor > text.layout.width) {
+				text.layout.width = clampInt16(floor);
+				TextRenderer::reflowToBoxWidth(child);
+			}
+		}
+		if (text.layout.height != previousHeight) textReflowed_ = true;
+		return text.layout.width;
+	}
+
+	int applyFlexMainSizeDelta(int child, Node &childNode, int delta, int index = -1)
 	{
 		if (delta == 0) return 0;
 		const int before = isRow_ ? childNode.layout.width : childNode.layout.height;
 		int after = before + delta;
 		after = clampFlexMainSize(childNode, after);
+		const bool zeroBasisGrow = delta > 0 && zeroBasisGrowItem(childNode);
+		const bool rowText = isRow_ && childNode.type == NodeType::Text;
+		// A row's text item takes its min-content floor in reflowFlexedText, from
+		// the same measurement that re-wraps it.
+		if (zeroBasisGrow && !rowText) {
+			const int autoMin = automaticMinimumMainSize(childNode);
+			if (after < autoMin) after = autoMin;
+		}
 		if (delta < 0) {
 			// Floor the shrink at the automatic minimum size, and never let that floor
 			// GROW an item that was already smaller than its content.
@@ -1728,6 +1853,9 @@ private:
 		if (after == before) return 0;
 		if (isRow_) childNode.layout.width = after;
 		else childNode.layout.height = after;
+		// A grown-from-zero text item may now be narrower than the width it was
+		// measured (and wrapped) at.
+		if (rowText && zeroBasisGrow) after = reflowFlexedText(child, childNode, true, index >= 0 && measuredWidths_ ? measuredWidths_[index] : -1);
 		if (preferredRatio(childNode) > 0 && !(isRow_ ? hasExplicitHeight(childNode) : hasExplicitWidth(childNode)) &&
 		    !definiteFlexCrossSize(node_, childNode, isRow_)) {
 			int16_t &cross = isRow_ ? childNode.layout.height : childNode.layout.width;
@@ -1928,7 +2056,7 @@ private:
 			const Node *nodes = Tree::instance().nodes();
 			for (int c = last ? childNode.last_child : childNode.first_child; c >= 0; c = last ? nodes[c].prev_sibling : nodes[c].next_sibling) {
 				const Node &inner = nodes[c];
-				if (isDisplayNone(inner.computedStyle()) || isOutOfFlowPosition(inner.computedStyle().position)) continue;
+				if (isLayoutExcluded(inner) || isOutOfFlowPosition(inner.computedStyle().position)) continue;
 				return inner.layout.y + childBaseline(inner, last);
 			}
 		}
@@ -1967,6 +2095,13 @@ private:
 	std::vector<FlexLine> extraLines_;
 	int mainGap_ = 0;
 	int crossGap_ = 0;
+	static constexpr int kUnresolvedBasis = INT_MIN;
+	mutable int percentageBasis_ = kUnresolvedBasis;
+	// LayoutScratch slice parallel to children_; see applyFlexBasis.
+	int16_t *measuredWidths_ = nullptr;
+	// Set when flexing a row's text item re-wrapped it to a different height,
+	// so the line's cross size has to be re-derived (see positionLines).
+	bool textReflowed_ = false;
 };
 
 // CSS inline-level classification. Browsers flow inline-level boxes (text,
@@ -1997,7 +2132,7 @@ bool splitInlineWrapper(const Node *nodes, int id)
 	bool containsBlock = false;
 	for (int c = n.first_child; c >= 0; c = nodes[c].next_sibling) {
 		const Node &child = nodes[c];
-		if (isDisplayNone(child.computedStyle())) continue;
+		if (isLayoutExcluded(child)) continue;
 		if (isOutOfFlowPosition(child.computedStyle().position)) return false;
 		if (child.computedStyle().float_side) continue;
 		if (child.type == NodeType::View && (child.computedStyle().display_explicit || !isInlineLevelTag(tagFromId(child.tag_id)))) containsBlock = true;
@@ -2011,7 +2146,7 @@ int formattingEdgeNode(const Node *nodes, int id, bool last)
 	if (!splitInlineWrapper(nodes, id)) return id;
 	for (int c = last ? nodes[id].last_child : nodes[id].first_child; c >= 0; c = last ? nodes[c].prev_sibling : nodes[c].next_sibling) {
 		const Node &child = nodes[c];
-		if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position) || child.computedStyle().float_side) continue;
+		if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position) || child.computedStyle().float_side) continue;
 		if (isAnonymousTextNode(child) && (child.computedStyle().white_space == 0 || child.computedStyle().white_space == 1) &&
 		    child.text.find_first_not_of(" \t\r\n\f") == std::string::npos) continue;
 		return formattingEdgeNode(nodes, c, last);
@@ -2042,7 +2177,7 @@ public:
 #if GEA_CSS_FIRST_LINE
 		if (NodeRareData *rare = rareDataFor(id_)) rare->firstLineBackground.lineValid = false;
 #endif
-		if (isDisplayNone(node_.computedStyle())) return;
+		if (isLayoutExcluded(node_)) return;
 		prepareOwnSize();
 
 		if (isLineBreak(node_) && LayoutEngine::isInlineLevelNode(node_) &&
@@ -2218,7 +2353,7 @@ private:
 		auto collect = [&](auto &&self, int parent) -> void {
 			for (int c = nodes_[parent].first_child; c >= 0; c = nodes_[c].next_sibling) {
 				Node &child = nodes_[c];
-				if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position) || suppressAnonymousWhitespace(nodes_, parent, c)) continue;
+				if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position) || suppressAnonymousWhitespace(nodes_, parent, c)) continue;
 				if (splitInlineWrapper(nodes_, c)) {
 					splitInlineChildren_ = true;
 					child.layout.x = child.layout.y = child.layout.width = child.layout.height = 0;
@@ -2256,13 +2391,13 @@ private:
 
 	bool blockBox(const Node &n) const
 	{
-		return n.type == NodeType::View && !isDisplayNone(n.computedStyle()) &&
+		return n.type == NodeType::View && !isLayoutExcluded(n) &&
 		    (n.computedStyle().display_explicit || !isInlineLevelTag(tagFromId(n.tag_id)));
 	}
 
 	bool flowChild(int parent, int child) const
 	{
-		return !isDisplayNone(nodes_[child].computedStyle()) && !isOutOfFlowPosition(nodes_[child].computedStyle().position) &&
+		return !isLayoutExcluded(nodes_[child]) && !isOutOfFlowPosition(nodes_[child].computedStyle().position) &&
 		    !nodes_[child].computedStyle().float_side && !suppressAnonymousWhitespace(nodes_, parent, child);
 	}
 
@@ -2287,7 +2422,7 @@ private:
 		auto visit = [&](auto &&self, int parent, int y) -> void {
 			for (int id = nodes_[parent].first_child; id >= 0; id = nodes_[id].next_sibling) {
 				const Node &child = nodes_[id];
-				if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position)) continue;
+				if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position)) continue;
 				int top = y + child.layout.y;
 				if (parent != id_ && child.computedStyle().position == 2) {
 					LayoutNodePass owner(engine_, parent, 0, 0);
@@ -2509,7 +2644,7 @@ private:
 		auto containsFloat = [&](auto &&self, int parent) -> bool {
 			for (int c = nodes_[parent].first_child; c >= 0; c = nodes_[c].next_sibling) {
 				const Node &child = nodes_[c];
-				if (isDisplayNone(child.computedStyle()) || isOutOfFlowPosition(child.computedStyle().position)) continue;
+				if (isLayoutExcluded(child) || isOutOfFlowPosition(child.computedStyle().position)) continue;
 				if (child.computedStyle().float_side || (!establishesBlockContext(child) && self(self, c))) return true;
 			}
 			return false;
@@ -3231,7 +3366,7 @@ private:
 		int contentHeight = node_.layout.height;
 		visitFormattingChildren(nodes_, id_, [&](int child) {
 			Node &childNode = nodes_[child];
-			if (isCollapsedFlexItem(childNode) || isDisplayNone(childNode.computedStyle()) || isOutOfFlowPosition(childNode.computedStyle().position)) return;
+			if (isCollapsedFlexItem(childNode) || isLayoutExcluded(childNode) || isOutOfFlowPosition(childNode.computedStyle().position)) return;
 			// A visible axis contributes descendant overflow; a clipping axis
 			// traps it at this child's border box independently of the other axis.
 			const int width = overflowX(childNode.computedStyle()) == 0 ? std::max<int>(childNode.layout.width, childNode.layout.scroll_content_width) : childNode.layout.width;
@@ -3276,7 +3411,7 @@ private:
 		if (node_.type != NodeType::VirtualList) return;
 		int rowHeight = 0;
 		for (int child = node_.first_child; child >= 0; child = nodes_[child].next_sibling) {
-			if (isDisplayNone(nodes_[child].computedStyle())) continue;
+			if (isLayoutExcluded(nodes_[child])) continue;
 			rowHeight = nodes_[child].layout.height;
 			break;
 		}
@@ -3297,7 +3432,7 @@ private:
 	void captureBlockStaticPositions()
 	{
 		for (int c = node_.first_child; c >= 0; c = nodes_[c].next_sibling)
-			if (isOutOfFlowPosition(nodes_[c].computedStyle().position)) layoutState(c).static_block_axis = 0;
+			if (!isLayoutExcluded(nodes_[c]) && isOutOfFlowPosition(nodes_[c].computedStyle().position)) layoutState(c).static_block_axis = 0;
 		if (node_.computedStyle().display != kDisplayBlock || node_.computedStyle().flex_direction_explicit ||
 		    (LayoutEngine::isInlineLevelNode(node_) && !isOutOfFlowPosition(node_.computedStyle().position))) return;
 		const bool vertical = writingMode(node_) != 0;
@@ -3307,7 +3442,7 @@ private:
 		CollapsedMargin pending;
 		visitFormattingChildren(nodes_, id_, [&](int id) {
 			Node &child = nodes_[id];
-			if (isDisplayNone(child.computedStyle())) return;
+			if (isLayoutExcluded(child)) return;
 			if (isOutOfFlowPosition(child.computedStyle().position)) {
 				if (child.parent != id_ || !blockBox(child)) return;
 				const int edge = cursor + (first && collapsesWithChildren(id_, false) ? 0 : pending.value());
@@ -3334,7 +3469,7 @@ private:
 		captureBlockStaticPositions();
 		for (int child = node_.first_child; child >= 0; child = nodes_[child].next_sibling) {
 			Node &childNode = nodes_[child];
-			if (isDisplayNone(childNode.computedStyle()) || !isOutOfFlowPosition(childNode.computedStyle().position)) continue;
+			if (isLayoutExcluded(childNode) || !isOutOfFlowPosition(childNode.computedStyle().position)) continue;
 
 			int childAvailWidth, childAvailHeight;
 			int areaX, areaY;
@@ -3399,6 +3534,7 @@ private:
 		auto apply = [&](auto &&self, int parent) -> void {
 			for (int child = nodes_[parent].first_child; child >= 0; child = nodes_[child].next_sibling) {
 				Node &childNode = nodes_[child];
+				if (isLayoutExcluded(childNode)) continue;
 				if (splitInlineChildren_ && splitInlineWrapper(nodes_, child)) self(self, child);
 				if (childNode.computedStyle().position != 2) continue;
 				if (hasPositionOffset<0>(childNode))
@@ -3597,6 +3733,7 @@ void layoutAbsoluteNode(int node, int containing, int areaX, int areaWidth, int 
 void positionAbsoluteNodeInContainingBlock(int node, int containing, Node *nodes)
 {
 	Node &absolute = nodes[node];
+	if (isLayoutExcluded(absolute)) return;
 	const Node &containingNode = nodes[containing];
 	const int parent = absolute.parent;
 	if (parent < 0) return;
@@ -3657,7 +3794,7 @@ void positionAbsoluteNodeInContainingBlock(int node, int containing, Node *nodes
 void resolvePositionedDescendants(int node, int root, Node *nodes)
 {
 	for (int child = nodes[node].first_child; child >= 0; child = nodes[child].next_sibling) {
-		if (isDisplayNone(nodes[child].computedStyle())) continue;
+		if (isLayoutExcluded(nodes[child])) continue;
 		if (isOutOfFlowPosition(nodes[child].computedStyle().position))
 			positionAbsoluteNodeInContainingBlock(child, containingBlockForAbsoluteNode(child, root, nodes), nodes);
 		resolvePositionedDescendants(child, root, nodes);
@@ -3688,13 +3825,14 @@ int LayoutEngine::fixedContainingBlock(const Node &node)
 
 bool LayoutEngine::isViewportFixed(const Node &node)
 {
-	return node.computedStyle().position == kPositionFixed && fixedContainingBlock(node) < 0;
+	return !isLayoutExcluded(node) && node.computedStyle().position == kPositionFixed && fixedContainingBlock(node) < 0;
 }
 
 bool LayoutEngine::containsViewportFixed(int node)
 {
 	if (!treeState().fixedPositionUsed) return false;
 	const Node *nodes = Tree::instance().nodes();
+	if (isLayoutExcluded(nodes[node])) return false;
 	if (isViewportFixed(nodes[node])) return true;
 	for (int child = nodes[node].first_child; child >= 0; child = nodes[child].next_sibling)
 		if (containsViewportFixed(child)) return true;
@@ -3953,7 +4091,8 @@ int LayoutEngine::collectChildren(int parent, int *out, int max, bool skipAbs) c
 	int n = 0;
 	Node *nodes = Tree::instance().nodes();
 	for (int child = nodes[parent].first_child; child >= 0; child = nodes[child].next_sibling) {
-		if (isDisplayNone(nodes[child].computedStyle())) continue;
+		if (isStructuralNodeType(nodes[child].type)) continue;
+		if (isLayoutExcluded(nodes[child])) continue;
 		if (suppressAnonymousWhitespace(nodes, parent, child)) continue;
 		if (skipAbs && isOutOfFlowPosition(nodes[child].computedStyle().position)) continue;
 		if (n < max) out[n++] = child;
@@ -4114,6 +4253,7 @@ std::size_t LayoutEngine::memoPeakHeapBytes()
 void LayoutEngine::layoutNode(int id, int avail_w, int avail_h, bool intrinsicBoxEdges)
 {
 	Node &node = Tree::instance().nodes()[id];
+	if (isStructuralNodeType(node.type)) return;
 	auto &persistent = layoutState(id);
 	const Node *parent = node.parent >= 0 ? &Tree::instance().nodes()[node.parent] : nullptr;
 	// Horizontal non-replaced floats use the same min/max-content measurement
@@ -4271,14 +4411,18 @@ bool LayoutEngine::layoutNodeScoped(int scope, int treeRoot)
 
 	// Absolute descendants positioned against a containing block OUTSIDE the
 	// scope mix coordinate spaces (the global containing-block pass runs in
-	// pre-resolve relative space) — those trees must take the full path.
+	// pre-resolve relative space) — those trees must take the full path. The
+	// scope itself is exempt: its own position is restored below, never
+	// recomputed, and a size change is rejected by the dims check. Testing it
+	// here refused every absolutely placed scope (Ember's temperature readout,
+	// then its screen), so each tick of a number fell back to a full relayout.
 	for (int i = 0; i < nodeCount; ++i) {
 		const Node &n = nodes[i];
-		if (n.parent < 0 || !isOutOfFlowPosition(n.computedStyle().position) || isDisplayNone(n.computedStyle())) continue;
+		if (i == scope) continue;
+		if (n.parent < 0 || !isOutOfFlowPosition(n.computedStyle().position) || isLayoutExcluded(n)) continue;
 		if (!inScope(i)) continue;
 		const int containing = containingBlockForAbsoluteNode(i, treeRoot, nodes);
 		if (containing >= 0 && !inScope(containing)) {
-			GEA_REFRESH_PERF(refreshPerfStatsMutable().treeScopedRejectReason = 3);
 			GEA_REFRESH_PERF(refreshPerfStatsMutable().treeScopedRejectNode = i);
 			return false;
 		}
@@ -4339,7 +4483,7 @@ bool LayoutEngine::layoutNodeScoped(int scope, int treeRoot)
 	// Scoped equivalent of the root containing-block pass (both the node and
 	// its containing block are inside the scope, in the same relative space).
 	for (int i = 0; i < nodeCount; ++i) {
-		if (isDisplayNone(nodes[i].computedStyle()) || !isOutOfFlowPosition(nodes[i].computedStyle().position) || nodes[i].parent < 0) continue;
+		if (isLayoutExcluded(nodes[i]) || !isOutOfFlowPosition(nodes[i].computedStyle().position) || nodes[i].parent < 0) continue;
 		if (!inScope(i) || i == scope) continue;
 		const int containing = containingBlockForAbsoluteNode(i, scope, nodes);
 		if (containing < 0) continue;
@@ -4362,6 +4506,7 @@ void LayoutEngine::resolveAbsoluteCoords(int id, int parent_x, int parent_y)
 {
 	Node *nodes = Tree::instance().nodes();
 	Node *node = &nodes[id];
+	if (isLayoutExcluded(*node)) return;
 	if (node->parent < 0) resolveAbsoluteContainingBlocks(id);
 	if (!isViewportFixed(*node)) {
 		node->layout.x += parent_x;

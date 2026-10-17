@@ -31,6 +31,7 @@ void drainMicrotasks();
 
 extern "C" void gea_cycle_collection_defer_begin() __attribute__((weak));
 extern "C" void gea_cycle_collection_defer_end() __attribute__((weak));
+extern "C" bool gea_embedded_assets_prepare() __attribute__((weak));
 
 namespace gea::framework::app {
 
@@ -91,6 +92,9 @@ private:
 
 void Application::init(int width, int height, double devicePixelRatio)
 {
+    // File-backed static symbols must be populated before generated code can
+    // construct an image directly from them. Embedded assets need no hook.
+    if (gea_embedded_assets_prepare) gea_embedded_assets_prepare();
 	// Top-level construction allocates the entire native object graph. Keep the
 	// generated collector at a host safepoint until initialization has unwound,
 	// just as Application::frame does for animation callbacks.
@@ -268,7 +272,7 @@ void Application::frame(int timestampMs)
 	applicationFramePhaseSet(ApplicationFramePhase::DrainMicrotasks);
 	generated::drainMicrotasks();
 	applicationFramePhaseSet(ApplicationFramePhase::AnimationFrameCallbacks);
-	gea::host::runAnimationFrameCallbacks(static_cast<gea::host::AnimationFrameTimestamp>(timestampMs));
+	gea::host::runAnimationFrameCallbacks(timestampMs);
 	generated::drainMicrotasks();
 	applicationFramePhaseSet(ApplicationFramePhase::Idle);
 #else
@@ -294,27 +298,34 @@ void Application::frame(int timestampMs)
 
 	startUs = phaseClockUs();
 	applicationFramePhaseSet(ApplicationFramePhase::AnimationFrameCallbacks);
-	gea::host::runAnimationFrameCallbacks(static_cast<double>(timestampMs));
+	gea::host::runAnimationFrameCallbacks(timestampMs);
 	applicationFramePhaseSet(ApplicationFramePhase::CallbackMicrotasks);
 	generated::drainMicrotasks();
+	recordFramePhase(ApplicationFramePhase::AnimationFrameCallbacks, phaseClockUs() - startUs);
 	// The build already proves whether network services are reachable. Keep their
 	// callback pumps out of offline frame loops, while still servicing local workers.
 #if !defined(GEA_EMBEDDED_NETWORK_SERVICES_DISABLED) || !GEA_EMBEDDED_NETWORK_SERVICES_DISABLED
 	applicationFramePhaseSet(ApplicationFramePhase::WebSocketCallbacks);
+	startUs = phaseClockUs();
 	gea::host::websocket::runCallbacks();
+	recordFramePhase(ApplicationFramePhase::WebSocketCallbacks, phaseClockUs() - startUs);
 	applicationFramePhaseSet(ApplicationFramePhase::RtcCallbacks);
+	startUs = phaseClockUs();
 	gea::host::rtc::runCallbacks();
+	recordFramePhase(ApplicationFramePhase::RtcCallbacks, phaseClockUs() - startUs);
 #else
 	gea::host::workers::Context::runMainPending();
 #endif
 	applicationFramePhaseSet(ApplicationFramePhase::VideoPresentation);
+	startUs = phaseClockUs();
 	gea::host::video::presentFrames();
+	recordFramePhase(ApplicationFramePhase::VideoPresentation, phaseClockUs() - startUs);
 #if !defined(GEA_EMBEDDED_NETWORK_SERVICES_DISABLED) || !GEA_EMBEDDED_NETWORK_SERVICES_DISABLED
 	applicationFramePhaseSet(ApplicationFramePhase::HttpRequests);
+	startUs = phaseClockUs();
 	gea::host::http::runRequests();
+	recordFramePhase(ApplicationFramePhase::HttpRequests, phaseClockUs() - startUs);
 #endif
-	recordFramePhase(ApplicationFramePhase::AnimationFrameCallbacks, phaseClockUs() - startUs);
-
 	// Apply the coalesced style recompute for everything changed above, so layout
 	// and render below see final styles. Measured as its own phase: a city/theme
 	// class change near the root cascades a full-subtree recompute here, and it was

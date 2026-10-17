@@ -1,65 +1,70 @@
+#include "selector.h"
 // SPDX-License-Identifier: Apache-2.0
 #include "node.h"
+#include "child_node_list.h"
+#include "tree_state.h"
 
 #include "host/audio.h"
 #include "tree_internal.h"
+#include "input_retirement.h"
 
 #include <cstring>
 #include <utility>
+#include <stdexcept>
 
 namespace gea::embedded::ui {
 
 bool ClassList::add(const std::string &token) const
 {
-	if (nodeId_ < 0) return false;
+	if (!valid()) return false;
 	return Tree::instance().addClass(nodeId_, token);
 }
 
 bool ClassList::remove(const std::string &token) const
 {
-	if (nodeId_ < 0) return false;
+	if (!valid()) return false;
 	return Tree::instance().removeClass(nodeId_, token);
 }
 
 bool ClassList::toggle(const std::string &token) const
 {
-	if (nodeId_ < 0) return false;
+	if (!valid()) return false;
 	return Tree::instance().toggleClass(nodeId_, token);
 }
 
 bool ClassList::toggle(const std::string &token, bool force) const
 {
-	if (nodeId_ < 0) return false;
+	if (!valid()) return false;
 	return Tree::instance().toggleClass(nodeId_, token, force);
 }
 
 void ClassList::set(const std::string &className) const
 {
-	if (nodeId_ < 0) return;
+	if (!valid()) return;
 	Tree::instance().setClassName(nodeId_, className);
 }
 
 void ClassList::set(const char *className) const
 {
-	if (nodeId_ < 0) return;
+	if (!valid()) return;
 	Tree::instance().setClassName(nodeId_, className);
 }
 
 void ClassList::clear() const
 {
-	if (nodeId_ < 0) return;
+	if (!valid()) return;
 	Tree::instance().clearClasses(nodeId_);
 }
 
 bool ClassList::contains(const std::string &token) const
 {
-	if (nodeId_ < 0) return false;
+	if (!valid()) return false;
 	return Tree::instance().hasClass(nodeId_, token);
 }
 
 std::string ClassList::value() const
 {
-	if (nodeId_ < 0) return std::string();
+	if (!valid()) return std::string();
 	return Tree::instance().className(nodeId_);
 }
 
@@ -81,19 +86,54 @@ NodeHandle NodeHandle::nextSiblingHandle() const
 	return NodeHandle(Tree::instance().node(id()).next_sibling);
 }
 
+ChildNodeList NodeHandle::childNodesHandle() const
+{
+	if (!valid()) return ChildNodeList();
+	auto &rare = ensureRareData(id());
+	if (!rare.childNodeListIdentity) rare.childNodeListIdentity = std::make_shared<ChildNodeListIdentity>();
+	return ChildNodeList(*this, rare.childNodeListIdentity);
+}
+
+NodeHandle NodeHandle::parentHandle() const
+{
+	if (!valid()) return NodeHandle();
+	return NodeHandle(Tree::instance().node(id()).parent);
+}
+
+NodeHandle NodeHandle::lastElementChildHandle() const
+{
+	if (!valid()) return NodeHandle();
+	auto &tree = Tree::instance();
+	for (int child = tree.node(id()).last_child; child >= 0; child = tree.node(child).prev_sibling) {
+		NodeHandle candidate(child);
+		if (candidate.valid() && candidate.nodeType == 1) return candidate;
+	}
+	return NodeHandle();
+}
+
+std::vector<NodeHandle> NodeHandle::elementChildren() const
+{
+	std::vector<NodeHandle> result;
+	if (!valid()) return result;
+	auto &tree = Tree::instance();
+	for (int child = tree.node(id()).first_child; child >= 0; child = tree.node(child).next_sibling) {
+		NodeHandle candidate(child);
+		if (candidate.valid() && candidate.nodeType == 1) result.push_back(candidate);
+	}
+	return result;
+}
+
 void NodeHandle::replaceChildren(const std::vector<NodeHandle> &children) const
 {
 	if (!valid()) return;
 	auto &tree = Tree::instance();
-	// Detach existing children (walk from first_child, capturing next before remove).
-	int child = tree.node(id()).first_child;
-	while (child >= 0) {
-		const int nextChild = tree.node(child).next_sibling;
-		NodeHandle(child).remove();
-		child = nextChild;
+	std::vector<int> ids;
+	ids.reserve(children.size());
+	for (const auto &child : children) {
+		if (!child.valid()) throw std::invalid_argument("replaceChildren requires live nodes");
+		ids.push_back(child.id());
 	}
-	for (const NodeHandle &c : children)
-		if (c.valid()) appendChild(c);
+	tree.replaceChildren(id(), ids);
 }
 
 NodeHandle NodeHandle::childAt(int index) const
@@ -108,10 +148,20 @@ void NodeHandle::appendChild(NodeHandle child) const
 	Tree::instance().setParent(child.id(), id());
 }
 
-void NodeHandle::insertBefore(NodeHandle child, NodeHandle reference) const
+NodeHandle NodeHandle::insertBefore(NodeHandle child, NodeHandle reference) const
 {
-	if (!valid() || !child.valid()) return;
+	if (!valid() || !child.valid()) return NodeHandle();
+	if (!reference.valid() && reference.identity()) throw std::invalid_argument("insertBefore reference is retired");
 	Tree::instance().insertBefore(child.id(), id(), reference.valid() ? reference.id() : -1);
+	return child;
+}
+
+NodeHandle NodeHandle::removeChild(NodeHandle child) const
+{
+	if (!valid() || !child.valid() || child.parentHandle().identity() != identity())
+		throw std::invalid_argument("removeChild requires a direct live child");
+	Tree::instance().detachNode(child.id());
+	return child;
 }
 
 void NodeHandle::setParent(NodeHandle parent) const
@@ -167,19 +217,42 @@ void NodeHandle::scrollIntoView() const
 	Tree::instance().scrollIntoView(id());
 }
 
+bool NodeHandle::isConnected() const
+{
+	if (!valid()) return false;
+	const Tree &tree = Tree::instance();
+	const int root = tree.mountedRoot();
+	if (root < 0 || !NodeHandle(root).valid()) return false;
+	// Bound the walk even if trusted raw Tree clients violate ancestry invariants.
+	int current = id_;
+	for (int remaining = tree.nodeCount(); remaining > 0; --remaining) {
+		if (current < 0 || current >= tree.nodeCount()) return false;
+		if (current == root) return true;
+		current = tree.node(current).parent;
+	}
+	return false;
+}
+
+__attribute__((weak)) void retirePlatformInputForSubtrees(const InputRetirementRoots &,const InputRetirementRoots &) {}
+__attribute__((weak)) NativeFocusResult requestNativeFocus(NodeHandle,bool){return NativeFocusResult::unhandled;}
+__attribute__((weak)) NativeFocusQuery queryNativeFocus(){return {};}
 void NodeHandle::focus() const
 {
-	if (!valid()) return;
-	Tree::instance().setActiveInput(id());
+ if(!valid()||!isConnected()||selector::disabled(Tree::instance(),id()))return;
+ if(requestNativeFocus(*this,true)==NativeFocusResult::refused)return;
+ // A native responder callback may retire this allocation synchronously.
+ if(valid()&&isConnected())Tree::instance().setActiveInput(id());
 }
 
 void NodeHandle::blur() const
 {
-	if (!valid()) return;
-	// Only clear focus if this node is the one holding it: `blur()` on some
-	// other element must not steal the caret away from the focused input.
-	if (Tree::instance().activeInputId() != id()) return;
-	Tree::instance().setActiveInput(-1);
+ if(!valid())return;
+ const auto native=queryNativeFocus();
+ if(native.handled){
+  if(native.node.valid()&&native.node.identity()!=identity())return;
+  if(native.node.valid()&&requestNativeFocus(*this,false)==NativeFocusResult::refused)return;
+ }
+ if(valid()&&Tree::instance().activeInputId()==id())Tree::instance().setActiveInput(-1);
 }
 
 bool NodeHandle::play() const
@@ -207,13 +280,18 @@ const char *NodeHandle::tagName() const
 }
 
 // DOM Node.nodeType for a handle: ELEMENT_NODE (1) for any element-like tree
-// node, TEXT_NODE (3) for a text node, DOCUMENT_FRAGMENT_NODE (11) for an
-// invalid handle (the embedded tree has no fragment node kind, so a real handle
-// is never a fragment).
+// node, TEXT_NODE (3), COMMENT_NODE (8), or DOCUMENT_FRAGMENT_NODE (11).
 NodeHandle::NodeTypeProperty::operator int() const
 {
-	if (id < 0) return 11;
-	return Tree::instance().node(id).type == NodeType::Text ? 3 : 1;
+	if (!gea::framework::identity::current(id, owner)) return 0;
+	const auto &tree=Tree::instance();
+	// The template renderer's list/conditional anchors are hidden nodes tagged
+	// "#comment"; DOM queries must see them as the comments they stand for.
+	if (tree.node(id).type == NodeType::Comment || std::strcmp(tree.tagName(id), "#comment") == 0) return 8;
+	if (tree.node(id).type == NodeType::DocumentFragment) return 11;
+	// Native JSX text leaves retain their element tag (p/h1/etc.). Only an
+	// anonymous Text allocation projects a DOM text node.
+	return tree.node(id).type==NodeType::Text && !*tree.tagName(id)?3:1;
 }
 
 void NodeHandle::setPressId(int pressId) const
@@ -241,3 +319,17 @@ bool NodeHandle::removeEventListener(const char *type, gea::framework::events::E
 }
 
 }  // namespace gea::embedded::ui
+
+namespace gea::embedded::ui {
+const char *NodeHandle::selectorText(const std::string &s) { if(s.find('\0')!=std::string::npos)selector::parse("").requireValid();return s.c_str(); }
+bool NodeHandle::disabled() const { return valid()&&hasAttribute("disabled"); }
+void NodeHandle::setDisabled(bool value) const { if(value)setAttribute("disabled","");else removeAttribute("disabled"); }
+bool NodeHandle::matches(const char *s) const { auto q=selector::parse(s); q.requireValid(); return valid()&&q.matches(Tree::instance(),id(),id()); }
+NodeHandle NodeHandle::closest(const char *s) const { auto q=selector::parse(s);q.requireValid();if(!valid())return {};auto&t=Tree::instance();for(int n=id(),left=t.nodeCount();left>0&&NodeHandle(n).valid();--left,n=t.node(n).parent)if(q.matches(t,n,id()))return NodeHandle(n);return {}; }
+std::vector<NodeHandle> NodeHandle::querySelectorAll(const char *s) const {
+ auto q=selector::parse(s);q.requireValid();std::vector<NodeHandle> out;if(!valid())return out;auto&t=Tree::instance();
+ std::vector<int> pending; for(int c=t.node(id()).last_child,left=t.nodeCount();left>0&&NodeHandle(c).valid();--left,c=t.node(c).prev_sibling)pending.push_back(c);
+ for(int left=t.nodeCount();left>0&&!pending.empty();--left){int n=pending.back();pending.pop_back();if(!NodeHandle(n).valid())continue;if(q.matches(t,n,id()))out.emplace_back(n);for(int c=t.node(n).last_child,b=t.nodeCount();b>0&&NodeHandle(c).valid();--b,c=t.node(c).prev_sibling)pending.push_back(c);}return out;
+}
+NodeHandle NodeHandle::querySelector(const char*s) const {auto all=querySelectorAll(s);return all.empty()?NodeHandle():all.front();}
+}

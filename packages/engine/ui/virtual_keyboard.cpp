@@ -1,3 +1,4 @@
+#include "node.h"
 // SPDX-License-Identifier: Apache-2.0
 // On-screen keyboard implemented as document-tree nodes.
 //
@@ -540,7 +541,7 @@ void applyKeyToActiveInput(int code)
 {
 	Tree &tree = Tree::instance();
 	const int activeId = tree.activeInputId();
-	if (activeId < 0) return;
+	if (activeId < 0 || !tree.activeInputAdmitted()) return;
 
 	if (code == kCodeShift) {
 		gState.shiftHeld = !gState.shiftHeld;
@@ -589,6 +590,7 @@ void applyKeyToActiveInput(int code)
 		if (!next.empty()) {
 			next.pop_back();
 			tree.setAttribute(activeId, "value", next.c_str());
+		tree.markActiveInputEdited();
 			markInputDirty(activeId);
 			gea::framework::events::PointerEvent ev{};
 			ev.type = gea::framework::events::PointerEventType::Input;
@@ -603,11 +605,15 @@ void applyKeyToActiveInput(int code)
 		return;
 	}
 	if (code == kCodeReturn) {
+		const NodeHandle originalInput(activeId);
+		const char*tag=tree.tagName(activeId);
+		const bool commitsReturn=!tag || std::strcmp(tag,"textarea")!=0;
 		gea::framework::events::PointerEvent kd{};
 		kd.type = gea::framework::events::PointerEventType::KeyDown;
 		kd.targetId = activeId;
 		kd.keyCode = kCodeReturn;
 		tree.dispatchEvent(kd);
+		if(commitsReturn && originalInput.valid() && tree.activeInputId()==activeId)tree.commitActiveInput();
 		return;
 	}
 
@@ -620,6 +626,7 @@ void applyKeyToActiveInput(int code)
 	}
 	next.push_back(c);
 	tree.setAttribute(activeId, "value", next.c_str());
+		tree.markActiveInputEdited();
 	markInputDirty(activeId);
 
 	gea::framework::events::PointerEvent ev{};

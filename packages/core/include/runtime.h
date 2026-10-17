@@ -67,6 +67,20 @@ public:
 	// calls it, so a target that does not care never sees a difference.
 	static bool boot(const RuntimeOptions &options);
 
+	// Pause UI event/frame callbacks at a safe event-loop boundary. A request
+	// made before boot is retained; uiPaused() becomes true only after boot and
+	// the current callback/frame (including its locks) have returned. Calls do
+	// not wait and may be made from another task. uiPaused() acknowledges the
+	// current request, so callers that need quiescence must wait for it.
+	//
+	// Paused input is discarded and gestures are reset. Resuming requests a fresh
+	// frame. Platform tickers, device control, native services and previously
+	// submitted display DMA keep running; this does not suspend any task. A
+	// headless build has no UI loop, so a pause is acknowledged immediately.
+	static void requestUiPause(bool paused);
+	static bool uiPauseRequested();
+	static bool uiPaused();
+
 	// Hands the runtime a block of internal RAM to hold for the display and free
 	// immediately before Display::init(). For an app whose native boot hook has
 	// a phase that must not see less RAM than it actually has, followed by one

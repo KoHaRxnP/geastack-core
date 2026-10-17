@@ -7,6 +7,7 @@
 #include "input.h"
 #include "memory.h"
 #include "events.h"
+#include "touch.h"
 #include "power.h"
 #include "services/app_runner.h"
 #include "services/app_state.h"
@@ -48,9 +49,88 @@
 #include "ui/document.h"
 #include "ui/tree_internal.h"
 
+#include <atomic>
+#include <cstdint>
+
+extern "C" void gea_cycle_collection_defer_begin() __attribute__((weak));
+extern "C" void gea_cycle_collection_defer_end() __attribute__((weak));
+
 namespace gea::framework {
 
 namespace {
+
+// The low bit is the requested state; the remaining bits distinguish each
+// transition. An acknowledgement of an earlier pause cannot satisfy a new
+// pause after a quick resume. These survive a request made by native boot,
+// before either the UI task or its queue exists.
+std::atomic<std::uint32_t> uiPauseRequest{0};
+std::atomic<std::uint32_t> uiPauseAcknowledged{0};
+
+void discardPausedInput()
+{
+#if !defined(GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT) || !GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT
+	services::AppState::lock();
+	events::TouchRuntime::resetGestureState();
+	services::AppState::unlock();
+	gea::platform::touch::Touchscreen::consumeLatestMove(nullptr, nullptr);
+	(void)input::consumeRotaryDelta();
+	input::HardwareKeyEvent key{};
+	while (input::consumeKeyEvent(key)) {}
+#endif
+}
+
+void discardPausedEvent(const events::Event &event)
+{
+#if !defined(GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT) || !GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT
+	// A move marker must re-arm the controller even though its callback is
+	// dropped; otherwise the first drag after resume can stop producing moves.
+	if (event.type == events::EventType::Touch && event.touchPhase == events::TouchPhase::Move)
+		gea::platform::touch::Touchscreen::consumeLatestMove(nullptr, nullptr);
+#else
+	(void)event;
+#endif
+}
+
+bool acknowledgeUiPause(bool &paused)
+{
+	const auto request = uiPauseRequest.load(std::memory_order_acquire);
+	if ((request & 1U) == 0) return false;
+	if (!paused) {
+		discardPausedInput();
+		paused = true;
+	}
+	// Called only by the event-loop owner, outside dispatch_event/runFrame and
+	// after discardPausedInput has released AppState. No lock is held while the
+	// runtime waits on its queue in the paused state.
+	uiPauseAcknowledged.store(request, std::memory_order_release);
+	return true;
+}
+
+// Input can allocate just like a frame callback, but touch dispatch and the
+// frame's poll/rotary/key prelude run outside Application::frame's lifetime
+// scope. Do not collect while generated callbacks still hold transient native
+// references or the dispatcher is borrowing its current listener.
+class InputCycleCollectionDeferral {
+public:
+	InputCycleCollectionDeferral()
+		: active_(gea_cycle_collection_defer_begin && gea_cycle_collection_defer_end)
+	{
+		if (active_) gea_cycle_collection_defer_begin();
+	}
+	~InputCycleCollectionDeferral()
+	{
+		if (!active_) return;
+		const auto previous = app::applicationFramePhaseRead();
+		app::applicationFramePhaseSet(app::ApplicationFramePhase::CycleCollection);
+		gea_cycle_collection_defer_end();
+		app::applicationFramePhaseSet(previous);
+	}
+	InputCycleCollectionDeferral(const InputCycleCollectionDeferral &) = delete;
+	InputCycleCollectionDeferral &operator=(const InputCycleCollectionDeferral &) = delete;
+
+private:
+	bool active_;
+};
 
 #if defined(GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT) && GEA_EMBEDDED_DIRECT_CANVAS_CONTEXT
 
@@ -88,25 +168,16 @@ void dispatch_rotary_input()
 void dispatch_key_input()
 {
 	auto &tree = gea::embedded::ui::Tree::instance();
-	for (int keyCode = input::consumeKeyDown(); keyCode != 0; keyCode = input::consumeKeyDown()) {
+	input::HardwareKeyEvent key{};
+	while (input::consumeKeyEvent(key)) {
 		events::PointerEvent event{};
-		event.type = events::PointerEventType::KeyDown;
-		event.keyCode = keyCode;
+		event.type = key.pressed ? events::PointerEventType::KeyDown : events::PointerEventType::KeyUp;
+		event.keyCode = key.keyCode;
 		event.bubbles = true;
 		event.cancelable = true;
 
-		const int inputId = tree.activeInputId();
-		bool stopped = false;
-		if (inputId >= 0) {
-			event.targetId = inputId;
-			event.currentTargetId = inputId;
-			tree.dispatchEvent(event);
-			stopped = event.propagationStopped;
-		}
-		if (!stopped) {
-			event.propagationStopped = false;
-			gea::embedded::ui::dispatchDocumentKeyDown(event);
-		}
+		event.targetId = tree.activeInputId();
+		gea::embedded::ui::dispatchRootKeyEvent(event);
 	}
 }
 
@@ -114,6 +185,7 @@ void run_app_frame(int timestampMs, void *context)
 {
 	(void)context;
 	const uint32_t nowMs = static_cast<uint32_t>(timestampMs);
+	InputCycleCollectionDeferral deferCycleCollection;
 	// Low-rate platform work shares the runtime event loop. This keeps input and
 	// battery observation deterministic without dedicating several mostly-idle
 	// FreeRTOS tasks (and their stacks) to polling.
@@ -125,9 +197,10 @@ void run_app_frame(int timestampMs, void *context)
 	if (!animationsScanned) {
 		animationsScanned = true;
 		gea::css::DeclarativeAnimations::scanAndStart(nowMs);
-		gea::embedded::ui::StyleSheet::instance().startCssAnimations(nowMs);
 	}
 
+	// Start CSS tracks added by later conditional mounts, retaining existing timelines.
+	gea::embedded::ui::StyleSheet::instance().startCssAnimations(nowMs);
 	gea::css::AnimationEngine::instance().tick(nowMs);
 	// Render-only while settings overlays the frozen application.
 	const bool refreshOnly = SettingsSurface::instance().active();
@@ -150,7 +223,11 @@ void dispatch_event(const events::Event &event, const RuntimeOptions &options)
 			break;
 		}
 		services::AppState::lock();
-		const bool touchChangedScene = events::TouchRuntime::dispatchEvent(event);
+		bool touchChangedScene;
+		{
+			InputCycleCollectionDeferral deferCycleCollection;
+			touchChangedScene = events::TouchRuntime::dispatchEvent(event);
+		}
 		services::AppState::unlock();
 		// Input-triggered render: a touch that actually ran handlers (down / real
 		// move / up) likely changed the scene, so post a Frame now instead of
@@ -195,6 +272,10 @@ void dispatch_event(const events::Event &event, const RuntimeOptions &options)
 		// A finger held still posts no moves, so gestureActiveWithin() lapses to
 		// false after the window and the loop quiesces — no busy-render on a hold.
 		for (;;) {
+			if (Runtime::uiPauseRequested()) break;
+#if defined(ESP_PLATFORM) && defined(GEA_NATIVE_DEBUGGER) && GEA_NATIVE_DEBUGGER
+			if (services::FrameScheduler::debuggerFrameRate() > 0) break;
+#endif
 			const bool catchUp = services::FrameScheduler::takeCatchUpRequest();
 			const bool activeDrag =
 				GEA_EMBEDDED_CONTINUOUS_TOUCH_FRAMES &&
@@ -207,11 +288,12 @@ void dispatch_event(const events::Event &event, const RuntimeOptions &options)
 			// keep going, instead of returning to the timer-paced outer loop.
 			// drainFramesAndCheckInput() leaves a non-Frame event at the queue
 			// front, so receiveEvent() returns it immediately without blocking.
-			while (services::FrameScheduler::drainFramesAndCheckInput()) {
+			while (!Runtime::uiPauseRequested() && services::FrameScheduler::drainFramesAndCheckInput()) {
 				events::Event pending{};
 				if (!services::FrameScheduler::receiveEvent(&pending)) break;
 				dispatch_event(pending, options);
 			}
+			if (Runtime::uiPauseRequested()) break;
 			services::FrameScheduler::runFrame(frameCallbacks);
 		}
 		// Persist any localStorage writes made this frame (or from a store's
@@ -235,6 +317,40 @@ void dispatch_event(const events::Event &event, const RuntimeOptions &options)
 #endif
 
 }  // namespace
+
+void Runtime::requestUiPause(bool paused)
+{
+	auto observed = uiPauseRequest.load(std::memory_order_relaxed);
+	for (;;) {
+		if (((observed & 1U) != 0) == paused) return;
+		const auto next = ((observed + 2U) & ~1U) | (paused ? 1U : 0U);
+		if (uiPauseRequest.compare_exchange_weak(observed, next, std::memory_order_acq_rel,
+											  std::memory_order_relaxed)) break;
+	}
+#if !GEA_EMBEDDED_NO_DISPLAY
+	// Before queue creation this harmlessly fails. A full queue is already a
+	// wake-up; an idle runtime receives this event and observes the new request.
+	events::Event wake{};
+	wake.type = events::EventType::Timeout;
+	(void)services::FrameScheduler::sendEvent(wake, 0);
+#endif
+}
+
+bool Runtime::uiPauseRequested()
+{
+	return (uiPauseRequest.load(std::memory_order_acquire) & 1U) != 0;
+}
+
+bool Runtime::uiPaused()
+{
+#if GEA_EMBEDDED_NO_DISPLAY
+	return uiPauseRequested();
+#else
+	const auto request = uiPauseRequest.load(std::memory_order_acquire);
+	return (request & 1U) != 0 && uiPauseAcknowledged.load(std::memory_order_acquire) == request &&
+		   uiPauseRequest.load(std::memory_order_acquire) == request;
+#endif
+}
 
 void Runtime::runNativeBoot()
 {
@@ -404,6 +520,15 @@ bool Runtime::boot(const RuntimeOptions &options)
 	(void)options;
 	services::RuntimeLog::appStarted(networkReady);
 #else
+#if defined(GEA_EMBEDDED_BOOT_STAGING_RESERVE) && GEA_EMBEDDED_BOOT_STAGING_RESERVE
+	// Opt-in (an app sets GEA_EMBEDDED_BOOT_STAGING_RESERVE=1 in gea.defines).
+	// TS initialization can start flash workers and audio before the event loop
+	// is available to resize staging. Lend surplus DMA staging now, retaining
+	// the panel's minimum pipeline until application and runtime tasks exist.
+	gea::platform::display::Display::reserveInternal(
+	    static_cast<std::size_t>(gea::platform::display::Display::flushBufferBytes()));
+	gea::platform::display::Display::applyPendingInternalReserve();
+#endif
 	if (!services::AppRunner::initApplication(options.width, options.height)) return false;
 	services::HeapProbe::log("runtime:after_app_init");
 	services::StackProbe::logCurrentTask("runtime:after_app_init");
@@ -416,7 +541,11 @@ bool Runtime::boot(const RuntimeOptions &options)
 	services::HeapProbe::log("runtime:after_frame_start");
 	services::StackProbe::logCurrentTask("runtime:after_frame_start");
 	services::HeapTaskSummary::log("runtime:after_frame_start");
-#if GEA_EMBEDDED_WIFI_EARLY_CONNECT
+#if defined(GEA_EMBEDDED_BOOT_STAGING_RESERVE) && GEA_EMBEDDED_BOOT_STAGING_RESERVE
+	// Initialization owns its allocations now. Grow staging into the remaining
+	// heap when the event loop resumes; allocation retains the DMA reserve.
+	gea::platform::display::Display::reserveInternal(0);
+#elif GEA_EMBEDDED_WIFI_EARLY_CONNECT
 	// The early-connect loan protects radio, app, and task initialization.
 	// They now own their allocations; let the frame task grow staging into
 	// the remaining heap instead of retaining the two-row boot floor forever.
@@ -445,10 +574,29 @@ void Runtime::run(const RuntimeOptions &options)
 	// which starves whatever else shares it. boot() was the work; return.
 	(void)options;
 #else
+	bool paused = false;
 	while (true) {
+		if (acknowledgeUiPause(paused)) {
+			events::Event discarded{};
+			if (services::FrameScheduler::receiveEvent(&discarded)) discardPausedEvent(discarded);
+			continue;
+		}
+		if (paused) {
+			discardPausedInput();
+			paused = false;
+			(void)services::FrameScheduler::takeCatchUpRequest();
+			// A paused Frame was consumed without runFrame clearing the target's
+			// coalesced-pending flag. Force one ordinary frame to re-arm its clock;
+			// relying on a timer or a best-effort queue post could leave it stuck.
+			events::Event refresh{};
+			refresh.type = events::EventType::Frame;
+			dispatch_event(refresh, options);
+			continue;
+		}
 		events::Event event{};
 		if (services::FrameScheduler::receiveEvent(&event)) {
-			dispatch_event(event, options);
+			if (uiPauseRequested()) discardPausedEvent(event);
+			else dispatch_event(event, options);
 		}
 	}
 #endif

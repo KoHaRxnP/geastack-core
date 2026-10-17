@@ -123,6 +123,10 @@ struct LineBreakCacheEntry {
 	int firstLineIndent = 0;
 	int fontId = -2;
 	int fontSize = -1;
+	#if GEA_CSS_FONT_STRETCH
+	int fontWeight = 400;
+	int fontStretch = 1000;
+#endif
 	int lineHeight = 0;
 	int lineCount = 0;
 	std::uint16_t renderBytes[kMaxCachedLines];
@@ -344,10 +348,17 @@ inline bool canBreakAfter(int cp)
 	return cp == '-' || cp == '/' || cp == 0x2010 || cp == 0x2013 || cp == 0x2014;
 }
 
+int followingTextCodepoint(const char *text)
+{
+	if (!text || !*text || *text == '\n') return 0;
+	return nextUtf8Codepoint(text);
+}
+
 // CSS white-space: normal/pre-line line breaking for the embedded renderer.
 // Break at legal word boundaries. An unbreakable word can overflow the line;
-// normal wrapping must never manufacture a break inside that word. `consumedBytes` includes discarded wrapping spaces or
-// an explicit newline, while `renderBytes` contains only the visible run.
+// normal wrapping must never manufacture a break inside that word.
+// `consumedBytes` includes discarded wrapping spaces or an explicit newline,
+// while `renderBytes` contains only the visible run.
 template <typename AdvanceForCodepoint>
 WrappedLine nextWrappedLine(const char *text, int maxWidth, AdvanceForCodepoint advanceForCodepoint)
 {
@@ -362,19 +373,23 @@ WrappedLine nextWrappedLine(const char *text, int maxWidth, AdvanceForCodepoint 
 	int breakConsumedBytes = -1;
 	int breakWidth = 0;
 	bool extendingSpaceBreak = false;
+	int previousCodepoint = 0;
+	int previousAdvance = 0;
 
-	while (*p) {
+	while (*p)
+	{
 		const char *glyphStart = p;
 		const int cp = nextUtf8Codepoint(p);
 		const int glyphBytes = static_cast<int>(p - glyphStart);
-		if (cp == '\n') {
+		if (cp == '\n')
+		{
 			line.renderBytes = bytes;
 			line.consumedBytes = bytes + glyphBytes;
 			line.width = width;
 			return line;
 		}
 
-		const int advance = advanceForCodepoint(cp);
+		const int advance = advanceForCodepoint(cp, followingTextCodepoint(p));
 		// A collapsible space at the end of a line HANGS: CSS trims it when the
 		// line is positioned, so it never overflows and never forces the break
 		// itself. Letting it break the line makes this wrapper non-idempotent —
@@ -386,7 +401,8 @@ WrappedLine nextWrappedLine(const char *text, int maxWidth, AdvanceForCodepoint 
 		// more line than the box was tall and the run overlapped its next
 		// sibling (typography's specimen paragraphs).
 		// Leading collapsible spaces cannot be an empty soft-wrapped line.
-		if (!isWrappingSpace(cp) && width + advance > maxWidth && bytes > 0 && breakRenderBytes > 0) {
+		if (!isWrappingSpace(cp) && width + advance > maxWidth && bytes > 0 && breakRenderBytes > 0)
+		{
 			line.renderBytes = breakRenderBytes;
 			line.consumedBytes = breakConsumedBytes;
 			line.width = breakWidth;
@@ -398,21 +414,29 @@ WrappedLine nextWrappedLine(const char *text, int maxWidth, AdvanceForCodepoint 
 		width += advance;
 		bytes += glyphBytes;
 
-		if (isWrappingSpace(cp)) {
-			if (!extendingSpaceBreak) {
+		if (isWrappingSpace(cp))
+		{
+			if (!extendingSpaceBreak)
+			{
 				breakRenderBytes = bytesBefore;
-				breakWidth = widthBefore;
+				breakWidth =
+					widthBefore + (previousCodepoint ? advanceForCodepoint(previousCodepoint, 0) - previousAdvance : 0);
 			}
 			breakConsumedBytes = bytes;
 			extendingSpaceBreak = true;
-		} else {
+		}
+		else
+		{
 			extendingSpaceBreak = false;
-			if (canBreakAfter(cp)) {
+			if (canBreakAfter(cp))
+			{
 				breakRenderBytes = bytes;
 				breakConsumedBytes = bytes;
-				breakWidth = width;
+				breakWidth = width + advanceForCodepoint(cp, 0) - advance;
 			}
 		}
+		previousCodepoint = cp;
+		previousAdvance = advance;
 	}
 
 	line.renderBytes = bytes;
@@ -531,11 +555,11 @@ bool rasterizedTextInkBounds(const char *text,
                              int *outX0,
                              int *outY0,
                              int *outX1,
-                             int *outY1)
+                             int *outY1, int fontWeight = 400, int fontStretch = 1000)
 {
 	if (!text || !text[0] || !outX0 || !outY0 || !outX1 || !outY1) return false;
 	gea::framework::graphics::RasterizedFont font =
-	    gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize);
+	    gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch);
 	if (!font.valid()) return false;
 	if (maxWidth <= 0) maxWidth = 32767;
 
@@ -550,10 +574,8 @@ bool rasterizedTextInkBounds(const char *text,
 	const char *lineStart = text;
 	int penY = 0;
 	while (*lineStart) {
-		const WrappedLine line = nextWrappedLine(lineStart, maxWidth, [&](int cp) {
-			gea::framework::graphics::Glyph glyph{};
-			return font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
-		});
+		const WrappedLine line =
+			nextWrappedLine(lineStart, maxWidth, [&](int cp, int nextCp) { return font.advance(cp, nextCp); });
 
 		int penX = alignedOffset(textAlign, containerWidth, line.width);
 		const int lineY = penY + lineBoxOffset;
@@ -564,8 +586,9 @@ bool rasterizedTextInkBounds(const char *text,
 			const int cp = nextUtf8Codepoint(glyphPtr);
 			consumed += static_cast<int>(glyphPtr - glyphStart);
 			gea::framework::graphics::Glyph glyph{};
-			if (!font.glyph(cp, &glyph)) {
-				penX += font.sizePx() / 2;
+			if (!font.glyph(cp, &glyph))
+			{
+				penX += font.advance(cp, consumed < line.renderBytes ? followingTextCodepoint(glyphPtr) : 0);
 				continue;
 			}
 			const int gx0 = penX + glyph.bearingX;
@@ -584,7 +607,7 @@ bool rasterizedTextInkBounds(const char *text,
 				if (gx1 > bx1) bx1 = gx1;
 				if (gy1 > by1) by1 = gy1;
 			}
-			penX += glyph.advance;
+			penX += font.advance(cp, consumed < line.renderBytes ? followingTextCodepoint(glyphPtr) : 0);
 		}
 
 		lineStart += line.consumedBytes;
@@ -685,11 +708,11 @@ int rasterizedSingleLineInkCenterOffsetY(const char *text,
                                          int /*containerWidth*/,
                                          int fontId,
                                          int fontSize,
-                                         int lineHeight)
+                                         int lineHeight, int fontWeight = 400, int fontStretch = 1000)
 {
 	if (!text || !text[0] || std::strchr(text, '\n')) return 0;
 	gea::framework::graphics::RasterizedFont font =
-	    gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize);
+	    gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch);
 	if (!font.valid()) return 0;
 
 	const FontInkExtent ink = rasterizedFontInkExtent(font);
@@ -713,14 +736,13 @@ bool recordProjectedRasterText(const Node &node, const char *text, uint8_t /*par
 	if (node.computedStyle().font_id < 0 || std::strchr(text, '\n')) return false;
 	const int fontSize = node.computedStyle().font_size > 0 ? node.computedStyle().font_size : kBitmapFontHeight;
 	gea::framework::graphics::RasterizedFont font =
-	    gea::framework::graphics::FontRegistry::rasterizedFamily(node.computedStyle().font_id, fontSize);
+	    gea::framework::graphics::FontRegistry::rasterizedFamily(node.computedStyle().font_id, fontSize, node.computedStyle().font_weight, node.computedStyle().font_stretch);
 	if (!font.valid()) return false;
 
 	int lineWidth = 0;
 	for (const char *p = text; *p;) {
-		gea::framework::graphics::Glyph glyph{};
 		const int cp = nextUtf8Codepoint(p);
-		lineWidth += font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
+		lineWidth += font.advance(cp, followingTextCodepoint(p));
 	}
 
 	int bx0, by0, bx1, by1;
@@ -763,6 +785,7 @@ bool recordProjectedRasterText(const Node &node, const char *text, uint8_t /*par
 	cmd->projectedText.y3 = ys[3];
 	cmd->projectedText.fontId = node.computedStyle().font_id;
 	cmd->projectedText.fontSize = fontSize;
+	cmd->projectedText.fontWeight=node.computedStyle().font_weight;cmd->projectedText.fontStretch=node.computedStyle().font_stretch;
 	cmd->projectedText.color = node.computedStyle().text_color;
 	cmd->projectedText.alpha = node.computedStyle().text_alpha;
 	cmd->projectedText.textTransform = node.computedStyle().text_transform;
@@ -832,9 +855,11 @@ extern "C" __attribute__((weak)) bool gea_host_measure_text_with_style(const cha
 	return false;
 }
 
+extern "C" __attribute__((weak)) bool gea_host_measure_text_with_variations(const char *, int, int, int, int, int, int, int *, int *) { return false; }
+
 class TextMetrics {
 public:
-	static TextMeasure measure(const char *text, int maxWidth, int fontId, int fontSize, int lineHeight = 0, int fontWeight = 400)
+	static TextMeasure measure(const char *text, int maxWidth, int fontId, int fontSize, int lineHeight = 0, int fontWeight = 400, int fontStretch = 1000)
 	{
 		// Give the host first crack — when it returns true we trust its
 		// measurement absolutely, even if the values look surprising next to
@@ -844,7 +869,8 @@ public:
 		{
 			int hw = 0;
 			int hh = 0;
-			if (gea_host_measure_text_with_style(text, maxWidth, fontId, fontSize, fontWeight, lineHeight, &hw, &hh) ||
+			if (gea_host_measure_text_with_variations(text, maxWidth, fontId, fontSize, fontWeight, fontStretch, lineHeight, &hw, &hh) ||
+			    gea_host_measure_text_with_style(text, maxWidth, fontId, fontSize, fontWeight, lineHeight, &hw, &hh) ||
 			    gea_host_measure_text_with_line_height(text, maxWidth, fontId, fontSize, lineHeight, &hw, &hh) ||
 			    gea_host_measure_text(text, maxWidth, fontId, fontSize, &hw, &hh)) {
 				TextMeasure m;
@@ -855,7 +881,7 @@ public:
 		}
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 		if (fontId >= 0) {
-			const TextMeasure measured = measureRasterized(text, maxWidth, fontId, fontSize, lineHeight);
+			const TextMeasure measured = measureRasterized(text, maxWidth, fontId, fontSize, lineHeight, fontWeight, fontStretch);
 			if (!text || !text[0] || measured.height > 0) return measured;
 		}
 #else
@@ -881,7 +907,7 @@ public:
 		if (maxWidth <= 0) maxWidth = 32767;
 		const char *lineStart = text;
 		while (*lineStart) {
-			const WrappedLine line = nextWrappedLine(lineStart, maxWidth, [&](int) { return glyphWidth; });
+			const WrappedLine line = nextWrappedLine(lineStart, maxWidth, [&](int, int) { return glyphWidth; });
 			if (line.width > maxLineWidth) maxLineWidth = line.width;
 			lineStart += line.consumedBytes;
 			if (*lineStart) lines++;
@@ -892,12 +918,12 @@ public:
 	}
 
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
-	static TextMeasure measureRasterized(const char *text, int maxWidth, int fontId, int fontSize, int lineHeight = 0)
+	static TextMeasure measureRasterized(const char *text, int maxWidth, int fontId, int fontSize, int lineHeight = 0, int fontWeight = 400, int fontStretch = 1000)
 	{
 		TextMeasure result{};
 		if (!text || !text[0]) return result;
 
-		gea::framework::graphics::RasterizedFont font = gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize);
+		gea::framework::graphics::RasterizedFont font = gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch);
 		if (!font.valid()) return result;
 		const int lineAdvance = lineHeight > 0 ? lineHeight : font.lineHeight();
 
@@ -906,10 +932,8 @@ public:
 		if (maxWidth <= 0) maxWidth = 32767;
 		const char *lineStart = text;
 		while (*lineStart) {
-			const WrappedLine line = nextWrappedLine(lineStart, maxWidth, [&](int cp) {
-			gea::framework::graphics::Glyph glyph{};
-				return font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
-			});
+			const WrappedLine line =
+				nextWrappedLine(lineStart, maxWidth, [&](int cp, int nextCp) { return font.advance(cp, nextCp); });
 			if (line.width > maxLineWidth) maxLineWidth = line.width;
 			lineStart += line.consumedBytes;
 			if (*lineStart) lines++;
@@ -935,15 +959,15 @@ struct GlyphAdvanceSource {
 #endif
 	int glyphWidth = 0;
 
-	int operator()(int cp) const
+	int operator()(int cp, int nextCp = 0) const
 	{
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 		if (rasterized) {
-			gea::framework::graphics::Glyph glyph{};
-			return font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
+			return font.advance(cp, nextCp);
 		}
 #else
 		(void)cp;
+		(void)nextCp;
 #endif
 		return glyphWidth;
 	}
@@ -955,7 +979,7 @@ GlyphAdvanceSource advanceSourceForNode(const Node &node)
 	const int fontSize = node.computedStyle().font_size > 0 ? node.computedStyle().font_size : kBitmapFontHeight;
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 	if (node.computedStyle().font_id >= 0) {
-		src.font = gea::framework::graphics::FontRegistry::rasterizedFamily(node.computedStyle().font_id, fontSize);
+		src.font = gea::framework::graphics::FontRegistry::rasterizedFamily(node.computedStyle().font_id, fontSize, node.computedStyle().font_weight, node.computedStyle().font_stretch);
 		if (src.font.valid()) {
 			src.rasterized = true;
 			src.valid = true;
@@ -1003,7 +1027,7 @@ TextLayoutMeasure measureTextLayoutForNode(const Node &node, const char *text, i
 	                                                  node.computedStyle().font_id,
 	                                                  node.computedStyle().font_size,
 	                                                  node.computedStyle().line_height,
-	                                                  node.computedStyle().font_weight);
+	                                                  node.computedStyle().font_weight, node.computedStyle().font_stretch);
 	TextLayoutMeasure out;
 	out.width = measured.width + boxInset(node.computedStyle(), 1) + boxInset(node.computedStyle(), 3);
 	out.height = measured.height + boxInset(node.computedStyle(), 0) + boxInset(node.computedStyle(), 2);
@@ -1026,7 +1050,7 @@ int measureSingleLineTextWidthForNode(const Node &node, const char *text)
 	                            node.computedStyle().font_id,
 	                            node.computedStyle().font_size,
 	                            node.computedStyle().line_height,
-	                            node.computedStyle().font_weight).width;
+	                            node.computedStyle().font_weight, node.computedStyle().font_stretch).width;
 }
 
 struct TextCoverageSink {
@@ -1047,6 +1071,14 @@ struct TextCoverageSink {
 		if (value > dst) dst = value;
 	}
 };
+
+static void drawStyledTextFontFamily(const char *text,int x,int y,std::uint16_t color,int family,int size,int weight=400,int stretch=1000) {
+#if GEA_EMBEDDED_TTF_FREETYPE
+ gea::platform::display::Display::drawTextFontFamily(text,x,y,color,family,size,weight,stretch);
+#else
+ (void)weight;(void)stretch;gea::platform::display::Display::drawTextFontFamily(text,x,y,color,family,size);
+#endif
+}
 
 class TextDrawer {
 public:
@@ -1075,28 +1107,32 @@ public:
 		            command.text.color, command.text.scale, command.text.align, command.text.containerWidth,
 			    command.text.fontId, command.text.textTransform, command.text.lineHeight,
 			    command.text.whiteSpace, command.text.textOverflow, command.text.maxHeight,
-			    command.text.firstLineIndent, &sink);
+			    command.text.firstLineIndent, &sink, command.text.fontWeight, command.text.fontStretch);
 	}
 
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 	static void rasterizedGlyphRun(const char *text, int x, int y, int fontId, int fontSize,
-	                              const TextCoverageSink &sink)
+	                              const TextCoverageSink &sink, int fontWeight = 400, int fontStretch = 1000)
 	{
 		gea::framework::graphics::RasterizedFont font =
-		    gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize);
+		    gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch);
 		if (!font.valid()) return;
 		int penX = x;
 		for (const char *p = text; p && *p;) {
 			const int cp = nextUtf8Codepoint(p);
 			gea::framework::graphics::Glyph glyph{};
-			if (!font.glyph(cp, &glyph)) { penX += font.sizePx() / 2; continue; }
+			if (!font.glyph(cp, &glyph))
+			{
+				penX += font.advance(cp, followingTextCodepoint(p));
+				continue;
+			}
 			const int gx = penX + glyph.bearingX;
 			const int gy = y + font.ascender() - glyph.bearingY;
 			const int row = sink.screenY - gy;
 			if (row >= 0 && row < glyph.height)
 				for (int col = 0; col < glyph.width; ++col)
 					sink.add(gx + col, sink.screenY, font.coverage(glyph, row, col));
-			penX += glyph.advance;
+			penX += font.advance(cp, followingTextCodepoint(p));
 		}
 	}
 #endif
@@ -1125,7 +1161,7 @@ public:
 		}
 	}
 
-	static void drawWrapped(const char *text, int x, int y, int maxWidth, gea::framework::graphics::pixel::native_t color, float scale, int textAlign, int containerWidth, int fontId, int textTransform, int lineHeight, int whiteSpace, int textOverflow, int maxHeight = 0, int firstLineIndent = 0, TextCoverageSink *coverageSink = nullptr)
+	static void drawWrapped(const char *text, int x, int y, int maxWidth, gea::framework::graphics::pixel::native_t color, float scale, int textAlign, int containerWidth, int fontId, int textTransform, int lineHeight, int whiteSpace, int textOverflow, int maxHeight = 0, int firstLineIndent = 0, TextCoverageSink *coverageSink = nullptr, int fontWeight = 400, int fontStretch = 1000)
 	{
 		if (!text || !text[0]) return;
 		std::string transformed;
@@ -1154,12 +1190,12 @@ public:
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 		if (fontId >= 0) {
 			const int fontSize = static_cast<int>(scale * kBitmapFontHeight + 0.5f);
-			if (gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize).valid()) {
+			if (gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch).valid()) {
 				if (noWrap)
-					drawRasterizedSingleLine(text, x, y, maxWidth, color, textAlign, containerWidth, fontId, fontSize, lineHeight, ellipsis, clipX0, clipY0, clipX1, clipY1, coverageSink);
+					drawRasterizedSingleLine(text, x, y, maxWidth, color, textAlign, containerWidth, fontId, fontSize, lineHeight, ellipsis, clipX0, clipY0, clipX1, clipY1, coverageSink, fontWeight, fontStretch);
 				else
 					drawRasterizedWrapped(text, x, y, maxWidth, color, textAlign, containerWidth, fontId, fontSize, lineHeight, clipX0, clipY0, clipX1, clipY1,
-					                      ellipsis ? maxHeight : 0, firstLineIndent, coverageSink);
+					                      ellipsis ? maxHeight : 0, firstLineIndent, coverageSink, fontWeight, fontStretch);
 				return;
 			}
 		}
@@ -1167,14 +1203,14 @@ public:
 		(void)fontId;
 #endif
 		if (noWrap)
-			drawBitmapSingleLine(text, x, y, maxWidth, color, scale, textAlign, containerWidth, lineHeight, ellipsis, clipX0, clipY0, clipX1, clipY1, coverageSink);
+			drawBitmapSingleLine(text, x, y, maxWidth, color, scale, textAlign, containerWidth, lineHeight, ellipsis, clipX0, clipY0, clipX1, clipY1, coverageSink, fontWeight, fontStretch);
 		else
-			drawBitmapWrapped(text, x, y, maxWidth, color, scale, textAlign, containerWidth, lineHeight, clipX0, clipY0, clipX1, clipY1, firstLineIndent, coverageSink);
+			drawBitmapWrapped(text, x, y, maxWidth, color, scale, textAlign, containerWidth, lineHeight, clipX0, clipY0, clipX1, clipY1, firstLineIndent, coverageSink, fontWeight, fontStretch);
 	}
 
 private:
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
-	static void drawRasterizedWrapped(const char *text, int x, int y, int maxWidth, std::uint16_t color, int textAlign, int containerWidth, int fontId, int fontSize, int lineHeight, int clipX0, int clipY0, int clipX1, int clipY1, int ellipsisMaxHeight = 0, int firstLineIndent = 0, const TextCoverageSink *coverageSink = nullptr)
+	static void drawRasterizedWrapped(const char *text, int x, int y, int maxWidth, std::uint16_t color, int textAlign, int containerWidth, int fontId, int fontSize, int lineHeight, int clipX0, int clipY0, int clipX1, int clipY1, int ellipsisMaxHeight = 0, int firstLineIndent = 0, const TextCoverageSink *coverageSink = nullptr, int fontWeight = 400, int fontStretch = 1000)
 	{
 		// Inline continuation: the run's first line starts `firstLineIndent` px in
 		// from the box's left edge (the pen position it inherited from the box
@@ -1186,7 +1222,7 @@ private:
 			return budget < 1 ? 1 : budget;
 		};
 		const auto lineOriginX_ = [&](int li) { return li == 0 ? x + firstLineIndent : x; };
-		gea::framework::graphics::RasterizedFont font = gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize);
+		gea::framework::graphics::RasterizedFont font = gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch);
 		if (!font.valid()) return;
 
 		const int glyphHeight = font.lineHeight();
@@ -1210,6 +1246,9 @@ private:
 			entry.firstLineIndent == firstLineIndent &&
 			entry.fontId == fontId &&
 			entry.fontSize == fontSize &&
+#if GEA_CSS_FONT_STRETCH
+			entry.fontWeight==fontWeight && entry.fontStretch==fontStretch &&
+#endif
 			entry.lineHeight == lineAdvance;
 
 		if (!cacheHit) {
@@ -1219,15 +1258,16 @@ private:
 			entry.firstLineIndent = firstLineIndent;
 			entry.fontId = fontId;
 			entry.fontSize = fontSize;
+#if GEA_CSS_FONT_STRETCH
+			entry.fontWeight=fontWeight;entry.fontStretch=fontStretch;
+#endif
 			entry.lineHeight = lineAdvance;
 			entry.lineCount = 0;
 
 			const char *p = text;
 			while (*p && entry.lineCount < kMaxCachedLines) {
-				const WrappedLine line = nextWrappedLine(p, lineBudget_(entry.lineCount), [&](int cp) {
-					gea::framework::graphics::Glyph glyph{};
-					return font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
-				});
+				const WrappedLine line = nextWrappedLine(p, lineBudget_(entry.lineCount),
+														 [&](int cp, int nextCp) { return font.advance(cp, nextCp); });
 				entry.renderBytes[entry.lineCount] = static_cast<std::uint16_t>(line.renderBytes > 65535 ? 65535 : line.renderBytes);
 				entry.consumedBytes[entry.lineCount] = static_cast<std::uint16_t>(line.consumedBytes > 65535 ? 65535 : line.consumedBytes);
 				entry.lineWidths[entry.lineCount] = static_cast<std::uint16_t>(line.width > 65535 ? 65535 : line.width);
@@ -1252,7 +1292,7 @@ private:
 					// Last budgeted line with more text behind it: ellipsize the rest.
 						drawRasterizedSingleLine(lineStart, lineOriginX_(li), penY, lineBudget_(li), color, textAlign, containerWidth,
 						                         fontId, fontSize, lineHeight, /*ellipsis=*/true,
-						                         clipX0, clipY0, clipX1, clipY1, coverageSink);
+						                         clipX0, clipY0, clipX1, clipY1, coverageSink, fontWeight, fontStretch);
 					return;
 				}
 				const int chars = entry.renderBytes[li];
@@ -1265,8 +1305,8 @@ private:
 						const int copyLen = chars < kWrappedLineBufferBytes ? chars : kWrappedLineBufferBytes;
 						std::memcpy(lineBuffer, lineStart, copyLen);
 						lineBuffer[copyLen] = '\0';
-						if (coverageSink) rasterizedGlyphRun(lineBuffer, lineX, lineBoxY, fontId, fontSize, *coverageSink);
-						else gea::platform::display::Display::drawTextFontFamily(lineBuffer, lineX, lineBoxY, color, fontId, fontSize);
+						if (coverageSink) rasterizedGlyphRun(lineBuffer, lineX, lineBoxY, fontId, fontSize, *coverageSink, fontWeight, fontStretch);
+						else drawStyledTextFontFamily(lineBuffer, lineX, lineBoxY, color, fontId, fontSize, fontWeight, fontStretch);
 					}
 				}
 				lineStart += entry.consumedBytes[li];
@@ -1285,16 +1325,14 @@ private:
 				// Budget reached: ellipsize whatever remains onto this final line.
 				drawRasterizedSingleLine(lineStart, lineOriginX_(li), penY, lineBudget_(li), color, textAlign, containerWidth,
 				                         fontId, fontSize, lineHeight, /*ellipsis=*/true,
-				                         clipX0, clipY0, clipX1, clipY1, coverageSink);
+				                         clipX0, clipY0, clipX1, clipY1, coverageSink, fontWeight, fontStretch);
 				return;
 			}
 			const int lineIndex = li;
 			li++;
 
-			const WrappedLine line = nextWrappedLine(lineStart, lineBudget_(lineIndex), [&](int cp) {
-				gea::framework::graphics::Glyph glyph{};
-				return font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
-			});
+			const WrappedLine line = nextWrappedLine(lineStart, lineBudget_(lineIndex),
+													 [&](int cp, int nextCp) { return font.advance(cp, nextCp); });
 
 			const int lineBoxY = penY + lineBoxOffset;
 			if (lineBoxY + glyphHeight - 1 >= clipY0) {
@@ -1304,8 +1342,8 @@ private:
 					const int copyLen = line.renderBytes < kWrappedLineBufferBytes ? line.renderBytes : kWrappedLineBufferBytes;
 					std::memcpy(lineBuffer, lineStart, copyLen);
 					lineBuffer[copyLen] = '\0';
-				if (coverageSink) rasterizedGlyphRun(lineBuffer, lineX, lineBoxY, fontId, fontSize, *coverageSink);
-				else gea::platform::display::Display::drawTextFontFamily(lineBuffer, lineX, lineBoxY, color, fontId, fontSize);
+				if (coverageSink) rasterizedGlyphRun(lineBuffer, lineX, lineBoxY, fontId, fontSize, *coverageSink, fontWeight, fontStretch);
+				else drawStyledTextFontFamily(lineBuffer, lineX, lineBoxY, color, fontId, fontSize, fontWeight, fontStretch);
 				}
 			}
 
@@ -1319,9 +1357,9 @@ private:
 	// appending an ASCII "..." when text-overflow: ellipsis is set, or hard-
 	// clipping at the box edge otherwise. The truncated run always fits within
 	// maxWidth, so it never wraps and never spills past the content box.
-	static void drawRasterizedSingleLine(const char *text, int x, int y, int maxWidth, std::uint16_t color, int textAlign, int containerWidth, int fontId, int fontSize, int lineHeight, bool ellipsis, int clipX0, int clipY0, int clipX1, int clipY1, const TextCoverageSink *coverageSink = nullptr)
+	static void drawRasterizedSingleLine(const char *text, int x, int y, int maxWidth, std::uint16_t color, int textAlign, int containerWidth, int fontId, int fontSize, int lineHeight, bool ellipsis, int clipX0, int clipY0, int clipX1, int clipY1, const TextCoverageSink *coverageSink = nullptr, int fontWeight = 400, int fontStretch = 1000)
 	{
-		gea::framework::graphics::RasterizedFont font = gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize);
+		gea::framework::graphics::RasterizedFont font = gea::framework::graphics::FontRegistry::rasterizedFamily(fontId, fontSize, fontWeight, fontStretch);
 		if (!font.valid()) return;
 
 		const int glyphHeight = font.lineHeight();
@@ -1331,14 +1369,15 @@ private:
 		if (lineBoxY > clipY1 || lineBoxY + glyphHeight - 1 < clipY0) return;
 		if (maxWidth <= 0) maxWidth = 32767;
 
-		const auto advanceOf = [&font](int cp) {
-			gea::framework::graphics::Glyph glyph{};
-			return font.glyph(cp, &glyph) ? glyph.advance : (font.sizePx() / 2);
-		};
+		const auto advanceOf = [&font](int cp, int nextCp = 0) { return font.advance(cp, nextCp); };
 
 		// Full single-line advance width (stop at the first newline).
 		int fullWidth = 0;
-		for (const char *p = text; *p && *p != '\n';) fullWidth += advanceOf(nextUtf8Codepoint(p));
+		for (const char *p = text; *p && *p != '\n';)
+		{
+			const int cp = nextUtf8Codepoint(p);
+			fullWidth += advanceOf(cp, followingTextCodepoint(p));
+		}
 
 		char buf[256];
 		int len = 0;
@@ -1348,36 +1387,51 @@ private:
 		if (fullWidth <= maxWidth) {
 			for (const char *p = text; *p && *p != '\n' && len < kBufCap - 1; ++p) buf[len++] = *p;
 			drawnWidth = fullWidth;
-		} else if (ellipsis) {
-			const int dotAdvance = advanceOf('.');
-			const int ellipsisWidth = dotAdvance * 3;
-			const int budget = maxWidth > ellipsisWidth ? maxWidth - ellipsisWidth : 0;
+		}
+		else if (ellipsis)
+		{
+			const int ellipsisWidth = advanceOf('.', '.') * 2 + advanceOf('.');
 			int w = 0;
+			int previousCp = 0;
 			const char *p = text;
-			while (*p && *p != '\n') {
+			while (*p && *p != '\n')
+			{
 				const char *glyphStart = p;
-				const int advance = advanceOf(nextUtf8Codepoint(p));
-				if (w + advance > budget) break;
+				const int cp = nextUtf8Codepoint(p);
+				const int candidateWidth =
+					w + advanceOf(cp) + (previousCp ? advanceOf(previousCp, cp) - advanceOf(previousCp) : 0);
+				const int withEllipsis = candidateWidth - advanceOf(cp) + advanceOf(cp, '.') + ellipsisWidth;
+				if (withEllipsis > maxWidth) break;
 				const int bytes = static_cast<int>(p - glyphStart);
-				if (len + bytes > kBufCap - 4) break;  // leave room for "..." + NUL
-				for (int i = 0; i < bytes; ++i) buf[len++] = glyphStart[i];
-				w += advance;
+				if (len + bytes > kBufCap - 4) break; // leave room for "..." + NUL
+				for (int i = 0; i < bytes; ++i)
+					buf[len++] = glyphStart[i];
+				w = candidateWidth;
+				previousCp = cp;
 			}
 			buf[len++] = '.';
 			buf[len++] = '.';
 			buf[len++] = '.';
-			drawnWidth = w + ellipsisWidth;
-		} else {
+			drawnWidth = w + ellipsisWidth + (previousCp ? advanceOf(previousCp, '.') - advanceOf(previousCp) : 0);
+		}
+		else
+		{
 			int w = 0;
+			int previousCp = 0;
 			const char *p = text;
-			while (*p && *p != '\n') {
+			while (*p && *p != '\n')
+			{
 				const char *glyphStart = p;
-				const int advance = advanceOf(nextUtf8Codepoint(p));
-				if (w + advance > maxWidth && len > 0) break;
+				const int cp = nextUtf8Codepoint(p);
+				const int candidateWidth =
+					w + advanceOf(cp) + (previousCp ? advanceOf(previousCp, cp) - advanceOf(previousCp) : 0);
+				if (candidateWidth > maxWidth && len > 0) break;
 				const int bytes = static_cast<int>(p - glyphStart);
 				if (len + bytes > kBufCap - 1) break;
-				for (int i = 0; i < bytes; ++i) buf[len++] = glyphStart[i];
-				w += advance;
+				for (int i = 0; i < bytes; ++i)
+					buf[len++] = glyphStart[i];
+				w = candidateWidth;
+				previousCp = cp;
 			}
 			drawnWidth = w;
 		}
@@ -1385,12 +1439,12 @@ private:
 		if (len <= 0) return;
 		buf[len] = '\0';
 		const int xOffset = alignedOffset(textAlign, containerWidth, drawnWidth);
-		if (coverageSink) rasterizedGlyphRun(buf, x + xOffset, lineBoxY, fontId, fontSize, *coverageSink);
-		else gea::platform::display::Display::drawTextFontFamily(buf, x + xOffset, lineBoxY, color, fontId, fontSize);
+		if (coverageSink) rasterizedGlyphRun(buf, x + xOffset, lineBoxY, fontId, fontSize, *coverageSink, fontWeight, fontStretch);
+		else drawStyledTextFontFamily(buf, x + xOffset, lineBoxY, color, fontId, fontSize, fontWeight, fontStretch);
 	}
 #endif
 
-	static void drawBitmapWrapped(const char *text, int x, int y, int maxWidth, std::uint16_t color, float scale, int textAlign, int containerWidth, int lineHeight, int clipX0, int clipY0, int clipX1, int clipY1, int firstLineIndent = 0, const TextCoverageSink *coverageSink = nullptr)
+	static void drawBitmapWrapped(const char *text, int x, int y, int maxWidth, std::uint16_t color, float scale, int textAlign, int containerWidth, int lineHeight, int clipX0, int clipY0, int clipX1, int clipY1, int firstLineIndent = 0, const TextCoverageSink *coverageSink = nullptr, int fontWeight = 400, int fontStretch = 1000)
 	{
 		if (scale < 0.1f) scale = 1.0f;
 		int glyphWidth = static_cast<int>(kBitmapFontWidth * scale + 0.5f);
@@ -1409,7 +1463,8 @@ private:
 			// the inherited pen and has that much less room.
 			const int budget = lineIndex == 0 ? maxWidth - firstLineIndent : maxWidth;
 			const int lineOriginX = lineIndex == 0 ? x + firstLineIndent : x;
-			const WrappedLine line = nextWrappedLine(lineStart, budget < 1 ? 1 : budget, [&](int) { return glyphWidth; });
+			const WrappedLine line =
+				nextWrappedLine(lineStart, budget < 1 ? 1 : budget, [&](int, int) { return glyphWidth; });
 			lineIndex++;
 
 			if (penY + glyphHeight - 1 >= clipY0) {
@@ -1440,7 +1495,7 @@ private:
 	// that is what `measureBitmap` charges for, so counting bytes here put the
 	// truncation, the ellipsis budget and the alignment offset in different units
 	// from the layout that placed the text.
-	static void drawBitmapSingleLine(const char *text, int x, int y, int maxWidth, std::uint16_t color, float scale, int textAlign, int containerWidth, int lineHeight, bool ellipsis, int clipX0, int clipY0, int clipX1, int clipY1, const TextCoverageSink *coverageSink = nullptr)
+	static void drawBitmapSingleLine(const char *text, int x, int y, int maxWidth, std::uint16_t color, float scale, int textAlign, int containerWidth, int lineHeight, bool ellipsis, int clipX0, int clipY0, int clipX1, int clipY1, const TextCoverageSink *coverageSink = nullptr, int fontWeight = 400, int fontStretch = 1000)
 	{
 		(void)lineHeight;
 		if (scale < 0.1f) scale = 1.0f;
@@ -1710,6 +1765,7 @@ bool TextRenderer::canFragmentInlineRuns(const Node &node)
 	const int fontId = node.computedStyle().font_id;
 	const int fontSize = node.computedStyle().font_size > 0 ? node.computedStyle().font_size : kBitmapFontHeight;
 	const bool hostMeasures =
+	    gea_host_measure_text_with_variations("Mg",32767,fontId,fontSize,node.computedStyle().font_weight,node.computedStyle().font_stretch,node.computedStyle().line_height,&w,&h) ||
 	    gea_host_measure_text_with_style("Mg", 32767, fontId, fontSize, node.computedStyle().font_weight, node.computedStyle().line_height, &w, &h) ||
 	    gea_host_measure_text_with_line_height("Mg", 32767, fontId, fontSize, node.computedStyle().line_height, &w, &h) ||
 	    gea_host_measure_text("Mg", 32767, fontId, fontSize, &w, &h);
@@ -1720,7 +1776,7 @@ bool TextRenderer::canFragmentInlineRuns(const Node &node)
 int TextRenderer::baselineOffset(const Node &node, bool last)
 {
 	const int fontSize = node.computedStyle().font_size > 0 ? node.computedStyle().font_size : 16;
-	const auto font = gea::framework::graphics::FontRegistry::rasterizedFamily(node.computedStyle().font_id, fontSize);
+	const auto font = gea::framework::graphics::FontRegistry::rasterizedFamily(node.computedStyle().font_id, fontSize, node.computedStyle().font_weight, node.computedStyle().font_stretch);
 	if (!font.valid()) return node.layout.height + node.computedStyle().margin[2];
 	const int lineAdvance = node.computedStyle().line_height > 0 ? node.computedStyle().line_height : font.lineHeight();
 	const int halfLeading = node.computedStyle().line_height > 0 ? (lineAdvance - font.lineHeight()) / 2 : 0;
@@ -1730,7 +1786,7 @@ int TextRenderer::baselineOffset(const Node &node, bool last)
 		const char *text = prepareText(node.text.c_str(), node.computedStyle().text_transform, node.computedStyle().white_space, storage);
 		const int width = node.computedStyle().white_space == 1 || node.computedStyle().white_space == 2
 		    ? 32767 : std::max(1, node.layout.width - boxInsets(node.computedStyle(), true));
-		const auto measured = TextMetrics::measure(text, width, node.computedStyle().font_id, fontSize, node.computedStyle().line_height, node.computedStyle().font_weight);
+		const auto measured = TextMetrics::measure(text, width, node.computedStyle().font_id, fontSize, node.computedStyle().line_height, node.computedStyle().font_weight, node.computedStyle().font_stretch);
 		offset += std::max(0, measured.height - lineAdvance);
 	}
 	return offset;
@@ -1762,7 +1818,11 @@ InlineFlowMeasure TextRenderer::measureInlineFlow(const Node &node, int firstAva
 			const char *p = text;
 			const char *end = text + lead;
 			int width = 0;
-			while (p < end) width += advance(nextUtf8Codepoint(p));
+			while (p < end)
+			{
+				const int cp = nextUtf8Codepoint(p);
+				width += advance(cp, followingTextCodepoint(p));
+			}
 			out.firstLineIndentAdjust = -width;
 		}
 	}
@@ -1780,8 +1840,10 @@ InlineFlowMeasure TextRenderer::measureInlineFlow(const Node &node, int firstAva
 				const char *end = p + line.renderBytes;
 				for (const char *glyph = p; glyph < end;) {
 					const int cp = nextUtf8Codepoint(glyph);
-					out.firstLineTrailingSpace = isWrappingSpace(cp)
-					    ? out.firstLineTrailingSpace + advance(cp) : 0;
+					out.firstLineTrailingSpace =
+						isWrappingSpace(cp)
+							? out.firstLineTrailingSpace + advance(cp, glyph < end ? followingTextCodepoint(glyph) : 0)
+							: 0;
 				}
 			}
 		}
@@ -1886,9 +1948,18 @@ bool TextRenderer::remeasureContentBox(int id, bool keepBoxWidth)
 	return true;
 }
 
-void TextRenderer::drawWrapped(const char *text, int x, int y, int maxWidth, gea::framework::graphics::pixel::native_t color, float scale, int text_align, int containerWidth, int fontId, int textTransform, int lineHeight, int whiteSpace, int textOverflow, int maxHeight, int firstLineIndent)
+int TextRenderer::reflowToBoxWidth(int id)
 {
-	TextDrawer::drawWrapped(text, x, y, maxWidth, color, scale, text_align, containerWidth, fontId, textTransform, lineHeight, whiteSpace, textOverflow, maxHeight, firstLineIndent);
+	Node &n = Tree::instance().nodes()[id];
+	const int content_w = std::max(1, n.layout.width - boxInsets(n.computedStyle(), true));
+	const TextLayoutMeasure measured = measureTextLayoutForNode(n, n.text.c_str(), content_w);
+	n.layout.height = static_cast<int16_t>(std::min(measured.height, 32767));
+	return measured.width;
+}
+
+void TextRenderer::drawWrapped(const char *text, int x, int y, int maxWidth, gea::framework::graphics::pixel::native_t color, float scale, int text_align, int containerWidth, int fontId, int textTransform, int lineHeight, int whiteSpace, int textOverflow, int maxHeight, int firstLineIndent, int fontWeight, int fontStretch)
+{
+	TextDrawer::drawWrapped(text, x, y, maxWidth, color, scale, text_align, containerWidth, fontId, textTransform, lineHeight, whiteSpace, textOverflow, maxHeight, firstLineIndent, nullptr, fontWeight, fontStretch);
 }
 
 void TextRenderer::unionCoverageRow(const DisplayCommand &command, int screenY, int screenX,
@@ -2066,7 +2137,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 		                                  : 0;
 		commandLineHeight = projectedLineHeight;
 		const TextMeasure projectedMeasure =
-		    TextMetrics::measure(measureText, 32767, n->computedStyle().font_id, projectedFontSize, projectedLineHeight, n->computedStyle().font_weight);
+		    TextMetrics::measure(measureText, 32767, n->computedStyle().font_id, projectedFontSize, projectedLineHeight, n->computedStyle().font_weight, n->computedStyle().font_stretch);
 		drawW = projectedMeasure.width > 0 ? projectedMeasure.width : projectedW;
 		const int drawH = projectedMeasure.height > 0 ? projectedMeasure.height : (contentH > 0 ? contentH : projectedH);
 		containerW = drawW;
@@ -2097,7 +2168,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 			                            &ix0,
 			                            &iy0,
 			                            &ix1,
-			                            &iy1)) {
+			                            &iy1,n->computedStyle().font_weight,n->computedStyle().font_stretch)) {
 				const int inkPad = 2;
 				bx = drawX + ix0 - inkPad;
 				by = drawY + iy0 - inkPad;
@@ -2125,7 +2196,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	if (!transformed && inlineIndent == 0) {
 		const int commandFontSize = static_cast<int>(textScale * kBitmapFontHeight + 0.5f);
 		const TextMeasure paintMeasure =
-		    TextMetrics::measure(measureText, noSoftWrap ? 32767 : drawW, n->computedStyle().font_id, commandFontSize, commandLineHeight, n->computedStyle().font_weight);
+		    TextMetrics::measure(measureText, noSoftWrap ? 32767 : drawW, n->computedStyle().font_id, commandFontSize, commandLineHeight, n->computedStyle().font_weight, n->computedStyle().font_stretch);
 		if (paintMeasure.width > 0 && paintMeasure.height > 0) {
 			// CSS: a flex container's bare text becomes an anonymous flex item, so
 			// align-items centers (or end-aligns) it on the cross axis. This node
@@ -2154,7 +2225,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 			if (n->computedStyle().font_id >= 0) {
 				gea::framework::graphics::RasterizedFont font =
-				    gea::framework::graphics::FontRegistry::rasterizedFamily(n->computedStyle().font_id, commandFontSize);
+				    gea::framework::graphics::FontRegistry::rasterizedFamily(n->computedStyle().font_id, commandFontSize,n->computedStyle().font_weight,n->computedStyle().font_stretch);
 				const int lineAdvance = commandLineHeight > 0 ? commandLineHeight : (font.valid() ? font.lineHeight() : 0);
 				const bool singleLine = font.valid() &&
 				                        std::strchr(measureText, '\n') == nullptr &&
@@ -2170,7 +2241,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 					                                              containerW,
 					                                              n->computedStyle().font_id,
 					                                              commandFontSize,
-					                                              commandLineHeight);
+					                                              commandLineHeight,n->computedStyle().font_weight,n->computedStyle().font_stretch);
 				}
 			}
 #endif
@@ -2195,7 +2266,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 				                            &ix0,
 				                            &iy0,
 				                            &ix1,
-				                            &iy1)) {
+				                            &iy1,n->computedStyle().font_weight,n->computedStyle().font_stretch)) {
 					// A nowrap run may be clipped/ellipsized horizontally, so its
 					// unbounded ink X extent is not a valid command bound. Its Y ink
 					// extent is still exact, however, and is essential when CSS
@@ -2221,7 +2292,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	if (std::getenv("GEA_TEXT_BASELINE_DEBUG") && n->computedStyle().font_id >= 0) {
 		const int dbgFontSize = static_cast<int>(textScale * kBitmapFontHeight + 0.5f);
 		gea::framework::graphics::RasterizedFont dbgFont =
-		    gea::framework::graphics::FontRegistry::rasterizedFamily(n->computedStyle().font_id, dbgFontSize);
+		    gea::framework::graphics::FontRegistry::rasterizedFamily(n->computedStyle().font_id, dbgFontSize,n->computedStyle().font_weight,n->computedStyle().font_stretch);
 		const int fontLH = dbgFont.valid() ? dbgFont.lineHeight() : -1;
 		const int asc = dbgFont.valid() ? dbgFont.ascender() : -1;
 		const int lineAdv = commandLineHeight > 0 ? commandLineHeight : fontLH;
@@ -2230,7 +2301,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 #ifdef GEA_EMBEDDED_HAS_GENERATED_FONTS
 		const int genFonts = 1;
 		inkOff = rasterizedSingleLineInkCenterOffsetY(measureText, n->computedStyle().text_align, containerW,
-		                                             n->computedStyle().font_id, dbgFontSize, commandLineHeight);
+		                                             n->computedStyle().font_id, dbgFontSize, commandLineHeight,n->computedStyle().font_weight,n->computedStyle().font_stretch);
 #else
 		const int genFonts = 0;
 #endif
@@ -2268,6 +2339,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	cmd->text.lineHeight = commandLineHeight;
 	cmd->text.containerWidth = containerW;
 	cmd->text.fontId = n->computedStyle().font_id;
+	cmd->text.fontWeight=n->computedStyle().font_weight;cmd->text.fontStretch=n->computedStyle().font_stretch;
 	cmd->text.whiteSpace = n->computedStyle().white_space;
 	cmd->text.textOverflow = n->computedStyle().text_overflow;
 	cmd->text.firstLineIndent = static_cast<int16_t>(inlineIndent);
@@ -2284,7 +2356,7 @@ void GEA_TEXT_HOT_SRAM TextRenderer::record(const Node &node, uint8_t parentAlph
 	// past the actual glyphs.
 	if (n->computedStyle().text_decoration != 0 && !n->text.empty()) {
 		const int fontSize = n->computedStyle().font_size > 0 ? n->computedStyle().font_size : kBitmapFontHeight;
-		const int lineWidth = TextMetrics::measure(measureText, tw, n->computedStyle().font_id, n->computedStyle().font_size, 0, n->computedStyle().font_weight).width;
+		const int lineWidth = TextMetrics::measure(measureText, tw, n->computedStyle().font_id, n->computedStyle().font_size, 0, n->computedStyle().font_weight, n->computedStyle().font_stretch).width;
 		const int lineHeight = textDecorationThickness(fontSize);
 		const int lineY = textDecorationY(ty, fontSize, lineHeight, n->computedStyle().text_decoration);
 		DisplayCommand *deco = DisplayList::instance().append();

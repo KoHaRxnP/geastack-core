@@ -3,12 +3,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BUILD_DIR="$ROOT/packages/core/test/.build"
 mkdir -p "$BUILD_DIR"
+source "$ROOT/packages/core/test/native-host.sh"
 "${CXX:-clang++}" -std=c++20 -O2 -DGEA_EMBEDDED_PIXEL_PANEL_ENDIAN=1 -DGEA_EMBEDDED_HAS_GENERATED_FONTS=1 \
   -I "$ROOT/packages/core/include" -I "$ROOT/packages/engine" \
   -ffunction-sections -fdata-sections \
   "$ROOT/packages/core/test/test_text_sprite_cache_main.cpp" \
   "$ROOT/packages/engine/rasterized_font.cpp" \
-  -Wl,-dead_strip -o "$BUILD_DIR/text-sprite-cache"
+  "${GEA_HOST_LINK_GC[@]}" ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"} -o "$BUILD_DIR/text-sprite-cache"
 "$BUILD_DIR/text-sprite-cache"
 if [[ "${1:-}" == "--mutations" ]]; then
   python3 - "$ROOT/packages/engine/canvas.cpp" "$BUILD_DIR/text-sprite-cache-mutant.cpp" <<'PY'
@@ -28,7 +29,7 @@ PY
     "-DGEA_TEXT_CACHE_SOURCE=\"$BUILD_DIR/text-sprite-cache-mutant.cpp\"" \
     -I "$ROOT/packages/core/include" -I "$ROOT/packages/engine" -ffunction-sections -fdata-sections \
     "$ROOT/packages/core/test/test_text_sprite_cache_main.cpp" "$ROOT/packages/engine/rasterized_font.cpp" \
-    -Wl,-dead_strip -o "$BUILD_DIR/text-sprite-cache-mutant"
+    "${GEA_HOST_LINK_GC[@]}" ${GEA_HOST_CXXFLAGS[@]+"${GEA_HOST_CXXFLAGS[@]}"} -o "$BUILD_DIR/text-sprite-cache-mutant"
   if "$BUILD_DIR/text-sprite-cache-mutant" > "$BUILD_DIR/text-sprite-cache-mutant.log" 2>&1; then
     echo 'FAIL: direct-mapped text collision passed' >&2; exit 1
   fi
