@@ -110,6 +110,12 @@ function readAllOptions(name) {
   return values.filter(Boolean)
 }
 
+// The app's own Vite config: any of the names Vite itself looks for.
+function appViteConfig(dir) {
+  const names = ['vite.config.ts', 'vite.config.mts', 'vite.config.mjs', 'vite.config.js']
+  return names.map((name) => path.join(dir, name)).find((file) => fs.existsSync(file)) ?? path.join(dir, names[0])
+}
+
 function fail(message) {
   process.stderr.write(`${message}\n`)
   process.exit(1)
@@ -4479,7 +4485,7 @@ const moduleGraphOutDir = moduleGraphOutOption
     : ''
 let viteConfig = geaEmbeddedCompat
   ? path.join(outDir, 'gea-embedded-compat.vite.config.mjs')
-  : path.resolve(readOption('--vite-config') ?? path.join(appDir, 'vite.config.ts'))
+  : path.resolve(readOption('--vite-config') ?? appViteConfig(appDir))
 const appleNativePluginSpecifier = path.resolve(readOption('--geatsc-apple-native-plugin') ?? tryResolve('@geastack/geatsc-plugin-apple-native'))
 
 if (!geaEmbeddedCompat && !fs.existsSync(viteConfig)) fail(`missing Vite config: ${viteConfig}`)
