@@ -4675,6 +4675,15 @@ const geatscArgs = [
   `gea.native-signature-host-root=${process.env.GEA_HOST_DIR || path.resolve(coreRoot, '..', 'host')}`,
 ]
 if (!moduleGraphCompile) geatscArgs.push('--target', 'cpp')
+// --project <tsconfig.json>: the TypeScript project the program means. Without
+// it the compiler reads modules under the project nearest its input, which for
+// an app whose sources live outside its package can be another package's
+// (resolving a type-only import to a different copy of a library).
+const projectOption = readOption('--project')
+if (projectOption) {
+  if (!fs.existsSync(projectOption)) fail(`--project names a missing TypeScript project: ${projectOption}`)
+  geatscArgs.push('--project', path.resolve(projectOption))
+}
 if (moduleGraphCompile) {
   geatscArgs.push('--entry', stagedEntryFile ?? path.join(appDir, entry), '--module-graph-stage', 'hybrid')
 }
@@ -4711,9 +4720,20 @@ if (hasFlag('--gea-ir-backend') || hasFlag('--gea-replace-renderers')) {
 // measurement scripts are always run with this
 // limit; the build has to state the same one, not depend on the caller's
 // NODE_OPTIONS.
+// GEA_GEATSC_MAX_OLD_SPACE_SIZE (MiB) lowers or raises that limit for a
+// machine with less memory to spare; a heap the analysis outgrows then fails
+// the build instead of exhausting the machine.
 // Native interface call graphs can exceed V8's default ~1 MiB stack during
 // closure analysis; keep the compiler stack below the host's 8 MiB limit.
-run('node', ['--stack_size=8192', '--max-old-space-size=32768', ...geatscArgs])
+const geatscHeapMiB = (() => {
+  const stated = process.env.GEA_GEATSC_MAX_OLD_SPACE_SIZE
+  if (stated === undefined || stated === '') return 32768
+  const value = Number(stated)
+  if (!Number.isInteger(value) || value < 512) fail(`GEA_GEATSC_MAX_OLD_SPACE_SIZE must be a whole number of MiB (at least 512): ${stated}`)
+  return value
+})()
+const geatscNodeArgs = ['--stack_size=8192', `--max-old-space-size=${geatscHeapMiB}`]
+run('node', [...geatscNodeArgs, ...geatscArgs])
 
 if (nativeModules.size) {
   const nativeSources = []
@@ -4736,7 +4756,7 @@ if (nativeModules.size) {
     ]
     if (cppBoard) moduleArgs.push('--cpp-board', cppBoard)
     if (cxxStandard) moduleArgs.push('--cxx-standard', cxxStandard)
-    run('node', ['--stack_size=8192', '--max-old-space-size=32768', ...moduleArgs])
+    run('node', [...geatscNodeArgs, ...moduleArgs])
     const list = fs.readFileSync(path.join(moduleOut, 'geatsc-sources.txt'), 'utf8').split(/\r?\n/).filter(Boolean)
     nativeSources.push(...list.filter((source) => path.basename(source) !== 'gea_runtime_builtins.cpp'))
   }
