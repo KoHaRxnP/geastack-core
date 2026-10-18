@@ -29,8 +29,17 @@ namespace gea::framework::app::generated {
 void drainMicrotasks();
 }  // namespace gea::framework::app::generated
 
-extern "C" void gea_cycle_collection_defer_begin() __attribute__((weak));
-extern "C" void gea_cycle_collection_defer_end() __attribute__((weak));
+// Optional hooks a generated program defines weakly. A COFF linker cannot pair
+// a weak reference with a weak definition (each names its own default), so a
+// target that links a default for every such hook (lld-link /alternatename)
+// sets GEA_LINKED_HOOK_DEFAULTS and the references become ordinary ones.
+#if defined(GEA_LINKED_HOOK_DEFAULTS) && GEA_LINKED_HOOK_DEFAULTS
+#define GEA_PROGRAM_HOOK
+#else
+#define GEA_PROGRAM_HOOK __attribute__((weak))
+#endif
+extern "C" void gea_cycle_collection_defer_begin() GEA_PROGRAM_HOOK;
+extern "C" void gea_cycle_collection_defer_end() GEA_PROGRAM_HOOK;
 extern "C" bool gea_embedded_assets_prepare() __attribute__((weak));
 
 namespace gea::framework::app {

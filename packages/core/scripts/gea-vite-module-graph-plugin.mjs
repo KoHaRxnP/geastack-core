@@ -91,7 +91,10 @@ export function geaThreeModuleAliases(options = {}) {
 }
 
 export function geaModuleGraphPlugins(options = {}) {
-  const outDir = options.outDir || process.env.GEA_VITE_MODULE_GRAPH_OUT || ''
+  // A build driver (build-gea-vite-geatsc.mjs) states where it reads the graph
+  // through GEA_VITE_MODULE_GRAPH_OUT; that wins over the location an app's own
+  // Vite config names for its standalone runs.
+  const outDir = process.env.GEA_VITE_MODULE_GRAPH_OUT || options.outDir || ''
   if (!outDir) return []
 
   const state = {

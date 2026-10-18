@@ -67,12 +67,22 @@ bool ensureMounted() {
 }
 } // namespace gea::platform::storage
 
+// Optional hooks a generated program defines weakly. A COFF linker cannot pair
+// a weak reference with a weak definition (each names its own default), so a
+// target that links a default for every such hook (lld-link /alternatename)
+// sets GEA_LINKED_HOOK_DEFAULTS and the references become ordinary ones.
+#if defined(GEA_LINKED_HOOK_DEFAULTS) && GEA_LINKED_HOOK_DEFAULTS
+#define GEA_PROGRAM_HOOK
+#else
+#define GEA_PROGRAM_HOOK __attribute__((weak))
+#endif
+
 namespace gea::host {
 
 extern "C" bool gea_embedded_asset_lookup(const char *path,
                                           const unsigned char **data,
                                           unsigned long *length)
-    __attribute__((weak));
+    GEA_PROGRAM_HOOK;
 
 namespace {
 

@@ -325,7 +325,11 @@ gea_build_native_test() {
   )
   # Section GC at link time, in this host's spelling (native-host.sh).
   local -a symbol_map_flags=()
-  mapfile -t symbol_map_flags < <(gea_native_symbol_map_flags "$output_bin")
+  # A read loop, not mapfile: macOS ships bash 3.2.
+  local symbol_map_flag
+  while IFS= read -r symbol_map_flag; do
+    symbol_map_flags+=("$symbol_map_flag")
+  done < <(gea_native_symbol_map_flags "$output_bin")
   GEA_NATIVE_LINK_FLAGS=(
     ${extra_link_flags[@]+"${extra_link_flags[@]}"}
     ${GEA_HOST_LINK_GC[@]+"${GEA_HOST_LINK_GC[@]}"}
