@@ -4719,13 +4719,12 @@ geatscArgs.push('--plugin-option', `gea.store-relowering=${compilerSettings.stor
 if (hasFlag('--gea-ir-backend') || hasFlag('--gea-replace-renderers')) {
   geatscArgs.push('--plugin-option', 'gea.replace-renderers=true')
 }
-// The whole-program analysis of a three.js app (a 284-module graph)
-// peaks well above node's default heap cap: on 2026-09-14 this exact spawn
-// died with `Ineffective mark-compacts near heap limit` after five minutes,
-// and the build reported "C++ generation failed". The compiler's own
-// measurement scripts are always run with this
-// limit; the build has to state the same one, not depend on the caller's
-// NODE_OPTIONS.
+// The whole-program analysis of a large app peaks above node's default heap
+// cap, so the build states its own limit rather than depending on the caller's
+// NODE_OPTIONS. 4 GiB leaves several times the measured peak (a 48K-line app
+// compiles in under 1 GiB of live heap) while stopping V8 from growing the heap
+// freely: under a 32 GiB cap the same compile held ~1.8 GB resident, mostly
+// uncollected garbage.
 // GEA_GEATSC_MAX_OLD_SPACE_SIZE (MiB) lowers or raises that limit for a
 // machine with less memory to spare; a heap the analysis outgrows then fails
 // the build instead of exhausting the machine.
@@ -4733,7 +4732,7 @@ if (hasFlag('--gea-ir-backend') || hasFlag('--gea-replace-renderers')) {
 // closure analysis; keep the compiler stack below the host's 8 MiB limit.
 const geatscHeapMiB = (() => {
   const stated = process.env.GEA_GEATSC_MAX_OLD_SPACE_SIZE
-  if (stated === undefined || stated === '') return 32768
+  if (stated === undefined || stated === '') return 4096
   const value = Number(stated)
   if (!Number.isInteger(value) || value < 512) fail(`GEA_GEATSC_MAX_OLD_SPACE_SIZE must be a whole number of MiB (at least 512): ${stated}`)
   return value
