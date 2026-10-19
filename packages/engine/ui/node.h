@@ -48,13 +48,33 @@ public:
 	// Structural comments/fragments report 8/11 and never become visual boxes.
 	// A retired handle reports 0, distinct from a live empty fragment.
 	// Resolved lazily on read (cheap, rare) rather than at every handle
-	// construction (hot path); generation ownership is captured separately.
-	struct NodeTypeProperty {
-		int id;
-		gea::framework::identity::Owner owner = gea::framework::identity::node(id);
+	// construction (hot path). The property borrows its handle's identity
+	// token instead of owning a second reference: handles are copied
+	// constantly, and each shared_ptr copy is an atomic read-modify-write
+	// (a critical section on targets without hardware atomics). Only the
+	// handle copies or moves it, so it never outlives the owner.
+	class NodeTypeProperty {
+	public:
 		operator int() const;
 		bool operator==(int other) const { return static_cast<int>(*this) == other; }
 		bool operator!=(int other) const { return static_cast<int>(*this) != other; }
+
+	private:
+		friend class NodeHandle;
+		NodeTypeProperty(int id, const gea::framework::identity::Token *token) : id_(id), token_(token) {}
+		NodeTypeProperty(const NodeTypeProperty &) = default;
+		NodeTypeProperty &operator=(const NodeTypeProperty &) = default;
+		// A moved-from handle no longer owns the token, so neither does its property.
+		NodeTypeProperty(NodeTypeProperty &&other) noexcept
+		  : id_(other.id_), token_(std::exchange(other.token_, nullptr)) {}
+		NodeTypeProperty &operator=(NodeTypeProperty &&other) noexcept
+		{
+			id_ = other.id_;
+			token_ = std::exchange(other.token_, nullptr);
+			return *this;
+		}
+		int id_;
+		const gea::framework::identity::Token *token_;
 	};
 
 	// A real default constructor (not a defaulted-arg explicit ctor): records
@@ -63,14 +83,14 @@ public:
 	// constructor, so `explicit NodeHandle(int = -1)` alone breaks every
 	// generated `__gea_type_X __gea_out{};`.
 	NodeHandle() : NodeHandle(-1) {}
-	explicit NodeHandle(int id) : id_(id), identity_(gea::framework::identity::node(id)), nodeType{id, identity_} {}
+	explicit NodeHandle(int id) : id_(id), identity_(gea::framework::identity::node(id)), nodeType{id, identity_.get()} {}
 	const void *identity() const { return identity_.get(); }
 	std::shared_ptr<const void> weakIdentityOwner() const { return identity_; }
 	// Event targets and DOM elements are two views of the same tree identity.
 	// Pointer/touch event targets declared as Element therefore project to a
 	// full node handle without boxing or losing the source node id.
 	NodeHandle(const gea::framework::events::EventTarget &target)
-	  : id_(target.id()), identity_(target.identityOwner()), nodeType{target.id(), identity_} {}
+	  : id_(target.id()), identity_(target.identityOwner()), nodeType{target.id(), identity_.get()} {}
 	// Implicit build from a boxed node value (record carrying "__gea_node_id"),
 	// so the compiled-component emitters' `NodeHandle x = <gea_cpp_value>` copy-
 	// inits and NodeHandle-typed args accept a boxed node. SFINAE'd on

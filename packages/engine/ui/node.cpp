@@ -283,7 +283,8 @@ const char *NodeHandle::tagName() const
 // node, TEXT_NODE (3), COMMENT_NODE (8), or DOCUMENT_FRAGMENT_NODE (11).
 NodeHandle::NodeTypeProperty::operator int() const
 {
-	if (!gea::framework::identity::current(id, owner)) return 0;
+	if (!gea::framework::identity::current(id_, token_)) return 0;
+	const int id = id_;
 	const auto &tree=Tree::instance();
 	// The template renderer's list/conditional anchors are hidden nodes tagged
 	// "#comment"; DOM queries must see them as the comments they stand for.
