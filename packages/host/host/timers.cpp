@@ -88,9 +88,15 @@ struct ScheduledTimer {
 
 class TimerScheduler {
 public:
+	// Function-local statics are read through an acquire-loaded pointer: on
+	// targets without hardware atomics (ESP32-S3) each guarded access takes an
+	// RTOS mutex, and these run on every frame.
 	static TimerScheduler &instance()
 	{
+		static std::atomic<TimerScheduler *> ready{nullptr};
+		if (auto *scheduler = ready.load(std::memory_order_acquire)) return *scheduler;
 		static TimerScheduler scheduler;
+		ready.store(&scheduler, std::memory_order_release);
 		return scheduler;
 	}
 
@@ -197,7 +203,11 @@ class AnimationFrameQueue {
 public:
 	static AnimationFrameQueue &instance()
 	{
+		// See TimerScheduler::instance().
+		static std::atomic<AnimationFrameQueue *> ready{nullptr};
+		if (auto *queue = ready.load(std::memory_order_acquire)) return *queue;
 		static AnimationFrameQueue queue;
+		ready.store(&queue, std::memory_order_release);
 		return queue;
 	}
 
@@ -279,11 +289,16 @@ private:
 	// call sites on this so the strings are only built when logging is actually on.
 	static bool debugLoggingEnabled()
 	{
-		static const bool enabled = [] {
+		// Constant-initialized, so no guard: -1 until the first read. Racing
+		// first reads compute the same value.
+		static std::atomic<signed char> enabled{-1};
+		signed char value = enabled.load(std::memory_order_relaxed);
+		if (value < 0) {
 			const char *p = std::getenv("GEA_RAF_DEBUG_LOG");
-			return p && p[0] != '\0';
-		}();
-		return enabled;
+			value = p && p[0] != '\0' ? 1 : 0;
+			enabled.store(value, std::memory_order_relaxed);
+		}
+		return value != 0;
 	}
 
 	void logDebug(const std::string &message)

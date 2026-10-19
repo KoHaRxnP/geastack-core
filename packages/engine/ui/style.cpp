@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -18625,9 +18626,15 @@ void Tree::setClassName(int node, const char *className)
 // growth, so tagFromId can hand out c_str() pointers that stay valid. Index 0
 // is the empty tag, matching Node::tag_id's zero default.
 namespace {
+// tagFromId runs for every node on every frame. Without hardware atomics
+// (ESP32-S3) a guarded function-local static takes an RTOS mutex on each
+// access, so later calls read the table through an acquire-loaded pointer.
 std::deque<std::string> &tagTable()
 {
+	static std::atomic<std::deque<std::string> *> ready{nullptr};
+	if (auto *table = ready.load(std::memory_order_acquire)) return *table;
 	static std::deque<std::string> table = {std::string()};
+	ready.store(&table, std::memory_order_release);
 	return table;
 }
 }  // namespace
