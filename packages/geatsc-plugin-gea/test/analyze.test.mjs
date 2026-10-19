@@ -616,6 +616,20 @@ for (const source of [`document.createElement(tag)`, `const create = document.cr
 })
 
 
+const videoNodes = entry => analyzeAllFeatures(entry).features.filter(feature => ['node-video-analysis-v1', 'node-videos'].includes(feature))
+test('an app without video elements does not need the video host', t => {
+  const entry = app(t, { 'index.tsx': `import { Component, Display, mount } from '@geastack/core';
+    Display.setFrameRate(120);
+    export class App extends Component { template() { return <div><img src="x" /><span>Value</span></div> } }` })
+  assert.deepEqual(videoNodes(entry), ['node-video-analysis-v1'])
+})
+for (const source of [`<video autoplay />`, `document.createElement('video')`, `document.createElement('VIDEO')`, `new HTMLVideoElement()`, `const v: HTMLVideoElement = document.querySelector('video')`, `element.innerHTML = '<video></video>'`]) test(`video host retained: ${source}`, t => {
+  assert.ok(videoNodes(app(t, { 'index.tsx': source })).includes('node-videos'))
+})
+for (const source of [`document.createElement(tag)`, `element.innerHTML = markup`, `import { Something } from '@geastack/core'`, `import Widget from './missing'`]) test(`opaque node creation keeps the video host: ${source}`, t => {
+  assert.deepEqual(videoNodes(app(t, { 'index.tsx': source })), ['node-video-analysis-v1', 'node-videos'])
+})
+
 test('a known bracket-access factory keeps ordinary nodes compact', t => {
   assert.deepEqual(nativeNodes(app(t, { 'index.tsx': `document['createElement']('button')` })), ['node-analysis-v1'])
 })
