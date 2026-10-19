@@ -326,7 +326,7 @@ void Application::frame(int timestampMs)
 #else
 	gea::host::workers::Context::runMainPending();
 #endif
-#if GEA_UI_VIDEO_NODES
+#if !defined(GEA_UI_VIDEO_NODES) || GEA_UI_VIDEO_NODES
 	applicationFramePhaseSet(ApplicationFramePhase::VideoPresentation);
 	startUs = phaseClockUs();
 	gea::host::video::presentFrames();
