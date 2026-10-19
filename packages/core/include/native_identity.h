@@ -115,8 +115,10 @@ inline bool current(int id, const Token *token) {
   if (id < 0 || !token) return false;
   const auto index = static_cast<std::size_t>(id);
   auto &r = registry();
+  // The slot is only compared, never dereferenced, so it needs no barrier;
+  // the page itself is acquired because its slots are read.
   if (const auto *slots = r.page(index))
-    return slots[index % NodeRegistry::kPageSize].load(std::memory_order_acquire) == token;
+    return slots[index % NodeRegistry::kPageSize].load(std::memory_order_relaxed) == token;
   RegistryLock lock(r);
   return index < r.nodes.size() && r.nodes[index].get() == token;
 }

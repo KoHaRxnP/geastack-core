@@ -1657,7 +1657,8 @@ enum class LengthAxis {
 bool propertyAffectsDescendantStyle(Property property);
 void recomputeDescendantClassStyles(int node);
 void recomputeSubtreeClassStyles(int node);
-void setStyleValue(NodeHandle node, Property property, int value, StyleApplicationSource source);
+void setStyleValue(const NodeHandle &node, Property property, int value, StyleApplicationSource source);
+void setInlineStyleValue(int nodeId, Property property, int value);
 struct ActiveRulePlan;
 #if GEA_CSS_ANIMATIONS
 void primeCssAnimationsForNode(int node, const ActiveRulePlan *activePlan = nullptr);
@@ -8519,16 +8520,18 @@ bool setClassRuleValueFast(NodeHandle node, Property property, int value)
 	return setClassRuleValueFastUnchecked(target, property, value);
 }
 
-void setStyleValue(NodeHandle node, Property property, int value, StyleApplicationSource source)
+void setStyleValue(const NodeHandle &node, Property property, int value, StyleApplicationSource source)
 {
-	if (!node) return;
+	// One validity check; a Style would copy the owner only to check it again.
+	const int id = node.id();
+	if (id < 0) return;
 	if (source == StyleApplicationSource::ClassRule) {
-		if (node.id() == g_resolvedFontNode && isFontMetricProperty(property)) return;
-		if (node.id() == g_resolvedLineHeightNode && isLineHeightProperty(property)) return;
+		if (id == g_resolvedFontNode && isFontMetricProperty(property)) return;
+		if (id == g_resolvedLineHeightNode && isLineHeightProperty(property)) return;
 		if (setClassRuleValueFast(node, property, value)) return;
-		Tree::instance().setStyleFromClass(node.id(), property, value);
+		Tree::instance().setStyleFromClass(id, property, value);
 	} else {
-		node.style().set(property, value);
+		setInlineStyleValue(id, property, value);
 	}
 }
 
@@ -9237,6 +9240,24 @@ bool applyAnimatedTransformStyleValueFast(int nodeId, Property property, int val
 	return true;
 }
 
+// Style::set for a node id its caller has validated.
+void setInlineStyleValue(int nodeId, Property property, int value)
+{
+	if (nodeId < 0) return;
+	#if GEA_CSS_ANIMATIONS
+	double before = 0;
+	const bool transition = inlineTransitionBefore(nodeId, property, before);
+	#endif
+	Tree::instance().setStyle(nodeId, property, value);
+	#if GEA_CSS_ANIMATIONS
+	if (transition) applyInlineTransition(nodeId, property, before);
+	#endif
+	// This element's cascaded lengths can depend on its own font too. Updating
+	// descendants alone leaves, for example, class padding in ch at old metrics.
+	if (isFontMetricProperty(property) || isLineHeightProperty(property)) recomputeSubtreeClassStyles(nodeId);
+	else if (propertyAffectsDescendantStyle(property)) recomputeDescendantClassStyles(nodeId);
+}
+
 }  // namespace
 
 StorageUsage styleDependencyStorageUsage()
@@ -9331,19 +9352,7 @@ bool resolveLayoutBoxLengths(int nodeId, int percentageBasis)
 
 void Style::set(Property property, int value) const
 {
-	if (nodeId() < 0) return;
-	#if GEA_CSS_ANIMATIONS
-	double before = 0;
-	const bool transition = inlineTransitionBefore(nodeId(), property, before);
-	#endif
-	Tree::instance().setStyle(nodeId(), property, value);
-	#if GEA_CSS_ANIMATIONS
-	if (transition) applyInlineTransition(nodeId(), property, before);
-	#endif
-	// This element's cascaded lengths can depend on its own font too. Updating
-	// descendants alone leaves, for example, class padding in ch at old metrics.
-	if (isFontMetricProperty(property) || isLineHeightProperty(property)) recomputeSubtreeClassStyles(nodeId());
-	else if (propertyAffectsDescendantStyle(property)) recomputeDescendantClassStyles(nodeId());
+	setInlineStyleValue(nodeId(), property, value);
 }
 
 void Style::backgroundColor(int rgb565) const
@@ -9355,19 +9364,22 @@ void Style::backgroundColor(int rgb565) const
 void Style::setProperty(const std::string &property, const std::string &value) const
 {
 	if (nodeId() < 0) return;
-	StyleSheet::instance().applyProperty(NodeHandle(nodeId()), property, value);
+	StyleSheet::instance().applyProperty(NodeHandle(nodeId_, identity_), property, value);
 }
 
 bool Style::setNumberProperty(const std::string &property, double value) const
 {
 	if (nodeId() < 0) return false;
-	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId()), property.c_str(), value);
+	// This Style holds the validated owner for the whole call, and numeric
+	// style application keeps node ids, not handles, so the handle borrows it.
+	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId_, identity_, NodeHandle::Borrowed{}),
+	                                                  property.c_str(), value);
 }
 
 bool Style::removeProperty(const std::string &property) const
 {
 	if (nodeId() < 0) return false;
-	return StyleSheet::instance().removeProperty(NodeHandle(nodeId()), property);
+	return StyleSheet::instance().removeProperty(NodeHandle(nodeId_, identity_), property);
 }
 
 void applyAnimatedStyleValue(int nodeId, Property property, int value)
@@ -9435,7 +9447,7 @@ void applyInheritedStyleDefaults(int node)
 #endif
 }
 
-bool applyNumberDeclarationWithSource(NodeHandle node,
+bool applyNumberDeclarationWithSource(const NodeHandle &node,
                                       CssDeclarationId declaration,
                                       double value,
                                       StyleApplicationSource source)
@@ -9590,9 +9602,10 @@ bool applyNumberDeclarationWithSource(NodeHandle node,
 	}
 }
 
-bool applyNumberPropertyWithSource(NodeHandle node, const char *property, double value, StyleApplicationSource source)
+bool applyNumberPropertyWithSource(const NodeHandle &node, const char *property, double value, StyleApplicationSource source)
 {
-	if (!node || !property) return false;
+	// applyNumberDeclarationWithSource validates the node first.
+	if (!property) return false;
 	return applyNumberDeclarationWithSource(node, classifyDeclaration(property), value, source);
 }
 
@@ -18546,12 +18559,12 @@ bool StyleSheet::applyPixelLengthProperty(NodeHandle node, StyleDeclaration decl
 	return false;
 }
 
-bool StyleSheet::applyNumberProperty(NodeHandle node, const char *property, double value) const
+bool StyleSheet::applyNumberProperty(const NodeHandle &node, const char *property, double value) const
 {
 	return applyNumberPropertyWithSource(node, property, value, StyleApplicationSource::Inline);
 }
 
-bool StyleSheet::applyNumberProperty(NodeHandle node, StyleDeclaration declaration, double value) const
+bool StyleSheet::applyNumberProperty(const NodeHandle &node, StyleDeclaration declaration, double value) const
 {
 	return applyNumberDeclarationWithSource(node, declaration, value, StyleApplicationSource::Inline);
 }

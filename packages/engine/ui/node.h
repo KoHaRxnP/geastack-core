@@ -5,6 +5,7 @@
 #include "style.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -48,33 +49,63 @@ public:
 	// Structural comments/fragments report 8/11 and never become visual boxes.
 	// A retired handle reports 0, distinct from a live empty fragment.
 	// Resolved lazily on read (cheap, rare) rather than at every handle
-	// construction (hot path). The property borrows its handle's identity
-	// token instead of owning a second reference: handles are copied
-	// constantly, and each shared_ptr copy is an atomic read-modify-write
-	// (a critical section on targets without hardware atomics). Only the
-	// handle copies or moves it, so it never outlives the owner.
+	// construction (hot path). Inside a handle the property borrows the
+	// handle's identity token instead of owning a second reference: handles
+	// are copied constantly, and each shared_ptr copy is an atomic
+	// read-modify-write (a critical section on targets without hardware
+	// atomics). The handle rebuilds it on copy and move. A property copied
+	// out of its handle takes its own owner, so it can outlive the handle.
 	class NodeTypeProperty {
 	public:
 		operator int() const;
 		bool operator==(int other) const { return static_cast<int>(*this) == other; }
 		bool operator!=(int other) const { return static_cast<int>(*this) != other; }
 
-	private:
-		friend class NodeHandle;
-		NodeTypeProperty(int id, const gea::framework::identity::Token *token) : id_(id), token_(token) {}
-		NodeTypeProperty(const NodeTypeProperty &) = default;
-		NodeTypeProperty &operator=(const NodeTypeProperty &) = default;
-		// A moved-from handle no longer owns the token, so neither does its property.
-		NodeTypeProperty(NodeTypeProperty &&other) noexcept
-		  : id_(other.id_), token_(std::exchange(other.token_, nullptr)) {}
-		NodeTypeProperty &operator=(NodeTypeProperty &&other) noexcept
+		// A standalone copy owns the node's current token when it is still
+		// the same allocation; a retired one stays retired (reports 0).
+		NodeTypeProperty(const NodeTypeProperty &other) : id_(other.id_), bits_(0) { adopt(other.token()); }
+		NodeTypeProperty &operator=(const NodeTypeProperty &other)
 		{
-			id_ = other.id_;
-			token_ = std::exchange(other.token_, nullptr);
+			if (this != &other) {
+				const auto *token = other.token();
+				release();
+				id_ = other.id_;
+				adopt(token);
+			}
 			return *this;
 		}
+		~NodeTypeProperty() { release(); }
+
+	private:
+		friend class NodeHandle;
+		using Token = gea::framework::identity::Token;
+		using Owner = gea::framework::identity::Owner;
+		NodeTypeProperty(int id, const Token *token) : id_(id), bits_(reinterpret_cast<std::uintptr_t>(token)) {}
+		const Token *token() const
+		{
+			if (bits_ & 1) return reinterpret_cast<const Owner *>(bits_ & ~std::uintptr_t{1})->get();
+			return reinterpret_cast<const Token *>(bits_);
+		}
+		void borrow(int id, const Token *token)
+		{
+			release();
+			id_ = id;
+			bits_ = reinterpret_cast<std::uintptr_t>(token);
+		}
+		void release()
+		{
+			if (bits_ & 1) delete reinterpret_cast<Owner *>(bits_ & ~std::uintptr_t{1});
+			bits_ = 0;
+		}
+		void adopt(const Token *token)
+		{
+			Owner owner = gea::framework::identity::node(id_);
+			bits_ = token && owner.get() == token ? reinterpret_cast<std::uintptr_t>(new Owner(std::move(owner))) | 1 : 0;
+		}
 		int id_;
-		const gea::framework::identity::Token *token_;
+		// The handle's borrowed Token*, or (low bit set) a standalone copy's own
+		// heap Owner*: the handle stays as small as one pointer here.
+		std::uintptr_t bits_;
 	};
 
 	// A real default constructor (not a defaulted-arg explicit ctor): records
@@ -84,6 +115,36 @@ public:
 	// generated `__gea_type_X __gea_out{};`.
 	NodeHandle() : NodeHandle(-1) {}
 	explicit NodeHandle(int id) : id_(id), identity_(gea::framework::identity::node(id)), nodeType{id, identity_.get()} {}
+	// A handle for an owner already in hand (a Style's, another handle's),
+	// without a registry lookup. Validity is still checked on use.
+	NodeHandle(int id, gea::framework::identity::Owner owner)
+	  : id_(id), identity_(std::move(owner)), nodeType{id, identity_.get()} {}
+	// Copies and moves rebuild nodeType from this handle's own owner.
+	NodeHandle(const NodeHandle &other) : id_(other.id_), identity_(other.identity_), nodeType{other.id_, identity_.get()} {}
+	NodeHandle(NodeHandle &&other) noexcept
+	  : id_(other.id_), identity_(std::move(other.identity_)), nodeType{other.id_, identity_.get()}
+	{
+		other.nodeType.borrow(other.id_, nullptr);
+	}
+	NodeHandle &operator=(const NodeHandle &other)
+	{
+		if (this != &other) {
+			id_ = other.id_;
+			identity_ = other.identity_;
+			nodeType.borrow(id_, identity_.get());
+		}
+		return *this;
+	}
+	NodeHandle &operator=(NodeHandle &&other) noexcept
+	{
+		if (this != &other) {
+			id_ = other.id_;
+			identity_ = std::move(other.identity_);
+			nodeType.borrow(id_, identity_.get());
+			other.nodeType.borrow(other.id_, nullptr);
+		}
+		return *this;
+	}
 	const void *identity() const { return identity_.get(); }
 	std::shared_ptr<const void> weakIdentityOwner() const { return identity_; }
 	// Event targets and DOM elements are two views of the same tree identity.
@@ -138,10 +199,23 @@ public:
 	NodeHandle querySelector(const std::string &s) const { return querySelector(selectorText(s)); }
 	std::vector<NodeHandle> querySelectorAll(const std::string &s) const { return querySelectorAll(selectorText(s)); }
 	explicit operator bool() const { return valid(); }
-	Style style() const { return Style(id()); }
+	// Shares this handle's owner instead of looking the id up again; the
+	// Style validates it on every use, as it validated its own lookup.
+	Style style() const { return Style(id_, identity_); }
 	ClassList classList() const { return ClassList(id()); }
 
 	NodeTypeProperty nodeType;
+
+private:
+	friend class Style;
+	struct Borrowed {};
+	// Shares `owner`'s token without a reference count, for a handle that
+	// lives only inside one call while the caller (a Style) holds `owner`.
+	// Copies of it do not keep the token alive, so it is never stored.
+	NodeHandle(int id, const gea::framework::identity::Owner &owner, Borrowed)
+	  : id_(id), identity_(gea::framework::identity::Owner{}, owner.get()), nodeType{id, identity_.get()} {}
+
+public:
 
 	NodeHandle cloneNode(bool deep = true) const;
 	// Named *Handle to avoid colliding with the DOM `firstChild` PROPERTY
