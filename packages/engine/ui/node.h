@@ -202,6 +202,9 @@ public:
 	// Shares this handle's owner instead of looking the id up again; the
 	// Style validates it on every use, as it validated its own lookup.
 	Style style() const { return Style(id_, identity_); }
+	// `style().setNumberProperty(...)` without the Style: it would take a
+	// second owner of this handle's identity just to forward the write.
+	bool setStyleNumberProperty(const std::string &property, double value) const;
 	ClassList classList() const { return ClassList(id()); }
 
 	NodeTypeProperty nodeType;
