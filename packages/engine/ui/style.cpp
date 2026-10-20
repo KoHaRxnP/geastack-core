@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -1656,7 +1657,9 @@ enum class LengthAxis {
 bool propertyAffectsDescendantStyle(Property property);
 void recomputeDescendantClassStyles(int node);
 void recomputeSubtreeClassStyles(int node);
-void setStyleValue(NodeHandle node, Property property, int value, StyleApplicationSource source);
+void setStyleValue(const NodeHandle &node, Property property, int value, StyleApplicationSource source);
+void setValidatedStyleValue(const NodeHandle &node, int id, Property property, int value, StyleApplicationSource source);
+void setInlineStyleValue(int nodeId, Property property, int value);
 struct ActiveRulePlan;
 #if GEA_CSS_ANIMATIONS
 void primeCssAnimationsForNode(int node, const ActiveRulePlan *activePlan = nullptr);
@@ -8518,16 +8521,24 @@ bool setClassRuleValueFast(NodeHandle node, Property property, int value)
 	return setClassRuleValueFastUnchecked(target, property, value);
 }
 
-void setStyleValue(NodeHandle node, Property property, int value, StyleApplicationSource source)
+void setStyleValue(const NodeHandle &node, Property property, int value, StyleApplicationSource source)
 {
-	if (!node) return;
+	// One validity check; a Style would copy the owner only to check it again.
+	const int id = node.id();
+	if (id < 0) return;
+	setValidatedStyleValue(node, id, property, value, source);
+}
+
+// setStyleValue for a caller that has already resolved `node`'s live `id`.
+void setValidatedStyleValue(const NodeHandle &node, int id, Property property, int value, StyleApplicationSource source)
+{
 	if (source == StyleApplicationSource::ClassRule) {
-		if (node.id() == g_resolvedFontNode && isFontMetricProperty(property)) return;
-		if (node.id() == g_resolvedLineHeightNode && isLineHeightProperty(property)) return;
+		if (id == g_resolvedFontNode && isFontMetricProperty(property)) return;
+		if (id == g_resolvedLineHeightNode && isLineHeightProperty(property)) return;
 		if (setClassRuleValueFast(node, property, value)) return;
-		Tree::instance().setStyleFromClass(node.id(), property, value);
+		Tree::instance().setStyleFromClass(id, property, value);
 	} else {
-		node.style().set(property, value);
+		setInlineStyleValue(id, property, value);
 	}
 }
 
@@ -9236,6 +9247,24 @@ bool applyAnimatedTransformStyleValueFast(int nodeId, Property property, int val
 	return true;
 }
 
+// Style::set for a node id its caller has validated.
+void setInlineStyleValue(int nodeId, Property property, int value)
+{
+	if (nodeId < 0) return;
+	#if GEA_CSS_ANIMATIONS
+	double before = 0;
+	const bool transition = inlineTransitionBefore(nodeId, property, before);
+	#endif
+	Tree::instance().setStyle(nodeId, property, value);
+	#if GEA_CSS_ANIMATIONS
+	if (transition) applyInlineTransition(nodeId, property, before);
+	#endif
+	// This element's cascaded lengths can depend on its own font too. Updating
+	// descendants alone leaves, for example, class padding in ch at old metrics.
+	if (isFontMetricProperty(property) || isLineHeightProperty(property)) recomputeSubtreeClassStyles(nodeId);
+	else if (propertyAffectsDescendantStyle(property)) recomputeDescendantClassStyles(nodeId);
+}
+
 }  // namespace
 
 StorageUsage styleDependencyStorageUsage()
@@ -9330,19 +9359,7 @@ bool resolveLayoutBoxLengths(int nodeId, int percentageBasis)
 
 void Style::set(Property property, int value) const
 {
-	if (nodeId() < 0) return;
-	#if GEA_CSS_ANIMATIONS
-	double before = 0;
-	const bool transition = inlineTransitionBefore(nodeId(), property, before);
-	#endif
-	Tree::instance().setStyle(nodeId(), property, value);
-	#if GEA_CSS_ANIMATIONS
-	if (transition) applyInlineTransition(nodeId(), property, before);
-	#endif
-	// This element's cascaded lengths can depend on its own font too. Updating
-	// descendants alone leaves, for example, class padding in ch at old metrics.
-	if (isFontMetricProperty(property) || isLineHeightProperty(property)) recomputeSubtreeClassStyles(nodeId());
-	else if (propertyAffectsDescendantStyle(property)) recomputeDescendantClassStyles(nodeId());
+	setInlineStyleValue(nodeId(), property, value);
 }
 
 void Style::backgroundColor(int rgb565) const
@@ -9354,19 +9371,29 @@ void Style::backgroundColor(int rgb565) const
 void Style::setProperty(const std::string &property, const std::string &value) const
 {
 	if (nodeId() < 0) return;
-	StyleSheet::instance().applyProperty(NodeHandle(nodeId()), property, value);
+	StyleSheet::instance().applyProperty(NodeHandle(nodeId_, identity_), property, value);
+}
+
+bool NodeHandle::setStyleNumberProperty(const std::string &property, double value) const
+{
+	// applyNumberDeclarationWithSource validates this handle; no Style, so no
+	// second identity owner for the write.
+	return StyleSheet::instance().applyNumberProperty(*this, property.c_str(), value);
 }
 
 bool Style::setNumberProperty(const std::string &property, double value) const
 {
 	if (nodeId() < 0) return false;
-	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId()), property.c_str(), value);
+	// This Style holds the validated owner for the whole call, and numeric
+	// style application keeps node ids, not handles, so the handle borrows it.
+	return StyleSheet::instance().applyNumberProperty(NodeHandle(nodeId_, identity_, NodeHandle::Borrowed{}),
+	                                                  property.c_str(), value);
 }
 
 bool Style::removeProperty(const std::string &property) const
 {
 	if (nodeId() < 0) return false;
-	return StyleSheet::instance().removeProperty(NodeHandle(nodeId()), property);
+	return StyleSheet::instance().removeProperty(NodeHandle(nodeId_, identity_), property);
 }
 
 void applyAnimatedStyleValue(int nodeId, Property property, int value)
@@ -9434,145 +9461,147 @@ void applyInheritedStyleDefaults(int node)
 #endif
 }
 
-bool applyNumberDeclarationWithSource(NodeHandle node,
+bool applyNumberDeclarationWithSource(const NodeHandle &node,
                                       CssDeclarationId declaration,
                                       double value,
                                       StyleApplicationSource source)
 {
-	if (!node) return false;
+	// The node is validated once here; its writes below reuse the live id.
+	const int id = node.id();
+	if (id < 0) return false;
 	const int length = numericLength(value);
 	switch (declaration) {
 	case CssDeclarationId::Order:
 		if (std::isfinite(value) && std::trunc(value) == value)
-			setStyleValue(node, Property::Order, static_cast<int>(std::clamp(value, -2147483648.0, 2147483647.0)), source);
+			setValidatedStyleValue(node, id, Property::Order, static_cast<int>(std::clamp(value, -2147483648.0, 2147483647.0)), source);
 		return true;
 	case CssDeclarationId::Gap:
-		setStyleValue(node, Property::Gap, length, source);
+		setValidatedStyleValue(node, id, Property::Gap, length, source);
 		return true;
 	case CssDeclarationId::Width:
-		setStyleValue(node, Property::Width, length, source);
+		setValidatedStyleValue(node, id, Property::Width, length, source);
 		return true;
 	case CssDeclarationId::Height:
-		setStyleValue(node, Property::Height, length, source);
+		setValidatedStyleValue(node, id, Property::Height, length, source);
 		return true;
 	case CssDeclarationId::MinWidth:
-		setStyleValue(node, Property::MinWidth, length, source);
+		setValidatedStyleValue(node, id, Property::MinWidth, length, source);
 		return true;
 	case CssDeclarationId::MinHeight:
-		setStyleValue(node, Property::MinHeight, length, source);
+		setValidatedStyleValue(node, id, Property::MinHeight, length, source);
 		return true;
 	case CssDeclarationId::MaxWidth:
-		setStyleValue(node, Property::MaxWidth, length, source);
+		setValidatedStyleValue(node, id, Property::MaxWidth, length, source);
 		return true;
 	case CssDeclarationId::MaxHeight:
-		setStyleValue(node, Property::MaxHeight, length, source);
+		setValidatedStyleValue(node, id, Property::MaxHeight, length, source);
 		return true;
 	case CssDeclarationId::Flex:
-		setStyleValue(node, Property::Flex, rawNumber(value), source);
-		setStyleValue(node, Property::FlexShrink, rawNumber(1.0), source);
-		setStyleValue(node, Property::FlexBasis, kUnset, source);  // numeric `flex: N` has no explicit basis
+		setValidatedStyleValue(node, id, Property::Flex, rawNumber(value), source);
+		setValidatedStyleValue(node, id, Property::FlexShrink, rawNumber(1.0), source);
+		setValidatedStyleValue(node, id, Property::FlexBasis, kUnset, source);  // numeric `flex: N` has no explicit basis
 		return true;
 	case CssDeclarationId::Padding:
 		setAllPadding(node, length, source);
 		return true;
 	case CssDeclarationId::PaddingTop:
-		setStyleValue(node, Property::PaddingTop, length, source);
+		setValidatedStyleValue(node, id, Property::PaddingTop, length, source);
 		return true;
 	case CssDeclarationId::PaddingRight:
-		setStyleValue(node, Property::PaddingRight, length, source);
+		setValidatedStyleValue(node, id, Property::PaddingRight, length, source);
 		return true;
 	case CssDeclarationId::PaddingBottom:
-		setStyleValue(node, Property::PaddingBottom, length, source);
+		setValidatedStyleValue(node, id, Property::PaddingBottom, length, source);
 		return true;
 	case CssDeclarationId::PaddingLeft:
-		setStyleValue(node, Property::PaddingLeft, length, source);
+		setValidatedStyleValue(node, id, Property::PaddingLeft, length, source);
 		return true;
 	case CssDeclarationId::Margin:
 		setAllMargin(node, length, source);
 		return true;
 	case CssDeclarationId::MarginTop:
-		setStyleValue(node, Property::MarginTop, length, source);
+		setValidatedStyleValue(node, id, Property::MarginTop, length, source);
 		return true;
 	case CssDeclarationId::MarginRight:
-		setStyleValue(node, Property::MarginRight, length, source);
+		setValidatedStyleValue(node, id, Property::MarginRight, length, source);
 		return true;
 	case CssDeclarationId::MarginBottom:
-		setStyleValue(node, Property::MarginBottom, length, source);
+		setValidatedStyleValue(node, id, Property::MarginBottom, length, source);
 		return true;
 	case CssDeclarationId::MarginLeft:
-		setStyleValue(node, Property::MarginLeft, length, source);
+		setValidatedStyleValue(node, id, Property::MarginLeft, length, source);
 		return true;
 	case CssDeclarationId::Top:
-		setStyleValue(node, Property::Top, length, source);
+		setValidatedStyleValue(node, id, Property::Top, length, source);
 		return true;
 	case CssDeclarationId::Right:
-		setStyleValue(node, Property::Right, length, source);
+		setValidatedStyleValue(node, id, Property::Right, length, source);
 		return true;
 	case CssDeclarationId::Bottom:
-		setStyleValue(node, Property::Bottom, length, source);
+		setValidatedStyleValue(node, id, Property::Bottom, length, source);
 		return true;
 	case CssDeclarationId::Left:
-		setStyleValue(node, Property::Left, length, source);
+		setValidatedStyleValue(node, id, Property::Left, length, source);
 		return true;
 	case CssDeclarationId::ZIndex:
-		setStyleValue(node, Property::ZIndex, rawNumber(value), source);
+		setValidatedStyleValue(node, id, Property::ZIndex, rawNumber(value), source);
 		return true;
 	case CssDeclarationId::Opacity:
-		setStyleValue(node, Property::Opacity, numericOpacity(value), source);
+		setValidatedStyleValue(node, id, Property::Opacity, numericOpacity(value), source);
 		return true;
 	case CssDeclarationId::BorderWidth:
 		if (value >= 0.0 && std::isfinite(value)) setUniformBorderWidth(node, snapBorderWidth(value), source);
 		return true;
 	case CssDeclarationId::BorderTopWidth:
-		if (value >= 0.0 && std::isfinite(value)) setStyleValue(node, Property::BorderTopWidth, snapBorderWidth(value), source);
+		if (value >= 0.0 && std::isfinite(value)) setValidatedStyleValue(node, id, Property::BorderTopWidth, snapBorderWidth(value), source);
 		return true;
 	case CssDeclarationId::BorderRightWidth:
-		if (value >= 0.0 && std::isfinite(value)) setStyleValue(node, Property::BorderRightWidth, snapBorderWidth(value), source);
+		if (value >= 0.0 && std::isfinite(value)) setValidatedStyleValue(node, id, Property::BorderRightWidth, snapBorderWidth(value), source);
 		return true;
 	case CssDeclarationId::BorderBottomWidth:
-		if (value >= 0.0 && std::isfinite(value)) setStyleValue(node, Property::BorderBottomWidth, snapBorderWidth(value), source);
+		if (value >= 0.0 && std::isfinite(value)) setValidatedStyleValue(node, id, Property::BorderBottomWidth, snapBorderWidth(value), source);
 		return true;
 	case CssDeclarationId::BorderLeftWidth:
-		if (value >= 0.0 && std::isfinite(value)) setStyleValue(node, Property::BorderLeftWidth, snapBorderWidth(value), source);
+		if (value >= 0.0 && std::isfinite(value)) setValidatedStyleValue(node, id, Property::BorderLeftWidth, snapBorderWidth(value), source);
 		return true;
 	case CssDeclarationId::BorderRadius:
 		setAllBorderRadius(node, length, source);
 		return true;
 	case CssDeclarationId::BorderTopLeftRadius:
-		setStyleValue(node, Property::BorderRadiusTopLeft, length, source);
+		setValidatedStyleValue(node, id, Property::BorderRadiusTopLeft, length, source);
 		return true;
 	case CssDeclarationId::BorderTopRightRadius:
-		setStyleValue(node, Property::BorderRadiusTopRight, length, source);
+		setValidatedStyleValue(node, id, Property::BorderRadiusTopRight, length, source);
 		return true;
 	case CssDeclarationId::BorderBottomRightRadius:
-		setStyleValue(node, Property::BorderRadiusBottomRight, length, source);
+		setValidatedStyleValue(node, id, Property::BorderRadiusBottomRight, length, source);
 		return true;
 	case CssDeclarationId::BorderBottomLeftRadius:
-		setStyleValue(node, Property::BorderRadiusBottomLeft, length, source);
+		setValidatedStyleValue(node, id, Property::BorderRadiusBottomLeft, length, source);
 		return true;
 	case CssDeclarationId::FontSize:
-		setStyleValue(node, Property::FontSize, length, source);
+		setValidatedStyleValue(node, id, Property::FontSize, length, source);
 		return true;
 #if GEA_CSS_FONT_STRETCH
 	case CssDeclarationId::FontStretch:
 		if (!std::isfinite(value) || value <= 0) return false;
-		setStyleValue(node, Property::FontStretch, std::clamp(roundToInt(std::clamp(value, 0.1, 3276.7) * 10), 1, 32767), source);
+		setValidatedStyleValue(node, id, Property::FontStretch, std::clamp(roundToInt(std::clamp(value, 0.1, 3276.7) * 10), 1, 32767), source);
 		return true;
 #endif
 	case CssDeclarationId::FontWeight:
-		setStyleValue(node, Property::FontWeight, std::clamp(roundToInt(value), 1, 1000), source);
+		setValidatedStyleValue(node, id, Property::FontWeight, std::clamp(roundToInt(value), 1, 1000), source);
 		return true;
 	case CssDeclarationId::LineHeight: {
 		const float multiplier = static_cast<float>(value);
 		if (!std::isfinite(multiplier) || multiplier < 0) return false;
 		int bits = 0; if (multiplier != 0) std::memcpy(&bits, &multiplier, sizeof(bits));
-		setStyleValue(node, Property::LineHeightMultiplier, bits, source);
+		setValidatedStyleValue(node, id, Property::LineHeightMultiplier, bits, source);
 		return true;
 	}
 #if GEA_CSS_TRANSFORMS
 	case CssDeclarationId::Transform:
-		setStyleValue(node, Property::TransformPresent, 1, source);
-		setStyleValue(node, Property::TransformRotate, numericRotateTenths(value), source);
+		setValidatedStyleValue(node, id, Property::TransformPresent, 1, source);
+		setValidatedStyleValue(node, id, Property::TransformRotate, numericRotateTenths(value), source);
 		return true;
 	case CssDeclarationId::Rotate: {
 		IndividualRotation rotation; rotation.angle = numericRotateTenths(value);
@@ -9589,9 +9618,10 @@ bool applyNumberDeclarationWithSource(NodeHandle node,
 	}
 }
 
-bool applyNumberPropertyWithSource(NodeHandle node, const char *property, double value, StyleApplicationSource source)
+bool applyNumberPropertyWithSource(const NodeHandle &node, const char *property, double value, StyleApplicationSource source)
 {
-	if (!node || !property) return false;
+	// applyNumberDeclarationWithSource validates the node first.
+	if (!property) return false;
 	return applyNumberDeclarationWithSource(node, classifyDeclaration(property), value, source);
 }
 
@@ -18545,12 +18575,12 @@ bool StyleSheet::applyPixelLengthProperty(NodeHandle node, StyleDeclaration decl
 	return false;
 }
 
-bool StyleSheet::applyNumberProperty(NodeHandle node, const char *property, double value) const
+bool StyleSheet::applyNumberProperty(const NodeHandle &node, const char *property, double value) const
 {
 	return applyNumberPropertyWithSource(node, property, value, StyleApplicationSource::Inline);
 }
 
-bool StyleSheet::applyNumberProperty(NodeHandle node, StyleDeclaration declaration, double value) const
+bool StyleSheet::applyNumberProperty(const NodeHandle &node, StyleDeclaration declaration, double value) const
 {
 	return applyNumberDeclarationWithSource(node, declaration, value, StyleApplicationSource::Inline);
 }
@@ -18625,9 +18655,15 @@ void Tree::setClassName(int node, const char *className)
 // growth, so tagFromId can hand out c_str() pointers that stay valid. Index 0
 // is the empty tag, matching Node::tag_id's zero default.
 namespace {
+// tagFromId runs for every node on every frame. Without hardware atomics
+// (ESP32-S3) a guarded function-local static takes an RTOS mutex on each
+// access, so later calls read the table through an acquire-loaded pointer.
 std::deque<std::string> &tagTable()
 {
+	static std::atomic<std::deque<std::string> *> ready{nullptr};
+	if (auto *table = ready.load(std::memory_order_acquire)) return *table;
 	static std::deque<std::string> table = {std::string()};
+	ready.store(&table, std::memory_order_release);
 	return table;
 }
 }  // namespace

@@ -356,6 +356,7 @@ class Style {
 public:
 	explicit Style(int nodeId = -1)
 	  : nodeId_(nodeId), identity_(gea::framework::identity::node(nodeId)) {}
+	Style(int nodeId, gea::framework::identity::Owner owner) : nodeId_(nodeId), identity_(std::move(owner)) {}
 
 	int nodeId() const { return gea::framework::identity::current(nodeId_, identity_) ? nodeId_ : -1; }
 	void set(Property property, int value) const;
@@ -864,8 +865,8 @@ public:
 		void applyProperty(NodeHandle node, const std::string &property, const std::string &value) const;
 		// Preserve CSS px units through device scaling before property-specific rounding.
 		bool applyPixelLengthProperty(NodeHandle node, StyleDeclaration declaration, double value) const;
-		bool applyNumberProperty(NodeHandle node, StyleDeclaration declaration, double value) const;
-		bool applyNumberProperty(NodeHandle node, const char *property, double value) const;
+		bool applyNumberProperty(const NodeHandle &node, StyleDeclaration declaration, double value) const;
+		bool applyNumberProperty(const NodeHandle &node, const char *property, double value) const;
 		bool removeProperty(NodeHandle node, const std::string &property) const;
 	void recomputeSubtree(int nodeId) const;
 	void hoverChanged() const;

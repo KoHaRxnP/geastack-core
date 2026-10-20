@@ -2,8 +2,12 @@ import ts from 'typescript'
 
 export const nodeAnalysisVersion = 'node-analysis-v1'
 export const nodeFeatures = ['node-images', 'node-inputs'] as const
+// Separate marker: an analyzer without it never reports node-videos, and its
+// absence must not let a newer CLI drop the video host from the firmware.
+export const videoNodeAnalysisVersion = 'node-video-analysis-v1'
 export function addUnknownNodeFeatures(features: Set<string>): void {
   for (const feature of nodeFeatures) features.add(feature)
+  features.add('node-videos')
 }
 
 // Native node payloads are selected from the whole discovered source graph.
@@ -16,6 +20,7 @@ export function addNodeFeatures(file: string, text: string, features: Set<string
   const name = (value: string): void => {
     if (/^(?:img|image)$/i.test(value) || /^(?:ImageElement|HTMLImageElement|createImage|loadImage)$/.test(value)) features.add('node-images')
     if (/^(?:input|textarea|select|contenteditable)$/i.test(value) || /^(?:TextInput|InputElement|TextInputElement|HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement|VirtualKeyboard|createInput|createTextInput)$/.test(value)) features.add('node-inputs')
+    if (/^video$/i.test(value) || /^(?:VideoElement|HTMLVideoElement|createVideo)$/.test(value)) features.add('node-videos')
   }
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node)) {
@@ -29,7 +34,7 @@ export function addNodeFeatures(file: string, text: string, features: Set<string
       name(node.text)
       if (/^(?:createElement|createElementNS)$/.test(node.text) &&
           !ts.isElementAccessExpression(node.parent)) unknown()
-      if (/<(?:img|image|input|textarea|select)\b/i.test(node.text)) unknown()
+      if (/<(?:img|image|input|textarea|select|video)\b/i.test(node.text)) unknown()
     }
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) name(node.tagName.getText(source).split(':').at(-1)!)
     // Display controls the panel/canvas; importing it cannot create native

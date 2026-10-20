@@ -7,6 +7,7 @@
 #include "gea/embedded.h"
 #include "host/backends.h"
 #include "host/worker.h"
+#include "ui/node_features.h"
 #include "ui/style.h"
 #include "ui/tree_internal.h"  // Tree::mount for the post-mount clean repaint in init()
 
@@ -325,10 +326,12 @@ void Application::frame(int timestampMs)
 #else
 	gea::host::workers::Context::runMainPending();
 #endif
+#if !defined(GEA_UI_VIDEO_NODES) || GEA_UI_VIDEO_NODES
 	applicationFramePhaseSet(ApplicationFramePhase::VideoPresentation);
 	startUs = phaseClockUs();
 	gea::host::video::presentFrames();
 	recordFramePhase(ApplicationFramePhase::VideoPresentation, phaseClockUs() - startUs);
+#endif
 #if !defined(GEA_EMBEDDED_NETWORK_SERVICES_DISABLED) || !GEA_EMBEDDED_NETWORK_SERVICES_DISABLED
 	applicationFramePhaseSet(ApplicationFramePhase::HttpRequests);
 	startUs = phaseClockUs();

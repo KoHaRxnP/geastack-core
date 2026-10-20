@@ -8,6 +8,10 @@
 #ifndef GEA_UI_INPUT_NODES
 #define GEA_UI_INPUT_NODES 1
 #endif
+// Without a <video> node the build omits the video host and its frame phase.
+#ifndef GEA_UI_VIDEO_NODES
+#define GEA_UI_VIDEO_NODES 1
+#endif
 
 // Generated from the whole-source class-token bound. Unknown programs retain
 // four inline entries. Overflow support is independent of this capacity.
