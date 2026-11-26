@@ -7,6 +7,46 @@ native backend that renders it.
 npm install @geastack/elements
 ```
 
+## Checkbox
+
+`Checkbox` is exported from `@geastack/elements`. Its `checked` value is
+controlled by the caller; `onChange(nextChecked)` reports the value to render
+next. Activating an indeterminate checkbox requests `true`. A disabled
+checkbox ignores activation and does not call any interaction callback.
+
+The visible `label` is required and must not be empty. `class` accepts the
+framework's `ClassValue`, and `style` overrides the default row styling.
+`onPress` and `onClick` are callbacks invoked from the same native click path;
+only one native click listener is registered, so a touch-generated click does
+not invoke them twice. The current native view layer has no accessibility or
+keyboard-focus implementation for a composite `div`, so keyboard activation
+and native assistive-technology semantics are not currently provided.
+
+A minimal controlled example:
+
+```tsx
+import { Component, Store } from '@geastack/core'
+import { Checkbox } from '@geastack/elements'
+
+class Settings extends Store {
+  enabled = false
+  setEnabled(value: boolean) { this.enabled = value }
+}
+const settings = new Settings()
+
+export class CheckboxExample extends Component {
+  template() {
+    return (
+      <Checkbox
+        label="Enable notifications"
+        checked={settings.enabled}
+        onChange={(value) => settings.setEnabled(value)}
+      />
+    )
+  }
+}
+```
+
 - `VirtualList`: a windowed list that materializes only the visible rows from
   an item template.
 - `CameraView`: a live camera preview bound to the host camera service. The
